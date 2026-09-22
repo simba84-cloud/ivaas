@@ -115,6 +115,13 @@ at the bay at 04:48?"). Needs evidence-clip capture first (gap 8).
 - **Pipeline delivery** is spooled to disk before each POST and removed after the API
   acknowledges: an outage or an edge-node reboot loses no counts, and order is preserved.
 
+Verified on the real stack (2026-09-22): Keycloak login via the portal (PKCE), the API
+validating Keycloak's RS256 tokens, sessions persisted in Postgres, camera credentials
+encrypted in the row and provisioned on MediaMTX, every event in NATS JetStream in
+order, role/key refusals. Two bugs surfaced only there: Keycloak publishes an
+RSA-OAEP *encryption* key in its JWKS (now skipped), and Keycloak 26 refuses users
+without an email (realm users now have one).
+
 Not done: rate limiting, audit log of who reconciled what, token refresh in the portal
 (an expired token sends the user back to login), HTTPS termination (put Caddy or Traefik
 in front for the POC network).

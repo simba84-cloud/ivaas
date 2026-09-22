@@ -31,7 +31,7 @@ Full stack (needs one secret for credential encryption):
 
 ```bash
 export IVAAS_SECRETS_KEY=$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
-docker compose up -d --build                  # portal http://localhost:8080
+docker compose up -d --build                  # portal http://localhost:8080 (IVAAS_PORTAL_PORT to change)
 docker compose --profile edge up pipeline     # on the GPU edge node; needs models/ + config
 ```
 

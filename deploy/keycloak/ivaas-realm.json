@@ -16,8 +16,8 @@
       "publicClient": true,
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
-      "redirectUris": ["http://localhost:8080/*", "http://localhost:5173/*"],
-      "webOrigins": ["http://localhost:8080", "http://localhost:5173"],
+      "redirectUris": ["http://localhost:8080/*", "http://localhost:8088/*", "http://localhost:5173/*"],
+      "webOrigins": ["http://localhost:8080", "http://localhost:8088", "http://localhost:5173"],
       "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "+"},
       "protocolMappers": [
         {
@@ -38,6 +38,8 @@
   "users": [
     {
       "username": "admin",
+      "email": "admin@ivaas.local",
+      "emailVerified": true,
       "enabled": true,
       "firstName": "Site",
       "lastName": "Admin",
@@ -46,6 +48,8 @@
     },
     {
       "username": "operator",
+      "email": "operator@ivaas.local",
+      "emailVerified": true,
       "enabled": true,
       "firstName": "Bay",
       "lastName": "Operator",

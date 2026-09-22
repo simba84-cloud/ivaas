@@ -62,6 +62,20 @@ class LocalTokenVerifier:
         return _principal(claims)
 
 
+def _signing_keys(jwks: list[dict]) -> dict[str, jwt.PyJWK]:
+    """Keycloak (and others) publish encryption keys ('use': 'enc', RSA-OAEP) alongside
+    signing keys; PyJWT cannot build those and must not take the rest down with them."""
+    out: dict[str, jwt.PyJWK] = {}
+    for k in jwks:
+        if "kid" not in k or k.get("use", "sig") != "sig":
+            continue
+        try:
+            out[k["kid"]] = jwt.PyJWK(k)
+        except jwt.PyJWKError:
+            continue  # an algorithm we do not verify with; harmless to ignore
+    return out
+
+
 class OidcTokenVerifier:
     def __init__(
         self,
@@ -95,7 +109,7 @@ class OidcTokenVerifier:
                 keys = (await self._client.get(conf["jwks_uri"])).raise_for_status().json()
             except (httpx.HTTPError, KeyError, ValueError) as exc:
                 raise AuthError(f"identity provider unavailable: {type(exc).__name__}") from exc
-            self._jwks = {k["kid"]: jwt.PyJWK(k) for k in keys.get("keys", []) if "kid" in k}
+            self._jwks = _signing_keys(keys.get("keys", []))
             self._fetched_at = time.time()
 
     async def verify(self, token: str) -> Principal:

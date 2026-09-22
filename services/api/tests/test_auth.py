@@ -118,6 +118,11 @@ async def test_oidc_verifier_validates_rs256_and_handles_key_rotation():
             jwt.algorithms.RSAAlgorithm.to_jwk(keys[k].public_key(), as_dict=True) | {"kid": k}
             for k in published
         ]
+        # what Keycloak really publishes: an RSA-OAEP *encryption* key next to the signing keys
+        jwks.append(
+            jwt.algorithms.RSAAlgorithm.to_jwk(keys["k1"].public_key(), as_dict=True)
+            | {"kid": "enc-1", "use": "enc", "alg": "RSA-OAEP"}
+        )
         return httpx.Response(200, json={"keys": jwks})
 
     def mint(kid, **extra):
