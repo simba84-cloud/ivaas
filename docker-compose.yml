@@ -1,0 +1,136 @@
+# IVaaS platform: fully open-source stack.
+#   docker compose up -d --build        -> portal on http://localhost:8080
+name: ivaas
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: ivaas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ivaas}
+      POSTGRES_DB: ivaas
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ivaas"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  nats:
+    image: nats:2-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    volumes: [natsdata:/data]
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-ivaas}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-ivaas-secret}
+    volumes: [miniodata:/data]
+    ports: ["9001:9001"]
+    restart: unless-stopped
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    volumes: [./deploy/mediamtx/mediamtx.yml:/mediamtx.yml:ro]
+    ports:
+      - "8554:8554" # RTSP in/out
+      - "8889:8889" # WebRTC (WHEP) players used by the portal
+      - "8189:8189/udp"
+    restart: unless-stopped
+
+  api:
+    build: ./services/api
+    environment:
+      IVAAS_STORAGE: postgres
+      IVAAS_DATABASE_URL: postgresql+asyncpg://ivaas:${POSTGRES_PASSWORD:-ivaas}@postgres:5432/ivaas
+      IVAAS_EVENTS: nats
+      IVAAS_SECRETS_KEYS: '["${IVAAS_SECRETS_KEY:?generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"}"]'
+      IVAAS_NATS_URL: nats://nats:4222
+      IVAAS_MEDIAMTX_API_URL: http://mediamtx:9997
+      IVAAS_LLM_URL: http://ollama:11434
+      IVAAS_AUTH_MODE: oidc
+      # the browser and the API must agree on the issuer string, so use the host-visible URL
+      IVAAS_OIDC_ISSUER: http://localhost:8180/realms/ivaas
+      IVAAS_OIDC_AUDIENCE: ivaas-portal
+      IVAAS_SERVICE_API_KEYS: '{"${IVAAS_PIPELINE_KEY:-change-me-pipeline-key}": "pipeline"}'
+      IVAAS_LLM_MODEL: ${IVAAS_LLM_MODEL:-qwen3:8b}
+      IVAAS_CORS_ORIGINS: '["http://localhost:8080"]'
+    depends_on:
+      postgres: { condition: service_healthy }
+      nats: { condition: service_started }
+      mediamtx: { condition: service_started }
+      keycloak: { condition: service_healthy }
+    ports: ["8000:8000"]
+    extra_hosts: ["localhost:host-gateway"]  # so the API can reach the issuer at localhost:8180
+    restart: unless-stopped
+
+  # Identity provider (Apache-2.0). Realm 'ivaas' with roles viewer/operator/admin and two
+  # demo users (admin/admin, operator/operator; both must change password on first login).
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm", "--http-port=8180", "--health-enabled=true"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    volumes: [./deploy/keycloak/ivaas-realm.json:/opt/keycloak/data/import/ivaas-realm.json:ro]
+    ports: ["8180:8180"]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\n\r\n' >&3 && grep -q UP <&3"]
+      interval: 10s
+      retries: 30
+    restart: unless-stopped
+
+  # Open-weights LLM for the analysis assistant. First run:
+  #   docker compose exec ollama ollama pull qwen3:8b
+  # On the NVIDIA edge node add `deploy.resources.reservations.devices` for GPU; for many
+  # concurrent users swap this for vLLM (same API, so only IVAAS_LLM_URL changes).
+  ollama:
+    image: ollama/ollama:latest
+    volumes: [ollamadata:/root/.ollama]
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    depends_on: [api]
+    ports: ["8080:80"]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes: [./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro]
+    ports: ["9090:9090"]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    volumes: [grafanadata:/var/lib/grafana]
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+    restart: unless-stopped
+
+  # The AI pipeline runs on the GPU edge node, not in this compose file's
+  # default profile:  docker compose --profile edge up pipeline
+  pipeline:
+    profiles: [edge]
+    build: ./services/pipeline
+    environment:
+      IVAAS_API_URL: http://api:8000
+      IVAAS_API_KEY: ${IVAAS_PIPELINE_KEY:-change-me-pipeline-key}
+    volumes:
+      - ./models:/models:ro
+      - pipelinespool:/var/lib/ivaas
+    depends_on: [api, mediamtx]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  natsdata:
+  miniodata:
+  grafanadata:
+  ollamadata:
+  pipelinespool:

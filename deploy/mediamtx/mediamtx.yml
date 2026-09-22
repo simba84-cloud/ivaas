@@ -1,0 +1,29 @@
+# MediaMTX restreams NVR/camera RTSP to the portal (WebRTC) and the pipeline (RTSP).
+# Replace the `source` URLs with the real camera or NVR channel URLs on site, e.g.
+#   source: rtsp://user:pass@192.168.1.10:554/Streaming/Channels/101
+# Control API: the core API adds/removes camera paths here at runtime. Reachable only
+# on the compose network (the port is deliberately not published in docker-compose.yml).
+api: yes
+apiAddress: :9997
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+      - action: read
+      - action: playback
+      - action: api
+
+webrtc: yes
+webrtcAddress: :8889
+rtspAddress: :8554
+hls: no
+rtmp: no
+srt: no
+
+paths:
+  # Accepts any publisher under bay-poc/*, so recorded footage can be replayed with:
+  #   ffmpeg -re -stream_loop -1 -i clip.mp4 -c copy -f rtsp rtsp://localhost:8554/bay-poc/chokepoint-1
+  "~^bay-poc/.+$":
+    source: publisher

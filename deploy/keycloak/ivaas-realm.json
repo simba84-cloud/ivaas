@@ -1,0 +1,56 @@
+{
+  "realm": "ivaas",
+  "enabled": true,
+  "displayName": "IVaaS",
+  "roles": {
+    "realm": [
+      {"name": "viewer", "description": "Dashboards, live view, assistant"},
+      {"name": "operator", "description": "Open/close/reconcile truck sessions"},
+      {"name": "admin", "description": "Camera and site administration"}
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "ivaas-portal",
+      "name": "IVaaS Portal",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:8080/*", "http://localhost:5173/*"],
+      "webOrigins": ["http://localhost:8080", "http://localhost:5173"],
+      "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "+"},
+      "protocolMappers": [
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {"included.client.audience": "ivaas-portal", "access.token.claim": "true"}
+        },
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {"claim.name": "roles", "multivalued": "true", "access.token.claim": "true", "jsonType.label": "String"}
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "firstName": "Site",
+      "lastName": "Admin",
+      "credentials": [{"type": "password", "value": "admin", "temporary": true}],
+      "realmRoles": ["admin", "operator", "viewer"]
+    },
+    {
+      "username": "operator",
+      "enabled": true,
+      "firstName": "Bay",
+      "lastName": "Operator",
+      "credentials": [{"type": "password", "value": "operator", "temporary": true}],
+      "realmRoles": ["operator", "viewer"]
+    }
+  ]
+}

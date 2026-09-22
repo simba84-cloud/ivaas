@@ -1,0 +1,216 @@
+"""Composition root: the only place that knows which concrete adapter backs
+which port. Swapping Postgres for another store, or NATS for Kafka, is a
+change here and nowhere else (dependency inversion).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+from uuid import NAMESPACE_DNS, uuid5
+
+from ivaas.adapters.auth.jwt_verifiers import (
+    ApiKeyVerifier,
+    LocalTokenVerifier,
+    OidcTokenVerifier,
+)
+from ivaas.adapters.messaging.fanout import FanoutEventPublisher, WebSocketHub
+from ivaas.adapters.persistence.memory import (
+    InMemoryBayRepository,
+    InMemoryCameraRepository,
+    InMemoryEventPublisher,
+    InMemorySessionRepository,
+    SystemClock,
+)
+from ivaas.adapters.streaming.mediamtx import MediaMtxGateway, NullStreamGateway
+from ivaas.adapters.streaming.onvif import OnvifDiscovery
+from ivaas.application.analytics import AnalyticsTools
+from ivaas.application.assistant import AskAssistant
+from ivaas.application.cameras import RegisterCamera, RemoveCamera
+from ivaas.application.sessions import (
+    CloseSession,
+    OpenSession,
+    ReconcileSession,
+    RecordCrateCrossing,
+    RecordPlateRead,
+)
+from ivaas.config.settings import Settings
+from ivaas.domain.models import Bay, Camera, CameraRole, SessionDirection, Site
+from ivaas.ports.assistant import ChatModel
+from ivaas.ports.auth import TokenVerifier
+from ivaas.ports.repositories import Clock, EventPublisher
+from ivaas.ports.streaming import CameraDiscovery, StreamGateway
+
+# Camera array from section 4.1 of the POC scope: 16 volumetric + 1 LPR.
+POC_CAMERA_LAYOUT: list[tuple[CameraRole, int]] = [
+    (CameraRole.OVERHEAD, 4),
+    (CameraRole.SIDE_HIGH, 4),
+    (CameraRole.SIDE_MID, 4),
+    (CameraRole.SIDE_LOW, 2),
+    (CameraRole.CHOKEPOINT, 2),
+    (CameraRole.LPR, 1),
+]
+
+
+def _stable_id(name: str) -> Any:
+    return uuid5(NAMESPACE_DNS, f"ivaas.{name}")
+
+
+def demo_topology() -> tuple[Site, Bay, list[Camera]]:
+    site = Site(id=_stable_id("site.demo-bakery"), name="Demo Bakery Industrial Site")
+    bay = Bay(id=_stable_id("bay.poc"), site_id=site.id, name="POC Loading Bay")
+    cameras = [
+        Camera(
+            id=_stable_id(f"cam.{role.value}.{n}"),
+            bay_id=bay.id,
+            name=f"{role.value.replace('_', ' ').title()} {n}",
+            role=role,
+            stream_path=f"bay-poc/{role.value}-{n}",
+        )
+        for role, qty in POC_CAMERA_LAYOUT
+        for n in range(1, qty + 1)
+    ]
+    return site, bay, cameras
+
+
+@dataclass
+class Container:
+    settings: Settings
+    bays: Any
+    cameras: Any
+    sessions: Any
+    events: EventPublisher
+    hub: WebSocketHub
+    clock: Clock
+    gateway: StreamGateway
+    discovery: CameraDiscovery
+    chat_model: ChatModel | None
+    verifiers: dict[str, TokenVerifier]
+    local_auth: LocalTokenVerifier | None
+    _closers: list[Any]
+
+    # use cases -----------------------------------------------------------
+    @property
+    def open_session(self) -> OpenSession:
+        return OpenSession(self.bays, self.sessions, self.events, self.clock)
+
+    @property
+    def close_session(self) -> CloseSession:
+        return CloseSession(self.sessions, self.events, self.clock)
+
+    @property
+    def reconcile_session(self) -> ReconcileSession:
+        return ReconcileSession(self.sessions, self.events, self.settings.reconcile_tolerance)
+
+    @property
+    def record_crossing(self) -> RecordCrateCrossing:
+        return RecordCrateCrossing(self.sessions, self.events)
+
+    @property
+    def record_plate(self) -> RecordPlateRead:
+        direction = self.settings.auto_open_direction
+        return RecordPlateRead(
+            self.sessions,
+            self.events,
+            auto_open=self.open_session if direction else None,
+            auto_open_direction=SessionDirection(direction or "loading"),
+        )
+
+    @property
+    def register_camera(self) -> RegisterCamera:
+        return RegisterCamera(self.bays, self.cameras, self.gateway, self.events)
+
+    @property
+    def remove_camera(self) -> RemoveCamera:
+        return RemoveCamera(self.cameras, self.gateway, self.events)
+
+    @property
+    def ask_assistant(self) -> AskAssistant | None:
+        if self.chat_model is None:
+            return None
+        tools = AnalyticsTools(self.sessions, self.cameras, self.bays, self.clock)
+        return AskAssistant(self.chat_model, tools, self.clock)
+
+    async def aclose(self) -> None:
+        for closer in self._closers:
+            await closer()
+
+
+async def build_container(settings: Settings) -> Container:
+    closers: list[Any] = []
+    hub = WebSocketHub()
+    sinks: list[EventPublisher] = [hub]
+
+    if settings.events == "nats":
+        from ivaas.adapters.messaging.nats_publisher import NatsEventPublisher
+
+        nats = NatsEventPublisher(settings.nats_url)
+        await nats.connect()
+        closers.append(nats.close)
+        sinks.append(nats)
+    else:
+        sinks.append(InMemoryEventPublisher())
+
+    _, bay, cams = demo_topology()
+    if settings.storage == "postgres":
+        from ivaas.adapters.persistence.postgres import build_postgres_repositories
+        from ivaas.adapters.persistence.secrets import SecretBox
+
+        if not settings.secrets_keys:
+            raise RuntimeError(
+                "IVAAS_SECRETS_KEYS is required with postgres storage: camera credentials "
+                "are encrypted at rest (see Settings.secrets_keys for how to generate one)"
+            )
+        bays, cameras, sessions, dispose = await build_postgres_repositories(
+            settings.database_url,
+            seed=(bay, cams) if settings.seed_demo_data else None,
+            box=SecretBox(settings.secrets_keys),
+        )
+        closers.append(dispose)
+    else:
+        seed = settings.seed_demo_data
+        bays = InMemoryBayRepository([bay] if seed else [])
+        cameras = InMemoryCameraRepository(cams if seed else [])
+        sessions = InMemorySessionRepository()
+
+    gateway: StreamGateway
+    if settings.mediamtx_api_url:
+        mtx = MediaMtxGateway(settings.mediamtx_api_url)
+        closers.append(mtx.aclose)
+        gateway = mtx
+    else:
+        gateway = NullStreamGateway()
+
+    chat_model: ChatModel | None = None
+    if settings.llm_url:
+        from ivaas.adapters.llm.openai_compatible import OpenAiCompatibleChatModel
+
+        llm = OpenAiCompatibleChatModel(settings.llm_url, settings.llm_model, settings.llm_api_key)
+        closers.append(llm.aclose)
+        chat_model = llm
+
+    verifiers: dict[str, TokenVerifier] = {"api_key": ApiKeyVerifier(settings.service_api_keys)}
+    local_auth: LocalTokenVerifier | None = None
+    if settings.auth_mode == "local":
+        local_auth = LocalTokenVerifier(settings.auth_local_secret)
+        verifiers["user"] = local_auth
+    else:
+        oidc = OidcTokenVerifier(settings.oidc_issuer, settings.oidc_audience)
+        closers.append(oidc.aclose)
+        verifiers["user"] = oidc
+
+    return Container(
+        settings=settings,
+        bays=bays,
+        cameras=cameras,
+        sessions=sessions,
+        events=FanoutEventPublisher(sinks),
+        hub=hub,
+        clock=SystemClock(),
+        gateway=gateway,
+        discovery=OnvifDiscovery(),
+        chat_model=chat_model,
+        verifiers=verifiers,
+        local_auth=local_auth,
+        _closers=closers,
+    )

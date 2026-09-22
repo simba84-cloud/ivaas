@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+models/*.onnx
+.DS_Store
+models/*.onnx
+models/*.json
