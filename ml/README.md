@@ -174,6 +174,26 @@ the priors makes it lock onto the crate lattice (19-20 for 8). The plan's fallba
 small learned counter on stack crops, is now the recommended path; it needs ~200 crops
 with a layer count typed in (fast labelling, no boxes).
 
+## Layer counter labelling (set up 2026-09-22)
+
+Label Studio project **"Stack layer counts"** (http://localhost:8090/projects/4): 185 stack
+crops cut by stacks-v2 from all clips, near-duplicates removed. One number per crop.
+Rules are in the task header: count the layers; 0 if it is not a single column; skip if
+you cannot tell. Then:
+
+```bash
+uv run --extra train python -m ivaas_ml.layers train data/crop_export.json data/crops runs/layers-v1
+uv run --extra train python -m ivaas_ml.layers export runs/layers-v1/best.pt ../models/layers-v1.onnx
+```
+
+The pipeline adapter `adapters/onnx_layers.py` consumes the ONNX file behind the same
+`LayerCounter` port as the periodicity counter. Validation is by held-out clip; the
+number that matters is *within ±1 crate*.
+
+Known: the first crop extraction truncated clip names to 12 chars, so `CC 2_12` and
+`CC 2_127` collided and ~170 crops were overwritten. 185 unique survived. Fixed in the
+extraction naming; re-run to get more.
+
 ## Tests
 
 ```bash
