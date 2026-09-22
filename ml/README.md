@@ -227,6 +227,21 @@ balance or reweight the label distribution, and use a classification head over
 {0..20} with an ordinal loss instead of plain regression. Neither is done yet. Door
 stacks (4-10 high), which are what the loading count actually uses, are near-exact.
 
+### layers-v3: ordinal head (2026-09-22)
+
+Same data as v2. The regression head was replaced by an **ordinal classification head**
+(K-1 binary logits "more than k layers?", count = 1 + number of yes): a 2-crate miss
+costs two wrong thresholds, so the loss is count-aware without regressing to the mean.
+
+- **MAE 1.10 (v2: 1.45), 66% within ±1 (v2: 44%)**, still improving at epoch 80.
+- The bias is gone: true 14 now reads 14 (v2: 12), means on target at every count.
+  Remaining error is scatter on hard mid-range crops (an 8 reading 5 or 12).
+- Loading clip: 7,8,8,8 = 31 for a true 30.
+- Label-balanced sampling was tried first and made things worse (2.04): it oversamples
+  the one-off labels into noise. Left out.
+
+`models/layers-v3.onnx` outputs the count directly, so the pipeline adapter is unchanged.
+
 ## Tests
 
 ```bash

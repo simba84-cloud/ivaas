@@ -96,13 +96,59 @@ def split_by_clip(
 # --- training ------------------------------------------------------------------
 
 
+_heads: dict = {}
+
+
+def _ordinal_classes():
+    """Built lazily so the CLI does not import torch just to write a task file."""
+    if _heads:
+        return _heads["Ordinal"], _heads["CountHead"]
+    import torch
+
+    class _CountHead(torch.nn.Module):
+        """Export wrapper: logits -> count, so the ONNX file outputs a number like before."""
+
+        def __init__(self, model):
+            super().__init__()
+            self.model = model
+
+        def forward(self, x):
+            return _Ordinal.to_count(self.model(x))
+
+    class _Ordinal(torch.nn.Module):
+        """Wraps a backbone with MAX_LAYERS-1 logits into a count. logits[k] answers
+        "are there more than k+1 layers?"; the count is 1 + the number of yes answers."""
+
+        def __init__(self, backbone):
+            super().__init__()
+            self.backbone = backbone
+
+        def forward(self, x):
+            return self.backbone(x)
+
+        @staticmethod
+        def to_count(logits):
+            return 1.0 + (logits > 0).float().sum(dim=1, keepdim=True)
+
+        @staticmethod
+        def loss(logits, y):
+            k = torch.arange(1, logits.shape[1] + 1, device=logits.device, dtype=y.dtype)
+            target = (y > k).float()  # (batch, K-1)
+            return torch.nn.functional.binary_cross_entropy_with_logits(logits, target)
+
+    _heads["Ordinal"], _heads["CountHead"] = _Ordinal, _CountHead
+    return _Ordinal, _CountHead
+
+
 def _model():
     import torch
     import torchvision
 
+    _Ordinal, _ = _ordinal_classes()
+
     m = torchvision.models.mobilenet_v3_small(weights="IMAGENET1K_V1")
-    m.classifier[-1] = torch.nn.Linear(m.classifier[-1].in_features, 1)
-    return m
+    m.classifier[-1] = torch.nn.Linear(m.classifier[-1].in_features, MAX_LAYERS - 1)
+    return _Ordinal(m)
 
 
 def _load(path: Path, augment: bool):
@@ -167,7 +213,7 @@ def train(
     for epoch in range(1, epochs + 1):
         model.train()
         for x, y in batches(tr, 16, True):
-            loss = torch.nn.functional.smooth_l1_loss(model(x), y)
+            loss = _ordinal_classes()[0].loss(model(x), y)
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -176,7 +222,7 @@ def train(
         errs = []
         with torch.no_grad():
             for x, y in batches(va, 32, False):
-                errs += (model(x) - y).abs().flatten().tolist()
+                errs += (_ordinal_classes()[0].to_count(model(x)) - y).abs().flatten().tolist()
         mae = float(np.mean(errs)) if errs else float("nan")
         within1 = float(np.mean([e <= 1.0 for e in errs])) if errs else float("nan")
         history.append({"epoch": epoch, "val_mae": mae, "val_within_1": within1})
@@ -195,7 +241,7 @@ def export(weights: Path, out: Path) -> dict:
 
     model = _model()
     model.load_state_dict(torch.load(weights, map_location="cpu"))
-    model.eval()
+    model = _ordinal_classes()[1](model).eval()
     w, h = INPUT_SIZE
     dummy = torch.rand(1, 3, h, w)
     with torch.no_grad():
