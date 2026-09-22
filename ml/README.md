@@ -147,6 +147,33 @@ Still unlabelled: the dense CC 3 yard (v1/v2 boxes there wrap 2-3 columns) and ~
 flagged frames in `data/review_todo.json`. Validation is 9 boxes: treat the numbers as
 direction, not measurement.
 
+## First end-to-end run on real footage (2026-09-22)
+
+Clip CC 2_13 (held out from training), 120-230 s, a loading burst of four stacks.
+
+**Stack detection + tracking: works.** Four long-lived tracks, matching the four stacks
+loaded. Detection recall per frame drops when the door or a worker hides the stack, and
+the tracker bridges those gaps (max_missed = 1.5 s).
+
+**Line crossing: does not work on this camera.** CC 2 is mounted *behind* the truck door
+and sees a stack only once it is already inside; the stack appears at the door edge,
+jitters while being positioned, and is set down close by. One stack crossed a line three
+times in two seconds; others never crossed at all. Net count: -19 for a true +4 stacks.
+`stages/presence_counting.py` (count a track after N seconds inside a zone) gives the
+right answer on this clip: 4 stacks, no doubles. The entrypoint now takes a `zone` per
+camera as an alternative to a `line`. A line is still right for a camera that sees the
+stack *pass* a point (a chokepoint camera as in the POC BOM).
+
+**Layer counting (periodicity): not good enough on loaded stacks.** By eye the four
+stacks hold 7, 8, 7, 8 crates. The counter gave 12, unknown, 9, 10 (median over the
+track), i.e. +2 to +5, and refuses on many frames. Two causes: the detector's boxes carry
+a margin of truck wall (it learned from loose pre-labels), and the stacks lean hard away
+from the camera so the layer pitch shrinks towards the top. Tightening the box to
+crate-coloured pixels fixed one stack (8.2 for 7) and did not help the others; loosening
+the priors makes it lock onto the crate lattice (19-20 for 8). The plan's fallback, a
+small learned counter on stack crops, is now the recommended path; it needs ~200 crops
+with a layer count typed in (fast labelling, no boxes).
+
 ## Tests
 
 ```bash

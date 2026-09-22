@@ -9,6 +9,8 @@ Configured by a JSON file (IVAAS_PIPELINE_CONFIG, default /config/pipeline.json)
   "forward_means": "loading",
   "count": "stack",            // "stack": one crossing per stack x its layer count (default)
                                // "crate": one crossing per individually detected crate
+  // per camera, EITHER a line (camera sees the stack pass a point) OR a zone (camera looks
+  // into the truck and sees stacks only once inside): "zone": [x1, y1, x2, y2]
   "cameras": [
     {"key": "chokepoint-1", "api_camera_id": "<uuid>",
      "uri": "rtsp://mediamtx:8554/bay-poc/chokepoint-1",
@@ -39,6 +41,7 @@ from ivaas_pipeline.stages.fusion import TimeWindowFuser
 from ivaas_pipeline.stages.layers import PeriodicityLayerCounter
 from ivaas_pipeline.stages.plates import PlateVoter
 from ivaas_pipeline.stages.preprocess import OpenCvPreprocessor
+from ivaas_pipeline.stages.presence_counting import PresenceZone, StackPresenceCounter
 from ivaas_pipeline.stages.stack_counting import StackCrossingCounter
 from ivaas_pipeline.stages.tracking import IouTracker
 
@@ -71,13 +74,18 @@ def main() -> int:
 
     threads = []
     for cam in cfg["cameras"]:
-        (ax, ay), (bx, by) = cam["line"]
-        line = Line((ax, ay), (bx, by))
-        if cfg.get("count", "stack") == "stack":
-            ratio = tuple(cam.get("pitch_to_width", (0.12, 0.45)))  # per-camera calibration
-            counter = StackCrossingCounter(line, PeriodicityLayerCounter(pitch_to_width=ratio))
+        ratio = tuple(cam.get("pitch_to_width", (0.12, 0.45)))  # per-camera calibration
+        if "zone" in cam:
+            counter = StackPresenceCounter(
+                PresenceZone(*cam["zone"]), PeriodicityLayerCounter(pitch_to_width=ratio)
+            )
         else:
-            counter = LineCrossingCounter(line)
+            (ax, ay), (bx, by) = cam["line"]
+            line = Line((ax, ay), (bx, by))
+            if cfg.get("count", "stack") == "stack":
+                counter = StackCrossingCounter(line, PeriodicityLayerCounter(pitch_to_width=ratio))
+            else:
+                counter = LineCrossingCounter(line)
         pipeline = CameraPipeline(
             source=OpenCvFrameSource(cam["key"], cam["uri"], stride=cam.get("stride", 1)),
             preprocessor=OpenCvPreprocessor(),

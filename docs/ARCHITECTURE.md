@@ -143,6 +143,10 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
   track crosses a line at the truck door, with direction (a crate carried back
   out decrements). This is far more tractable than counting inside an occluded
   4 m stack, and it is the step the scope's Figure 3 actually counts on (stage 5).
+- **Two ways to count a stack, per camera.** A `line` for a camera that sees the stack pass
+  a point; a `zone` for one that looks into the truck and sees stacks only once inside
+  (sustained presence, one count per track). Site footage showed the door camera needs
+  the zone: with a line, one stack counted three times and others never.
 - **The counted object is the stack, not the crate.** Site footage shows crates only ever
   move as tilted stacks of ~13-15 dragged by a worker. Tracking one stack is robust;
   tracking 15 identical crates inside it is not. A crossing therefore carries `crates=N`
