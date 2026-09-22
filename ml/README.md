@@ -210,6 +210,23 @@ Good enough to replace periodicity as the default. Not yet 95%-grade: it needs a
 hundred more counted crops, especially of tall stacks, and re-cutting crops with the
 fixed extractor doubles the pool for free.
 
+### layers-v2 (2026-09-22)
+
+Second crop pass with the fixed extractor: 269 new crops, 212 counted by eye (136 stacks,
+76 zeros), 57 skipped. That also gave an independent score for v1 on stacks it never saw:
+**mean error +0.5, 60% within ±1** on 136 crops. Combined set: 374 labelled, 240 stacks.
+
+v2 trained on 169 / validated on 71 (same three held-out clips): MAE 1.45. On the loading
+clip: **7,8,7,7 = 29 for a true 30** (v1: 28). Larger input and framing/brightness
+augmentation did not help (1.57) and overfit faster.
+
+The error is structural, not data volume: predictions regress toward the middle (true 14
+reads 12-13, true 8 reads 9). 14-stacks are 53% of the training labels because the yard
+holds nothing else, and a regression head learns the mean. Two things would move it:
+balance or reweight the label distribution, and use a classification head over
+{0..20} with an ordinal loss instead of plain regression. Neither is done yet. Door
+stacks (4-10 high), which are what the loading count actually uses, are near-exact.
+
 ## Tests
 
 ```bash

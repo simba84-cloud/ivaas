@@ -26,7 +26,7 @@ LABEL_CONFIG = """<View>
 </View>"""
 
 LOCAL_FILES_PREFIX = "/data/local-files/?d=crops/"
-INPUT_SIZE = (128, 384)  # width, height: stacks are tall and narrow
+INPUT_SIZE = (192, 576)  # width, height: stacks are tall and narrow; 14 layers need ~40 px each
 MAX_LAYERS = 40
 
 
@@ -110,8 +110,14 @@ def _load(path: Path, augment: bool):
     import numpy as np
 
     img = cv2.imread(str(path))
-    if augment and random.random() < 0.5:
-        img = img[:, ::-1]
+    if augment:
+        if random.random() < 0.5:
+            img = img[:, ::-1]
+        h, w = img.shape[:2]  # jitter the framing by up to 6% each side
+        x0, x1 = int(w * random.uniform(0, 0.06)), int(w * random.uniform(0.94, 1))
+        y0, y1 = int(h * random.uniform(0, 0.06)), int(h * random.uniform(0.94, 1))
+        img = img[y0:y1, x0:x1]
+        img = np.clip(img.astype(np.float32) * random.uniform(0.7, 1.3), 0, 255).astype(np.uint8)
     img = cv2.resize(img, INPUT_SIZE, interpolation=cv2.INTER_AREA)
     x = img[:, :, ::-1].astype(np.float32) / 255.0
     x = (x - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]

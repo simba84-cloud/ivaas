@@ -12,6 +12,7 @@ services:
       - lsdata:/label-studio/data
       - ../data/frames:/label-studio/files/frames:ro
       - ../data/crops:/label-studio/files/crops:ro
+      - ../data/crops2:/label-studio/files/crops2:ro
     restart: unless-stopped
 volumes:
   lsdata:
