@@ -127,6 +127,26 @@ is a tiny dataset, and the numbers reflect it:
 It is good enough to **pre-label the remaining 220 frames** (CC 3 yard, CC 4) so the
 next labelling pass is correction, not drawing. It is not good enough to count with.
 
+## Second model: stacks-v2 (2026-09-22)
+
+229 annotated frames after a second review pass (v1 pre-labels accepted where correct,
+v1's false positives - people, cars, crate tops seen from above, single crates - submitted
+as empties). Trained on 40 boxes + 34 empties, validated on two held-out clips (9 boxes).
+
+- **AP50 0.87, precision 1.0 / recall 0.78 at threshold 0.5.**
+- On unseen frames: confident (0.8-0.97) tight boxes on real stacks across CC 2, CC 3
+  and CC 4, and nothing at all on the four frames where v1 boxed people and crate tops.
+- `models/stacks-v2.onnx`. Use it for pre-labelling and for first pipeline runs.
+
+**A lesson worth keeping:** the first v2 attempt trained on all 190 empties and became
+so underconfident that nothing cleared threshold 0.3, despite a *higher* AP50 (0.88).
+The fix was to keep every hard negative but cap easy empties at ~1:1 with positives.
+Do not throw every empty frame at the trainer.
+
+Still unlabelled: the dense CC 3 yard (v1/v2 boxes there wrap 2-3 columns) and ~22
+flagged frames in `data/review_todo.json`. Validation is 9 boxes: treat the numbers as
+direction, not measurement.
+
 ## Tests
 
 ```bash
