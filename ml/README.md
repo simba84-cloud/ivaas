@@ -112,6 +112,21 @@ tilted moving stack invites ID switches. What crosses the truck door is a *stack
 - No stacks in frame = submit empty. CC 1 frames are mostly this; they teach "a truck is
   not a stack", which is exactly the mistake the zero-shot model made.
 
+## First model: stacks-v1 (2026-09-22)
+
+Trained on 115 human-reviewed frames (61 train / 54 val, split so the box-rich CC 2 clip
+trains and the other CC 2 clip validates): 24 training boxes, 8 validation boxes. That
+is a tiny dataset, and the numbers reflect it:
+
+- **AP50 0.71 on the held-out clip**, precision 1.0 / recall 0.25 at threshold 0.5.
+  It rarely fires wrongly but misses stacks; use threshold ~0.3 for pre-labelling.
+- Visually checked on frames from all three cameras: every box on a real stack, including
+  yard columns it had almost no examples of. One false positive on a truck door edge.
+- ONNX at `models/stacks-v1.onnx`, ~180 ms/frame on CPU.
+
+It is good enough to **pre-label the remaining 220 frames** (CC 3 yard, CC 4) so the
+next labelling pass is correction, not drawing. It is not good enough to count with.
+
 ## Tests
 
 ```bash

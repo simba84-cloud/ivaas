@@ -173,10 +173,10 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
 
 ## 6. Known gaps — read before the POC
 
-1. **No trained stack model yet.** The full chain exists and has been exercised end to
-   end (frames -> Label Studio -> dataset -> RT-DETR fine-tune -> verified ONNX ->
-   pipeline adapter). What is missing is the human labelling: ~150 truck-door frames in
-   Label Studio, pre-labelled and waiting. See `ml/README.md`.
+1. **First stack model exists but is weak.** `stacks-v1`: AP50 0.71 on a held-out clip,
+   trained on 24 boxes. Every detection checked was a real stack, but recall is low. It
+   is a pre-labelling tool for the next labelling pass, not a counting model yet. See
+   `ml/README.md`.
 2. **3D volumetric reconstruction is not implemented.** The scope's 14 stack-facing
    cameras are registered and streamable, but only chokepoint counting is built.
    Recommendation: prove the >95% target at the chokepoint first; treat stack
