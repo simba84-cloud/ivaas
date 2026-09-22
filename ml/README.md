@@ -194,6 +194,22 @@ Known: the first crop extraction truncated clip names to 12 chars, so `CC 2_12` 
 `CC 2_127` collided and ~170 crops were overwritten. 185 unique survived. Fixed in the
 extraction naming; re-run to get more.
 
+### layers-v1 result (2026-09-22)
+
+162 crops counted by eye (104 with a stack, 58 marked 0 for two-column / not-a-stack),
+23 skipped as uncountable. Trained on 76, validated on 28 from three held-out clips (one
+per camera type):
+
+- **MAE 1.5 crates**, ~45% within ±1. Baseline of always guessing the mean: MAE 2.9.
+- It is **biased low on tall stacks**: 14-crate yard columns come out 11-14, 16 comes
+  out 12. Short door stacks (6-8) are near-exact.
+- **On the loading clip it counts 7,7,7,7 = 28 for a true 7,8,7,8 = 30** (93%). The
+  periodicity counter gave 12,1,9,10 = 32 (and only summed near truth by luck).
+
+Good enough to replace periodicity as the default. Not yet 95%-grade: it needs a few
+hundred more counted crops, especially of tall stacks, and re-cutting crops with the
+fixed extractor doubles the pool for free.
+
 ## Tests
 
 ```bash

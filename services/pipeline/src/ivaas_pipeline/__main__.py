@@ -5,7 +5,8 @@ Configured by a JSON file (IVAAS_PIPELINE_CONFIG, default /config/pipeline.json)
 {
   "api_url": "http://api:8000",
   "bay_id": "<bay uuid from GET /api/v1/bays>",
-  "model": {"path": "/models/stacks.onnx", "arch": "rtdetr"}   // labels come from stacks.json,
+  "model": {"path": "/models/stacks.onnx", "arch": "rtdetr"},  // labels come from stacks.json
+  "layers_model": "/models/layers.onnx",  // learned layer counter; omit to use periodicity,
   "forward_means": "loading",
   "count": "stack",            // "stack": one crossing per stack x its layer count (default)
                                // "crate": one crossing per individually detected crate
@@ -32,6 +33,7 @@ import threading
 
 from ivaas_pipeline.adapters.delivery import SpooledDelivery
 from ivaas_pipeline.adapters.http_sink import HttpCrossingSink, HttpPlateSink
+from ivaas_pipeline.adapters.onnx_layers import OnnxLayerCounter
 from ivaas_pipeline.adapters.onnx_rtdetr import OnnxRtDetrDetector
 from ivaas_pipeline.adapters.onnx_yolo import OnnxYoloDetector
 from ivaas_pipeline.adapters.opencv_source import OpenCvFrameSource
@@ -74,16 +76,18 @@ def main() -> int:
 
     threads = []
     for cam in cfg["cameras"]:
-        ratio = tuple(cam.get("pitch_to_width", (0.12, 0.45)))  # per-camera calibration
+        if cfg.get("layers_model"):
+            layers = OnnxLayerCounter(cfg["layers_model"])
+        else:
+            ratio = tuple(cam.get("pitch_to_width", (0.12, 0.45)))  # per-camera calibration
+            layers = PeriodicityLayerCounter(pitch_to_width=ratio)
         if "zone" in cam:
-            counter = StackPresenceCounter(
-                PresenceZone(*cam["zone"]), PeriodicityLayerCounter(pitch_to_width=ratio)
-            )
+            counter = StackPresenceCounter(PresenceZone(*cam["zone"]), layers)
         else:
             (ax, ay), (bx, by) = cam["line"]
             line = Line((ax, ay), (bx, by))
             if cfg.get("count", "stack") == "stack":
-                counter = StackCrossingCounter(line, PeriodicityLayerCounter(pitch_to_width=ratio))
+                counter = StackCrossingCounter(line, layers)
             else:
                 counter = LineCrossingCounter(line)
         pipeline = CameraPipeline(

@@ -13,6 +13,7 @@ services/pipeline/.../adapters/onnx_layers.py behind the LayerCounter port.
 from __future__ import annotations
 
 import argparse
+import collections
 import csv
 import json
 import random
@@ -72,14 +73,24 @@ def read_export(export: list[dict]) -> list[dict]:
     return items
 
 
-def split_by_clip(items: list[dict], val_fraction: float = 0.25) -> tuple[list, list]:
-    clips = sorted({i["clip"] for i in items})
-    random.Random(0).shuffle(clips)
-    n_val = max(1, round(len(clips) * val_fraction)) if len(clips) > 1 else 0
-    val_clips = set(clips[:n_val])
-    return [i for i in items if i["clip"] not in val_clips], [
-        i for i in items if i["clip"] in val_clips
-    ]
+def split_by_clip(
+    items: list[dict], val_fraction: float = 0.25, val_clips: set[str] | None = None
+) -> tuple[list, list]:
+    """Hold out whole clips. Pass `val_clips` (prefix match) to choose them explicitly;
+    otherwise take the smallest clips first so the bulk of the data trains."""
+    if val_clips is None:
+        sizes = collections.Counter(i["clip"] for i in items)
+        chosen: set[str] = set()
+        for clip, n in sorted(sizes.items(), key=lambda kv: kv[1]):
+            if sum(sizes[c] for c in chosen) + n > len(items) * val_fraction:
+                break
+            chosen.add(clip)
+        val_clips = chosen
+
+    def is_val(i: dict) -> bool:
+        return any(i["clip"].startswith(v) for v in val_clips)
+
+    return [i for i in items if not is_val(i)], [i for i in items if is_val(i)]
 
 
 # --- training ------------------------------------------------------------------
@@ -107,12 +118,20 @@ def _load(path: Path, augment: bool):
     return np.ascontiguousarray(x.transpose(2, 0, 1), dtype=np.float32)
 
 
-def train(export_path: Path, crops: Path, out: Path, *, epochs: int = 40, lr: float = 3e-4) -> dict:
+def train(
+    export_path: Path,
+    crops: Path,
+    out: Path,
+    *,
+    epochs: int = 40,
+    lr: float = 3e-4,
+    val_clips: set[str] | None = None,
+) -> dict:
     import numpy as np
     import torch
 
     items = [i for i in read_export(json.loads(export_path.read_text())) if i["layers"] > 0]
-    tr, va = split_by_clip(items)
+    tr, va = split_by_clip(items, val_clips=val_clips)
     print(
         f"{len(tr)} train / {len(va)} val crops, layers {min(i['layers'] for i in items)}..{max(i['layers'] for i in items)}"
     )
@@ -214,6 +233,7 @@ def main() -> None:
     tr.add_argument("crops", type=Path)
     tr.add_argument("out", type=Path)
     tr.add_argument("--epochs", type=int, default=40)
+    tr.add_argument("--val-clips", help="comma-separated clip name prefixes to hold out")
     ex = sub.add_parser("export")
     ex.add_argument("weights", type=Path)
     ex.add_argument("out", type=Path)
@@ -225,7 +245,8 @@ def main() -> None:
         a.out.write_text(json.dumps(tasks))
         print(f"{len(tasks)} tasks -> {a.out}")
     elif a.cmd == "train":
-        print(train(a.export, a.crops, a.out, epochs=a.epochs))
+        vc = set(a.val_clips.split(",")) if a.val_clips else None
+        print(train(a.export, a.crops, a.out, epochs=a.epochs, val_clips=vc))
     elif a.cmd == "export":
         print(export(a.weights, a.out))
 

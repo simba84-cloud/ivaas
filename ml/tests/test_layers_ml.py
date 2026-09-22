@@ -25,3 +25,5 @@ def test_split_keeps_clips_together():
     items = [{"file": f"{c}{k}", "clip": c, "layers": 8} for c in "abcd" for k in range(5)]
     tr, va = split_by_clip(items, 0.25)
     assert len(va) == 5 and not {i["clip"] for i in tr} & {i["clip"] for i in va}
+    tr, va = split_by_clip(items, val_clips={"b", "d"})
+    assert {i["clip"] for i in va} == {"b", "d"} and len(tr) == 10
