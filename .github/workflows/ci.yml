@@ -25,6 +25,7 @@ jobs:
       - name: Lint
         run: uv run ruff check src tests && uv run ruff format --check src tests
       - name: Test
+        # GitHub runners have Docker, so the Postgres-backed repository tests run here too
         run: uv run pytest -q
 
   web:

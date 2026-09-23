@@ -6,6 +6,9 @@ test: test-api test-pipeline test-ml test-web
 test-api:
 	cd services/api && uv run pytest -q
 
+test-api-fast:  # no Docker needed
+	cd services/api && uv run pytest -q -m 'not postgres'
+
 test-pipeline:
 	cd services/pipeline && uv run pytest -q
 

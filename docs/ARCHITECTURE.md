@@ -164,13 +164,14 @@ in front for the POC network).
 |---|---|---|
 | Domain + use cases | pytest with in-memory fakes, no I/O | `services/api/tests/test_sessions.py`, … |
 | Adapters | contract tests (both object stores expose one surface; wire-format tests for ONVIF, MediaMTX, the LLM protocol with `httpx.MockTransport`) | `test_cameras.py`, `test_assistant.py`, `test_object_store.py` |
+| Repositories | **one behaviour suite run against both the in-memory fakes and a real Postgres** (Testcontainers, real Alembic migrations, fresh DB per session). A divergence fails once per backend. | `test_repositories.py` (`-m 'not postgres'` to skip Docker) |
 | HTTP | FastAPI `TestClient` on the real app, fake analyser, real auth | `test_http.py`, `test_auth.py`, `test_analysis_api.py` |
 | Pipeline stages | pure-function tests on synthetic stacks/tracks; decode tests for ONNX adapters | `services/pipeline/tests` |
 | Frontend | Vitest + Testing Library + MSW: real API client against scripted responses, pages rendered from fixtures | `web/src/**/*.test.tsx` |
 | Everything | `make test`; GitHub Actions runs lint + tests + build per service on every push | `Makefile`, `.github/workflows/ci.yml` |
 
-Not yet: Postgres adapters under test (Testcontainers), golden-footage regression on the
-real models, a Playwright login→upload→report smoke against the compose stack.
+Not yet: golden-footage regression on the real models, a Playwright login→upload→report
+smoke against the compose stack.
 
 ## 3. SOLID, concretely
 

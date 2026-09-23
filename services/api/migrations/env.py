@@ -12,7 +12,9 @@ from ivaas.config.settings import Settings
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
-config.set_main_option("sqlalchemy.url", Settings().database_url)
+# The URL comes from the caller (run_migrations passes it) or, for the CLI, from settings.
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", Settings().database_url)
 target_metadata = Base.metadata
 
 
