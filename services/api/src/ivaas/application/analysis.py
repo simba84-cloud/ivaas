@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import tempfile
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -84,6 +84,7 @@ class RunNextJob:
     analyser: VideoAnalyser
     events: EventPublisher
     clock: Clock
+    summarise: Callable[[AnalysisJob], Awaitable[str | None]] | None = None
 
     async def __call__(self) -> AnalysisJob | None:
         job = await self.jobs.next_queued()
@@ -111,6 +112,8 @@ class RunNextJob:
                     job, local, save_frame, on_progress
                 )
             job.finish(self.clock.now(), loads, timeline, duration)
+            if self.summarise is not None:
+                job.summary = await self.summarise(job)  # best effort; None if no model
         except Exception as exc:
             log.exception("analysis job %s failed", job.id)
             job.fail(self.clock.now(), f"{type(exc).__name__}: {exc}")

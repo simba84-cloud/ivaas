@@ -42,6 +42,7 @@ from ivaas.application.sessions import (
     RecordCrateCrossing,
     RecordPlateRead,
 )
+from ivaas.application.summarise import SummariseReport
 from ivaas.config.settings import Settings
 from ivaas.domain.models import Bay, Camera, CameraRole, SessionDirection, Site
 from ivaas.ports.assistant import ChatModel
@@ -143,7 +144,14 @@ class Container:
 
     @property
     def run_next_job(self) -> RunNextJob:
-        return RunNextJob(self.jobs, self.objects, self.analyser, self.events, self.clock)
+        return RunNextJob(
+            self.jobs,
+            self.objects,
+            self.analyser,
+            self.events,
+            self.clock,
+            summarise=SummariseReport(self.chat_model),
+        )
 
     @property
     def register_camera(self) -> RegisterCamera:
