@@ -123,6 +123,7 @@ services:
       IVAAS_API_KEY: ${IVAAS_PIPELINE_KEY:-change-me-pipeline-key}
     volumes:
       - ./models:/models:ro
+      - ./deploy/pipeline/pipeline.json:/config/pipeline.json:ro
       - pipelinespool:/var/lib/ivaas
     depends_on: [api, mediamtx]
     restart: unless-stopped

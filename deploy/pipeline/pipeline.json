@@ -1,0 +1,24 @@
+{
+  "api_url": "http://api:8000",
+  "bay_id": "0bc39dce-7ea1-5331-b0dc-4ffcd94bbfd3",
+  "model": {"path": "/models/stacks-v2.onnx", "arch": "rtdetr"},
+  "layers_model": "/models/layers-v3.onnx",
+  "forward_means": "loading",
+  "cameras": [
+    {
+      "key": "chokepoint-1",
+      "api_camera_id": "2890d72a-6ae6-5527-9402-ff09e811b8f9",
+      "uri": "rtsp://mediamtx:8554/bay-poc/chokepoint-1",
+      "zone": [0, 0, 768, 1440],
+      "stride": 2
+    }
+  ],
+  "lpr_cameras": [
+    {
+      "key": "lpr-1",
+      "api_camera_id": "cab4a2a2-dcbd-5b71-8d06-d3f2d5a9464d",
+      "uri": "rtsp://mediamtx:8554/bay-poc/lpr-1",
+      "stride": 10
+    }
+  ]
+}
