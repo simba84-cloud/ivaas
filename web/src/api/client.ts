@@ -1,5 +1,6 @@
 import { getToken, type Me } from "../auth/session";
 import type {
+  AnalysisJob,
   Bay,
   Camera,
   CameraRole,
@@ -52,6 +53,36 @@ export const api = {
     request<{ reply: string; tools_used: ToolUse[] }>("/api/v1/assistant/chat", {
       method: "POST",
       body: JSON.stringify({ messages }),
+    }),
+  analyses: () => request<AnalysisJob[]>("/api/v1/analysis"),
+  analysis: (id: string) => request<AnalysisJob>(`/api/v1/analysis/${id}`),
+  uploadVideo: (bayId: string, file: File, onProgress?: (frac: number) => void) =>
+    new Promise<AnalysisJob>((resolve, reject) => {
+      // XMLHttpRequest rather than fetch: it is the only way to get upload progress
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `/api/v1/analysis?bay_id=${bayId}`);
+      const token = getToken();
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
+      xhr.onload = () => {
+        if (xhr.status === 202) resolve(JSON.parse(xhr.responseText));
+        else if (xhr.status === 401) {
+          window.dispatchEvent(new Event("ivaas:unauthorized"));
+          reject(new Error("Signed out"));
+        } else {
+          let detail = `${xhr.status} ${xhr.statusText}`;
+          try {
+            detail = JSON.parse(xhr.responseText).detail ?? detail;
+          } catch {
+            /* not JSON */
+          }
+          reject(new Error(detail));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Upload failed"));
+      const body = new FormData();
+      body.append("file", file);
+      xhr.send(body);
     }),
   sessions: () => request<Session[]>("/api/v1/sessions?limit=100"),
   openSession: (bay_id: string, direction: Direction) =>

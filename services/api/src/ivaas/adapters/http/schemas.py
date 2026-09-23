@@ -193,3 +193,38 @@ class AuthConfigOut(BaseModel):
     mode: Literal["local", "oidc"]
     oidc_issuer: str | None
     oidc_client_id: str | None
+
+
+class LoadOut(BaseModel):
+    start_s: float
+    end_s: float
+    stacks: int
+    crates: int
+    low_confidence: int
+    plate: str | None
+
+
+class TimelineEventOut(BaseModel):
+    at_s: float
+    kind: str
+    detail: str
+    frame_url: str | None
+
+
+class AnalysisJobOut(BaseModel):
+    id: UUID
+    bay_id: UUID
+    filename: str
+    status: str
+    progress: float
+    error: str | None
+    created_by: str
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    duration_s: float | None
+    total_crates: int
+    loads: list[LoadOut]
+    timeline: list[TimelineEventOut]
+    summary: str | None
+    video_url: str | None

@@ -60,9 +60,25 @@ function manager(cfg: AuthConfig): UserManager {
       post_logout_redirect_uri: location.origin,
       scope: "openid profile",
       userStore: new WebStorageStateStore({ store: sessionStorage }),
+      // Keycloak access tokens last ~5 min. Renew with the refresh token a minute
+      // before expiry so an operator is not bounced to the login page mid-shift.
+      automaticSilentRenew: true,
+      accessTokenExpiringNotificationTimeInSeconds: 60,
+    });
+    userManager.events.addUserLoaded((user) => setToken(user.access_token));
+    userManager.events.addSilentRenewError(() => setToken(null));
+    userManager.events.addUserSignedOut(() => setToken(null));
+    // a reload mid-session: pick the stored user back up
+    userManager.getUser().then((user) => {
+      if (user && !user.expired) setToken(user.access_token);
     });
   }
   return userManager;
+}
+
+/** Start the renewal machinery for an existing OIDC session (call once at app start). */
+export function resumeOidc(cfg: AuthConfig): void {
+  if (cfg.mode === "oidc") manager(cfg);
 }
 
 export async function loginLocal(username: string, password: string): Promise<void> {

@@ -5,17 +5,20 @@ change here and nowhere else (dependency inversion).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 from uuid import NAMESPACE_DNS, uuid5
 
+from ivaas.adapters.analysis_runner import PipelineVideoAnalyser
 from ivaas.adapters.auth.jwt_verifiers import (
     ApiKeyVerifier,
     LocalTokenVerifier,
     OidcTokenVerifier,
 )
 from ivaas.adapters.messaging.fanout import FanoutEventPublisher, WebSocketHub
+from ivaas.adapters.persistence.jobs import PersistentJobStore
 from ivaas.adapters.persistence.memory import (
     InMemoryBayRepository,
     InMemoryCameraRepository,
@@ -23,8 +26,10 @@ from ivaas.adapters.persistence.memory import (
     InMemorySessionRepository,
     SystemClock,
 )
+from ivaas.adapters.storage.objects import LocalObjectStore, S3ObjectStore
 from ivaas.adapters.streaming.mediamtx import MediaMtxGateway, NullStreamGateway
 from ivaas.adapters.streaming.onvif import OnvifDiscovery
+from ivaas.application.analysis import RunNextJob, SubmitVideo
 from ivaas.application.analytics import AnalyticsTools
 from ivaas.application.assistant import AskAssistant
 from ivaas.application.cameras import RefreshCameraStatus, RegisterCamera, RemoveCamera
@@ -89,6 +94,9 @@ class Container:
     chat_model: ChatModel | None
     verifiers: dict[str, TokenVerifier]
     local_auth: LocalTokenVerifier | None
+    jobs: Any
+    objects: Any
+    analyser: Any
     _closers: list[Any]
 
     # use cases -----------------------------------------------------------
@@ -126,6 +134,14 @@ class Container:
         return CloseIdleSessions(
             self.sessions, self.events, self.clock, idle_after=timedelta(minutes=minutes)
         )
+
+    @property
+    def submit_video(self) -> SubmitVideo:
+        return SubmitVideo(self.bays, self.jobs, self.objects, self.events, self.clock)
+
+    @property
+    def run_next_job(self) -> RunNextJob:
+        return RunNextJob(self.jobs, self.objects, self.analyser, self.events, self.clock)
 
     @property
     def register_camera(self) -> RegisterCamera:
@@ -214,6 +230,19 @@ async def build_container(settings: Settings) -> Container:
         closers.append(oidc.aclose)
         verifiers["user"] = oidc
 
+    if settings.objects == "s3":
+        objects: Any = S3ObjectStore(
+            settings.s3_endpoint, settings.s3_access_key, settings.s3_secret_key, settings.s3_bucket
+        )
+        await objects.ensure_bucket()
+    else:
+        objects = LocalObjectStore(settings.objects_dir)
+
+    jobs = PersistentJobStore(objects)
+    restored = await jobs.load_all()
+    if restored:
+        logging.getLogger(__name__).info("restored %d analysis job(s)", restored)
+
     return Container(
         settings=settings,
         bays=bays,
@@ -227,5 +256,8 @@ async def build_container(settings: Settings) -> Container:
         chat_model=chat_model,
         verifiers=verifiers,
         local_auth=local_auth,
+        jobs=jobs,
+        objects=objects,
+        analyser=PipelineVideoAnalyser(settings.stack_model, settings.layers_model),
         _closers=closers,
     )

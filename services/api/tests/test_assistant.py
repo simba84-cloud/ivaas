@@ -224,3 +224,27 @@ def test_chat_endpoint_is_503_when_unconfigured():
             "/api/v1/assistant/chat", json={"messages": [{"role": "system", "content": "x"}]}
         )
         assert bad.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_missing_model_gives_an_actionable_error():
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(404, json={"error": "model not found"})
+        ),
+        base_url="http://llm",
+    )
+    with pytest.raises(ChatModelUnavailableError) as err:
+        await OpenAiCompatibleChatModel("http://llm", "qwen3:8b", client=http).complete([], [])
+    assert "ollama pull qwen3:8b" in str(err.value)
+
+
+@pytest.mark.asyncio
+async def test_startup_check_reports_missing_model():
+    def handler(r):
+        return httpx.Response(200, json={"data": [{"id": "qwen3:1.7b"}]})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://llm")
+    assert await OpenAiCompatibleChatModel("http://llm", "qwen3:1.7b", client=http).check() is None
+    problem = await OpenAiCompatibleChatModel("http://llm", "llama3:70b", client=http).check()
+    assert "llama3:70b" in problem and "ollama pull" in problem

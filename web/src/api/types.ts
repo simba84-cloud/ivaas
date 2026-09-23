@@ -76,3 +76,38 @@ export interface ToolUse {
   name: string;
   arguments: Record<string, unknown>;
 }
+
+export interface DetectedLoad {
+  start_s: number;
+  end_s: number;
+  stacks: number;
+  crates: number;
+  low_confidence: number;
+  plate: string | null;
+}
+
+export interface TimelineEvent {
+  at_s: number;
+  kind: "load_started" | "stack_counted" | "plate_read" | "load_ended";
+  detail: string;
+  frame_url: string | null;
+}
+
+export interface AnalysisJob {
+  id: string;
+  bay_id: string;
+  filename: string;
+  status: "queued" | "running" | "done" | "failed";
+  progress: number;
+  error: string | null;
+  created_by: string;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_s: number | null;
+  total_crates: number;
+  loads: DetectedLoad[];
+  timeline: TimelineEvent[];
+  summary: string | null;
+  video_url: string | null;
+}

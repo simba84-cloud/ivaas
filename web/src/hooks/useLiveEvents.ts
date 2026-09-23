@@ -22,9 +22,21 @@ export function useLiveEvents(): boolean {
         setConnected(true);
         ping = window.setInterval(() => ws?.send("ping"), 25_000);
       };
-      ws.onmessage = () => {
-        queryClient.invalidateQueries({ queryKey: ["sessions"] });
-        queryClient.invalidateQueries({ queryKey: ["summary"] });
+      ws.onmessage = (e) => {
+        let subject = "";
+        try {
+          subject = JSON.parse(e.data).subject ?? "";
+        } catch {
+          /* ignore */
+        }
+        if (subject.startsWith("ivaas.analysis")) {
+          queryClient.invalidateQueries({ queryKey: ["analyses"] });
+          queryClient.invalidateQueries({ queryKey: ["analysis"] });
+        } else {
+          queryClient.invalidateQueries({ queryKey: ["sessions"] });
+          queryClient.invalidateQueries({ queryKey: ["summary"] });
+          queryClient.invalidateQueries({ queryKey: ["cameras"] });
+        }
       };
       ws.onclose = (e) => {
         setConnected(false);

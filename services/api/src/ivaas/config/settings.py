@@ -17,6 +17,16 @@ class Settings(BaseSettings):
     auto_open_direction: str = "loading"
     # A session whose plate has not been read for this long is closed automatically; 0 disables.
     auto_close_idle_minutes: float = 10
+    # Uploaded-video analysis. Object storage: "s3" (MinIO in docker-compose) or "local".
+    objects: Literal["local", "s3"] = "local"
+    objects_dir: str = "/tmp/ivaas-objects"
+    s3_endpoint: str = "http://localhost:9000"
+    s3_access_key: str = "ivaas"
+    s3_secret_key: str = "ivaas-secret"
+    s3_bucket: str = "ivaas"
+    stack_model: str = "../../models/stacks-v2.onnx"
+    layers_model: str = "../../models/layers-v3.onnx"
+    max_upload_mb: int = 2048
     cors_origins: list[str] = ["http://localhost:5173"]
     seed_demo_data: bool = True
     # empty = no media server (dev): cameras are stored but no stream is provisioned

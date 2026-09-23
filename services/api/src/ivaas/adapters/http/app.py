@@ -7,13 +7,23 @@ from contextlib import asynccontextmanager
 from datetime import datetime, time
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 
 from ivaas.adapters.http.auth import current_principal, require, websocket_principal
 from ivaas.adapters.http.schemas import (
+    AnalysisJobOut,
     AuthConfigOut,
     BayOut,
     CameraIn,
@@ -34,8 +44,10 @@ from ivaas.adapters.http.schemas import (
     TokenOut,
     ToolUseOut,
 )
+from ivaas.adapters.storage.objects import LocalObjectStore
 from ivaas.adapters.streaming.mediamtx import StreamGatewayError
 from ivaas.adapters.streaming.onvif import is_lan_device_url
+from ivaas.application.analysis import job_worker
 from ivaas.config.container import Container, build_container
 from ivaas.config.settings import Settings
 from ivaas.domain.models import (
@@ -96,9 +108,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.container = await build_container(settings)
+        llm = app.state.container.chat_model
+        if llm is not None and hasattr(llm, "check"):
+            problem = await llm.check()
+            if problem:
+                log.warning("assistant will not work until fixed: %s", problem)
         tasks = [
             asyncio.create_task(_sweep_idle_sessions(app.state.container)),
             asyncio.create_task(_refresh_camera_status(app.state.container)),
+            asyncio.create_task(job_worker(lambda: app.state.container.run_next_job)),
         ]
         yield
         for t in tasks:
@@ -306,6 +324,107 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cameras_online=sum(1 for cam in cams if cam.status is CameraStatus.ONLINE),
             cameras_total=len(cams),
         )
+
+    # video analysis --------------------------------------------------------
+    async def _job_out(c: Container, job) -> AnalysisJobOut:
+        async def url(key: str | None) -> str | None:
+            return await c.objects.get_url(key) if key else None
+
+        return AnalysisJobOut(
+            id=job.id,
+            bay_id=job.bay_id,
+            filename=job.filename,
+            status=job.status.value,
+            progress=job.progress,
+            error=job.error,
+            created_by=job.created_by,
+            created_at=job.created_at,
+            started_at=job.started_at,
+            finished_at=job.finished_at,
+            duration_s=job.duration_s,
+            total_crates=job.total_crates,
+            loads=[vars(ld) for ld in job.loads],
+            timeline=[
+                {
+                    "at_s": e.at_s,
+                    "kind": e.kind,
+                    "detail": e.detail,
+                    "frame_url": await url(e.frame_key),
+                }
+                for e in job.timeline
+            ],
+            summary=job.summary,
+            video_url=await url(job.object_key),
+        )
+
+    @app.post(
+        "/api/v1/analysis",
+        response_model=AnalysisJobOut,
+        status_code=202,
+        dependencies=[Depends(require(Role.OPERATOR))],
+    )
+    async def submit_video(
+        bay_id: UUID,
+        file: UploadFile = File(...),
+        c: Container = Depends(get_container),
+        principal: Principal = Depends(current_principal),
+    ) -> AnalysisJobOut:
+        limit = c.settings.max_upload_mb * 1024 * 1024
+
+        async def chunks():
+            seen = 0
+            while chunk := await file.read(4 * 1024 * 1024):
+                seen += len(chunk)
+                if seen > limit:
+                    raise HTTPException(413, f"upload exceeds {c.settings.max_upload_mb} MB")
+                yield chunk
+
+        try:
+            job = await c.submit_video(
+                bay_id,
+                file.filename or "upload.mp4",
+                file.content_type or "",
+                chunks(),
+                principal.name,
+            )
+        except ValueError as exc:
+            raise HTTPException(415, str(exc)) from exc
+        return await _job_out(c, job)
+
+    @app.get(
+        "/api/v1/analysis",
+        response_model=list[AnalysisJobOut],
+        dependencies=[Depends(require(Role.VIEWER))],
+    )
+    async def list_analyses(c: Container = Depends(get_container)) -> list[AnalysisJobOut]:
+        return [await _job_out(c, j) for j in await c.jobs.list_recent()]
+
+    @app.get(
+        "/api/v1/analysis/{job_id}",
+        response_model=AnalysisJobOut,
+        dependencies=[Depends(require(Role.VIEWER))],
+    )
+    async def get_analysis(job_id: UUID, c: Container = Depends(get_container)) -> AnalysisJobOut:
+        job = await c.jobs.get(job_id)
+        if job is None:
+            raise HTTPException(404, "analysis not found")
+        return await _job_out(c, job)
+
+    @app.get("/api/v1/objects/{key:path}", dependencies=[Depends(require(Role.VIEWER))])
+    async def get_object(key: str, c: Container = Depends(get_container)) -> Response:
+        """Serves uploaded videos and captured frames from whichever object store is in use."""
+        if ".." in key or key.startswith("/"):
+            raise HTTPException(400, "bad key")
+        if isinstance(c.objects, LocalObjectStore):
+            path = c.objects.path_of(key)
+            if not path.is_file():
+                raise HTTPException(404)
+            return FileResponse(path)
+        try:
+            body, content_type = await c.objects.open(key)
+        except Exception as exc:  # NoSuchKey and friends
+            raise HTTPException(404) from exc
+        return Response(body, media_type=content_type)
 
     # assistant -----------------------------------------------------------
     @app.get("/api/v1/assistant/status", dependencies=[Depends(require(Role.VIEWER))])

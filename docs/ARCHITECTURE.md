@@ -95,6 +95,30 @@ Next step for "intelligent video": a vision-language model (e.g. Qwen-VL, open w
 behind the same port, so the assistant can answer questions about a *clip* ("what happened
 at the bay at 04:48?"). Needs evidence-clip capture first (gap 8).
 
+## 2b'. Uploaded-video analysis and reports
+
+```
+ portal (drop a file) ──multipart──▶ API ──▶ MinIO  uploads/<job>/<file>
+                                     │
+                              job worker (in the API process, one at a time)
+                                     │  downloads, runs ivaas_pipeline.analyse:
+                                     │  detect stacks → track → settle-count → layer count → LPR
+                                     ▼
+                     MinIO  frames/<job>/stack-NNNN-<t>s.jpg  (one annotated frame per counted stack)
+                     MinIO  jobs/<job>.json                    (the report; survives restarts)
+                                     │
+                       portal report page: totals, per-load table, counted-stack gallery,
+                       timeline, the video, Print/PDF. Progress streams over the WebSocket.
+```
+
+- Objects are served **through the API** (`/api/v1/objects/…`, viewer role), never by
+  presigned MinIO URLs: the S3 endpoint is an internal hostname the browser cannot reach.
+- The worker resolves its use case on every pass, so components (a reloaded model, a test
+  double) can be swapped without a restart. The analyser runs in a thread; frame saves and
+  progress cross back to the event loop.
+- A job interrupted by a restart is re-queued, not lost.
+- Uploads up to 2 GB (nginx `client_max_body_size`, unbuffered proxying).
+
 ## 2c. Security model
 
 ```
@@ -211,6 +235,9 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
    until OIDC is added. Default passwords in `docker-compose.yml` are for local use only.
 8. **Camera credentials are stored in plain text** in `cameras.source_url` (redacted on
    the way out, but not encrypted at rest). Use pgcrypto or a KMS-wrapped key before production.
-9. **A wrong camera URL is accepted silently**: the camera just never goes online. A
+9. **Schema changes are applied by hand.** `create_all` only creates missing tables;
+   adding `plate_last_seen_at` broke the running stack until an `ALTER TABLE` was run by
+   hand. Alembic migrations are overdue. Same for analysis jobs: JSON in MinIO for now.
+10. **A wrong camera URL is accepted silently**: the camera just never goes online. A
    registration-time probe would catch typos earlier.
 9. **MinIO is provisioned but unused** — evidence-clip capture per session is not built.

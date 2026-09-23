@@ -12,7 +12,7 @@ to the truck's number plate, reconciled against manual counts (target: >95%).
 | `services/api` | Core API: any-vendor camera registry + ONVIF discovery, truck sessions, reconciliation, live events, analysis assistant | FastAPI, SQLAlchemy, PostgreSQL/TimescaleDB, NATS JetStream, Ollama |
 | `services/pipeline` | Edge AI pipeline: preprocess → detect → track → count stacks → fuse; LPR read → vote | OpenCV, ONNX Runtime, RT-DETR, fast-alpr |
 | `ml` | Model workflow: frame sampling, Label Studio interchange, dataset builder | OpenCV, Label Studio |
-| `web` | Operator portal (Liquid Intelligent Technologies branding) | React, TypeScript, Vite, Tailwind, TanStack Query |
+| `web` | Operator portal (dashboard, live view, reconciliation, **video analysis + reports**, cameras, assistant) (Liquid Intelligent Technologies branding) | React, TypeScript, Vite, Tailwind, TanStack Query |
 | `deploy` | MediaMTX, Prometheus config | MediaMTX, Prometheus, Grafana, MinIO |
 | `docs/ARCHITECTURE.md` | Design, SOLID mapping, scaling path, known gaps | |
 

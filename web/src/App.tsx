@@ -9,9 +9,12 @@ import {
   getToken,
   logout,
   onAuthChange,
+  resumeOidc,
 } from "./auth/session";
 import { Layout } from "./components/Layout";
 import { useLiveEvents } from "./hooks/useLiveEvents";
+import Analysis from "./pages/Analysis";
+import AnalysisReport from "./pages/AnalysisReport";
 import Assistant from "./pages/Assistant";
 import Cameras from "./pages/Cameras";
 import Dashboard from "./pages/Dashboard";
@@ -38,6 +41,9 @@ export default function App() {
 
   useEffect(() => onAuthChange(() => setToken(getToken())), []);
   useEffect(() => {
+    if (config.data) resumeOidc(config.data);
+  }, [config.data]);
+  useEffect(() => {
     // any 401 from the API means the token is gone or expired: back to login
     const onUnauthorized = () => {
       logout(config.data);
@@ -59,6 +65,8 @@ export default function App() {
         <Route path="/live" element={<LiveView />} />
         <Route path="/sessions" element={<Sessions me={me.data} />} />
         <Route path="/cameras" element={<Cameras me={me.data} />} />
+        <Route path="/analysis" element={<Analysis me={me.data} />} />
+        <Route path="/analysis/:id" element={<AnalysisReport />} />
         <Route path="/assistant" element={<Assistant />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

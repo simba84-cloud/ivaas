@@ -1,4 +1,12 @@
-import { Camera, ClipboardCheck, LayoutDashboard, LogOut, MonitorPlay, Sparkles } from "lucide-react";
+import {
+  Camera,
+  ClipboardCheck,
+  FileVideo,
+  LayoutDashboard,
+  LogOut,
+  MonitorPlay,
+  Sparkles,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import type { Me } from "../auth/session";
@@ -7,6 +15,7 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/live", label: "Live View", icon: MonitorPlay },
   { to: "/sessions", label: "Reconciliation", icon: ClipboardCheck },
+  { to: "/analysis", label: "Video Analysis", icon: FileVideo },
   { to: "/cameras", label: "Cameras", icon: Camera },
   { to: "/assistant", label: "Assistant", icon: Sparkles },
 ];

@@ -45,7 +45,9 @@ services:
     restart: unless-stopped
 
   api:
-    build: ./services/api
+    build:
+      context: ./services
+      dockerfile: api/Dockerfile
     environment:
       IVAAS_STORAGE: postgres
       IVAAS_DATABASE_URL: postgresql+asyncpg://ivaas:${POSTGRES_PASSWORD:-ivaas}@postgres:5432/ivaas
@@ -54,6 +56,12 @@ services:
       IVAAS_NATS_URL: nats://nats:4222
       IVAAS_MEDIAMTX_API_URL: http://mediamtx:9997
       IVAAS_LLM_URL: http://ollama:11434
+      IVAAS_OBJECTS: s3
+      IVAAS_S3_ENDPOINT: http://minio:9000
+      IVAAS_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-ivaas}
+      IVAAS_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-ivaas-secret}
+      IVAAS_STACK_MODEL: /models/stacks-v2.onnx
+      IVAAS_LAYERS_MODEL: /models/layers-v3.onnx
       IVAAS_AUTH_MODE: oidc
       # the browser and the API must agree on the issuer string, so use the host-visible URL
       IVAAS_OIDC_ISSUER: http://localhost:8180/realms/ivaas
@@ -66,6 +74,7 @@ services:
       nats: { condition: service_started }
       mediamtx: { condition: service_started }
       keycloak: { condition: service_healthy }
+    volumes: [./models:/models:ro]
     ports: ["8000:8000"]
     extra_hosts: ["localhost:host-gateway"]  # so the API can reach the issuer at localhost:8180
     restart: unless-stopped

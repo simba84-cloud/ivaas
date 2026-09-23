@@ -68,6 +68,24 @@ class OpenAiCompatibleChatModel:
     async def aclose(self) -> None:
         await self._client.aclose()
 
+    async def check(self) -> str | None:
+        """None if the model is ready, else a human-readable problem. Used at startup."""
+        try:
+            r = await self._client.get("/v1/models")
+            r.raise_for_status()
+            ids = {m.get("id") for m in r.json().get("data", [])}
+        except (httpx.HTTPError, ValueError) as exc:
+            return f"language model server unreachable: {type(exc).__name__}"
+        if self._model not in ids and self._model.split(":")[0] not in {
+            i.split(":")[0] for i in ids
+        }:
+            have = sorted(ids) or "none"
+            return (
+                f"model '{self._model}' is not installed (have: {have}); "
+                f"run: ollama pull {self._model}"
+            )
+        return None
+
     async def complete(self, messages: list[ChatMessage], tools: list[ToolSpec]) -> ChatMessage:
         body = {
             "model": self._model,
@@ -88,12 +106,23 @@ class OpenAiCompatibleChatModel:
         }
         try:
             r = await self._client.post("/v1/chat/completions", json=body)
-            r.raise_for_status()
-            message = r.json()["choices"][0]["message"]
-        except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
+        except httpx.HTTPError as exc:
             raise ChatModelUnavailableError(
-                f"language model '{self._model}' did not answer: {type(exc).__name__}"
+                f"language model server is unreachable ({type(exc).__name__})"
             ) from exc
+        if r.status_code == 404:
+            raise ChatModelUnavailableError(
+                f"model '{self._model}' is not installed on the language model server; "
+                f"run: ollama pull {self._model}"
+            )
+        if r.status_code >= 400:
+            raise ChatModelUnavailableError(
+                f"language model server returned {r.status_code}: {r.text[:200]}"
+            )
+        try:
+            message = r.json()["choices"][0]["message"]
+        except (KeyError, IndexError, ValueError) as exc:
+            raise ChatModelUnavailableError("language model returned an unexpected reply") from exc
 
         calls = tuple(
             ToolCall(
