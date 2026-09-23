@@ -61,5 +61,6 @@ ffmpeg -re -stream_loop -1 -i clip.mp4 -c copy -f rtsp rtsp://localhost:8554/bay
 cd services/api && uv run pytest        # 71 tests: domain, HTTP/WebSocket, auth/OIDC, cameras, ONVIF, MediaMTX, assistant, secrets
 cd services/pipeline && uv run pytest   # 48 tests: tracker, stack crossing, layer counter, fusion, RT-DETR decode, plates, spooled delivery
 cd ml && uv run pytest                  # 26 tests: frame sampling, label round-trip, dataset split, pre-labelling, AP metrics
+cd web && npm test                      # 16 tests: auth session, API client, analysis pages (Vitest + Testing Library + MSW)
 cd web && npm run build                 # strict TypeScript + production build
 ```
