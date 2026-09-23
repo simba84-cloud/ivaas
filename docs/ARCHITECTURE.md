@@ -205,7 +205,6 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
 | One API process | API is stateless except the WebSocket hub → run N replicas, hub subscribes to NATS |
 | Thread per camera, one ONNX session each | Batch frames across cameras into one GPU session (or NVIDIA DeepStream / Triton) |
 | Single site seeded in code | Site/bay/camera CRUD + multi-tenant auth (Keycloak, OIDC) |
-| `create_all` on boot | Alembic migrations (dependency already declared) |
 
 ## 6. Known gaps — read before the POC
 
@@ -237,9 +236,10 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
    until OIDC is added. Default passwords in `docker-compose.yml` are for local use only.
 8. **Camera credentials are stored in plain text** in `cameras.source_url` (redacted on
    the way out, but not encrypted at rest). Use pgcrypto or a KMS-wrapped key before production.
-9. **Schema changes are applied by hand.** `create_all` only creates missing tables;
-   adding `plate_last_seen_at` broke the running stack until an `ALTER TABLE` was run by
-   hand. Alembic migrations are overdue. Same for analysis jobs: JSON in MinIO for now.
+9. **Schema is migrated by Alembic at API startup** (`services/api/migrations/`), so
+   this no longer bites. The baseline migration is idempotent to adopt databases that
+   were created by the old `create_all`. Analysis jobs live in `analysis_jobs`
+   (JSONB for loads/timeline); the JSON-in-MinIO store remains for dev without Postgres.
 10. **A wrong camera URL is accepted silently**: the camera just never goes online. A
    registration-time probe would catch typos earlier.
 9. **MinIO is provisioned but unused** — evidence-clip capture per session is not built.

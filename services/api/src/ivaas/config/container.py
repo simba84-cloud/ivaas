@@ -202,17 +202,19 @@ async def build_container(settings: Settings) -> Container:
                 "IVAAS_SECRETS_KEYS is required with postgres storage: camera credentials "
                 "are encrypted at rest (see Settings.secrets_keys for how to generate one)"
             )
-        bays, cameras, sessions, dispose = await build_postgres_repositories(
+        bays, cameras, sessions, dispose, sm = await build_postgres_repositories(
             settings.database_url,
             seed=(bay, cams) if settings.seed_demo_data else None,
             box=SecretBox(settings.secrets_keys),
         )
         closers.append(dispose)
+        pg_sessionmaker: Any = sm
     else:
         seed = settings.seed_demo_data
         bays = InMemoryBayRepository([bay] if seed else [])
         cameras = InMemoryCameraRepository(cams if seed else [])
         sessions = InMemorySessionRepository()
+        pg_sessionmaker = None
 
     gateway: StreamGateway
     if settings.mediamtx_api_url:
@@ -248,10 +250,16 @@ async def build_container(settings: Settings) -> Container:
     else:
         objects = LocalObjectStore(settings.objects_dir)
 
-    jobs = PersistentJobStore(objects)
-    restored = await jobs.load_all()
-    if restored:
-        logging.getLogger(__name__).info("restored %d analysis job(s)", restored)
+    jobs: Any
+    if pg_sessionmaker is not None:
+        from ivaas.adapters.persistence.jobs_postgres import PostgresJobStore
+
+        jobs = PostgresJobStore(pg_sessionmaker)
+    else:
+        jobs = PersistentJobStore(objects)
+        restored = await jobs.load_all()
+        if restored:
+            logging.getLogger(__name__).info("restored %d analysis job(s)", restored)
 
     return Container(
         settings=settings,

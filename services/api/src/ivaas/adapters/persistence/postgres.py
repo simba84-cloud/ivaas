@@ -213,6 +213,28 @@ class PostgresSessionRepository:
             await db.execute(stmt)
 
 
+async def run_migrations(url: str) -> None:
+    """Bring the schema to the latest Alembic revision. Runs at every startup; a
+    no-op when already current. Replaces create_all, which never alters tables."""
+    import asyncio
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+
+    def upgrade() -> None:  # alembic's env.py runs its own asyncio loop: keep it off ours
+        ini = Path(__file__).resolve().parents[3].parent / "alembic.ini"
+        cfg = Config(str(ini))
+        cfg.set_main_option("sqlalchemy.url", url)
+        command.upgrade(cfg, "head")
+
+    try:
+        await asyncio.to_thread(upgrade)
+    except Exception as exc:
+        # say so plainly; a restart loop with no message is the worst outcome
+        raise RuntimeError(f"database migration failed: {exc}") from exc
+
+
 async def build_postgres_repositories(
     url: str, seed: tuple[Bay, list[Camera]] | None, box: SecretBox
 ) -> tuple[
@@ -220,11 +242,10 @@ async def build_postgres_repositories(
     PostgresCameraRepository,
     PostgresSessionRepository,
     Callable[[], Awaitable[None]],
+    async_sessionmaker[AsyncSession],
 ]:
     engine = create_async_engine(url, pool_pre_ping=True)
-    async with engine.begin() as conn:
-        # POC convenience; production schema changes go through Alembic migrations.
-        await conn.run_sync(Base.metadata.create_all)
+    await run_migrations(url)
     sm = async_sessionmaker(engine, expire_on_commit=False)
 
     if seed is not None:
@@ -251,4 +272,5 @@ async def build_postgres_repositories(
         PostgresCameraRepository(sm, box),
         PostgresSessionRepository(sm),
         engine.dispose,
+        sm,
     )

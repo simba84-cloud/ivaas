@@ -7,6 +7,8 @@ COPY pipeline /pipeline
 COPY api/pyproject.toml api/uv.lock* ./
 RUN sed -i 's|path = "../pipeline"|path = "/pipeline"|' pyproject.toml && uv sync --no-dev --no-install-project
 COPY api/src ./src
+COPY api/alembic.ini ./alembic.ini
+COPY api/migrations ./migrations
 RUN uv sync --no-dev
 RUN useradd -r ivaas
 USER ivaas
