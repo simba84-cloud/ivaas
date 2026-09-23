@@ -75,10 +75,16 @@ class S3ObjectStore:
                 raise
 
     async def get_url(self, key: str, expires_s: int = 3600) -> str:
+        # Served through the API rather than presigned: the S3 endpoint is an internal
+        # hostname the browser cannot reach, and the API applies the viewer role.
+        return f"/api/v1/objects/{key}"
+
+    async def open(self, key: str) -> tuple[bytes, str]:
+        """(bytes, content_type) for proxying an object to a client."""
         async with self._session.client("s3", **self._kw) as s3:
-            return await s3.generate_presigned_url(
-                "get_object", Params={"Bucket": self._bucket, "Key": key}, ExpiresIn=expires_s
-            )
+            obj = await s3.get_object(Bucket=self._bucket, Key=key)
+            body = await obj["Body"].read()
+            return body, obj.get("ContentType") or "application/octet-stream"
 
     async def download_to(self, key: str, path: str) -> None:
         async with self._session.client("s3", **self._kw) as s3:
@@ -131,6 +137,11 @@ class LocalObjectStore:
 
     async def read(self, key: str) -> bytes:
         return await asyncio.to_thread(self.path_of(key).read_bytes)
+
+    async def open(self, key: str) -> tuple[bytes, str]:
+        import mimetypes
+
+        return await self.read(key), mimetypes.guess_type(key)[0] or "application/octet-stream"
 
     async def list_keys(self, prefix: str) -> list[str]:
         base = self._root / prefix

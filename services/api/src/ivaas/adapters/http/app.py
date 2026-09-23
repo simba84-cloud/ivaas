@@ -328,7 +328,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # video analysis --------------------------------------------------------
     async def _job_out(c: Container, job) -> AnalysisJobOut:
         async def url(key: str | None) -> str | None:
-            return await c.objects.get_url(key) if key else None
+            # signed, not bearer-protected: these load in <img>/<video> tags
+            return c.signer.sign(key) if key else None
 
         return AnalysisJobOut(
             id=job.id,
@@ -410,11 +411,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "analysis not found")
         return await _job_out(c, job)
 
-    @app.get("/api/v1/objects/{key:path}", dependencies=[Depends(require(Role.VIEWER))])
-    async def get_object(key: str, c: Container = Depends(get_container)) -> Response:
-        """Serves uploaded videos and captured frames from whichever object store is in use."""
+    @app.get("/api/v1/objects/{key:path}")
+    async def get_object(
+        key: str,
+        request: Request,
+        exp: str | None = None,
+        sig: str | None = None,
+        c: Container = Depends(get_container),
+    ) -> Response:
+        """Serves uploaded videos and captured frames. Accepts a signed link (what the
+        report embeds, since <img> cannot send a bearer token) or a viewer's token."""
         if ".." in key or key.startswith("/"):
             raise HTTPException(400, "bad key")
+        if not c.signer.verify(key, exp, sig):
+            principal = await current_principal(request)  # raises 401 without a token
+            if not principal.allows(Role.VIEWER):
+                raise HTTPException(403, "requires role 'viewer'")
         if isinstance(c.objects, LocalObjectStore):
             path = c.objects.path_of(key)
             if not path.is_file():

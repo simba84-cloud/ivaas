@@ -17,6 +17,7 @@ from ivaas.adapters.auth.jwt_verifiers import (
     LocalTokenVerifier,
     OidcTokenVerifier,
 )
+from ivaas.adapters.http.signed import ObjectLinkSigner
 from ivaas.adapters.messaging.fanout import FanoutEventPublisher, WebSocketHub
 from ivaas.adapters.persistence.jobs import PersistentJobStore
 from ivaas.adapters.persistence.memory import (
@@ -97,6 +98,7 @@ class Container:
     jobs: Any
     objects: Any
     analyser: Any
+    signer: ObjectLinkSigner
     _closers: list[Any]
 
     # use cases -----------------------------------------------------------
@@ -257,6 +259,7 @@ async def build_container(settings: Settings) -> Container:
         verifiers=verifiers,
         local_auth=local_auth,
         jobs=jobs,
+        signer=ObjectLinkSigner(settings.object_link_secret),
         objects=objects,
         analyser=PipelineVideoAnalyser(settings.stack_model, settings.layers_model),
         _closers=closers,

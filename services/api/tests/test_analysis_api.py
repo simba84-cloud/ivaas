@@ -85,3 +85,37 @@ def test_reports_survive_a_restart(tmp_path):
         again = c.get(f"/api/v1/analysis/{job['id']}").json()
         assert again["status"] == "done" and again["total_crates"] == 27
         assert again["loads"][0]["plate"] == "ABC 1234"
+
+
+def test_report_objects_load_by_signed_link_and_reject_tampering(tmp_path):
+    from ivaas.adapters.http.signed import ObjectLinkSigner
+
+    signer = ObjectLinkSigner("x" * 32, ttl_s=60)
+    url = signer.sign("frames/j/a.jpg")
+    key, query = url.split("?")
+    params = dict(p.split("=") for p in query.split("&"))
+    assert signer.verify("frames/j/a.jpg", params["exp"], params["sig"])
+    assert not signer.verify("frames/j/OTHER.jpg", params["exp"], params["sig"])  # key swap
+    assert not signer.verify("frames/j/a.jpg", str(int(params["exp"]) + 1), params["sig"])
+    assert not signer.verify("frames/j/a.jpg", "1", signer._mac("frames/j/a.jpg", 1))  # expired
+    assert not ObjectLinkSigner("y" * 32).verify("frames/j/a.jpg", params["exp"], params["sig"])
+
+    with make_client(objects="local", objects_dir=str(tmp_path)) as c:
+        c.app.state.container.analyser = FakeAnalyser()
+        c.headers.update(login(c, "operator"))
+        bay = c.get("/api/v1/bays").json()[0]["id"]
+        job = c.post(
+            f"/api/v1/analysis?bay_id={bay}", files={"file": ("a.mp4", b"0", "video/mp4")}
+        ).json()
+        for _ in range(50):
+            job = c.get(f"/api/v1/analysis/{job['id']}").json()
+            if job["status"] == "done":
+                break
+            time.sleep(0.2)
+        frame_url = next(e["frame_url"] for e in job["timeline"] if e["frame_url"])
+        assert "sig=" in frame_url and "exp=" in frame_url
+        anon = make_client(objects="local", objects_dir=str(tmp_path))
+        with anon:
+            assert anon.get(frame_url).status_code == 200  # no token, valid signature
+            assert anon.get(frame_url.split("?")[0]).status_code == 401  # no token, no signature
+            assert anon.get(frame_url + "x").status_code == 401  # tampered signature

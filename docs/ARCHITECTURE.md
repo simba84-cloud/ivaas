@@ -111,8 +111,11 @@ at the bay at 04:48?"). Needs evidence-clip capture first (gap 8).
                        timeline, the video, Print/PDF. Progress streams over the WebSocket.
 ```
 
-- Objects are served **through the API** (`/api/v1/objects/…`, viewer role), never by
-  presigned MinIO URLs: the S3 endpoint is an internal hostname the browser cannot reach.
+- Objects are served **through the API** (`/api/v1/objects/…`), never by presigned MinIO
+  URLs: the S3 endpoint is an internal hostname the browser cannot reach. Because an
+  `<img>`/`<video>` tag cannot send a bearer token, the report embeds **HMAC-signed links**
+  (key + expiry, 6 h) minted only for callers who passed the viewer check; the route also
+  accepts a bearer token. Tampered or expired links get 401.
 - The worker resolves its use case on every pass, so components (a reloaded model, a test
   double) can be swapped without a restart. The analyser runs in a thread; frame saves and
   progress cross back to the event loop.
@@ -152,8 +155,7 @@ order, role/key refusals. Two bugs surfaced only there: Keycloak publishes an
 RSA-OAEP *encryption* key in its JWKS (now skipped), and Keycloak 26 refuses users
 without an email (realm users now have one).
 
-Not done: rate limiting, audit log of who reconciled what, token refresh in the portal
-(an expired token sends the user back to login), HTTPS termination (put Caddy or Traefik
+Not done: rate limiting, audit log of who reconciled what, HTTPS termination (put Caddy or Traefik
 in front for the POC network).
 
 ## 3. SOLID, concretely
