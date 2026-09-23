@@ -1,0 +1,17 @@
+{
+ "duration_s": 45.0,
+ "loads": [
+  {
+   "start_s": 27.3,
+   "end_s": 27.3,
+   "stacks": 1,
+   "crates": 6
+  }
+ ],
+ "stacks": [
+  {
+   "at_s": 27.3,
+   "crates": 6
+  }
+ ]
+}

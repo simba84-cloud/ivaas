@@ -10,7 +10,10 @@ test-api-fast:  # no Docker needed
 	cd services/api && uv run pytest -q -m 'not postgres'
 
 test-pipeline:
-	cd services/pipeline && uv run pytest -q
+	cd services/pipeline && uv run pytest -q -m 'not golden'
+
+test-golden:  # slow: real models on a real clip; needs models/ (./deploy/fetch-models.sh)
+	cd services/pipeline && uv run pytest -q -m golden
 
 test-ml:
 	cd ml && uv run pytest -q

@@ -18,6 +18,11 @@ to the truck's number plate, reconciled against manual counts (target: >95%).
 
 Every component is open source (Apache-2.0 / MIT / BSD / PostgreSQL / AGPL for MinIO & Grafana).
 
+## Models
+
+The trained ONNX models are not in git (80 MB). Fetch them with `./deploy/fetch-models.sh`
+(GitHub release `models-v1`). The pipeline, the API's video analysis and the golden test need them.
+
 ## Run it
 
 Dev mode, no Docker, in-memory storage:
