@@ -7,6 +7,7 @@ injected as ports, so every one of these is unit-testable with in-memory fakes.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Protocol
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from ivaas.domain.models import (
     NotFoundError,
     PlateRead,
     SessionDirection,
+    SessionStatus,
 )
 from ivaas.ports.repositories import (
     BayReader,
@@ -93,7 +95,7 @@ class RecordPlateRead:
             session = await self.auto_open(bay_id, self.auto_open_direction)
         elif session.plate is not None and session.plate != read.plate:
             return session  # keep the truck being loaded; the newcomer is queued behind it
-        session.attach_plate(read)
+        session.attach_plate(read)  # also refreshes plate_last_seen_at
         await self.sessions.save(session)
         await self.events.publish(SUBJECT_SESSION_UPDATED, session_payload(session))
         return session
@@ -144,3 +146,31 @@ class ReconcileSession:
         await self.sessions.save(session)
         await self.events.publish(SUBJECT_SESSION_RECONCILED, session_payload(session))
         return session
+
+
+@dataclass
+class CloseIdleSessions:
+    """Close sessions whose truck has not been seen for `idle_after`.
+
+    The LPR camera re-reads a parked truck every couple of minutes (the voter's
+    cooldown), so a gap much longer than that means it has driven off. Runs on a
+    timer from the composition root; also safe to call from a request.
+    """
+
+    sessions: _SessionStore
+    events: EventPublisher
+    clock: Clock
+    idle_after: timedelta = timedelta(minutes=10)
+
+    async def __call__(self) -> list[LoadingSession]:
+        now = self.clock.now()
+        closed = []
+        for session in await self.sessions.list_recent(status=SessionStatus.OPEN, limit=500):
+            if session.plate is None:
+                continue  # opened by hand and never read: leave it to the operator
+            if session.idle_since(now) >= self.idle_after:
+                session.close(now)
+                await self.sessions.save(session)
+                await self.events.publish(SUBJECT_SESSION_CLOSED, session_payload(session))
+                closed.append(session)
+        return closed

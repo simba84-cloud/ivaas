@@ -7,7 +7,7 @@ package. Everything outside the domain depends on it, never the reverse.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID, uuid4
@@ -156,11 +156,17 @@ class LoadingSession:
     ai_count: int = 0
     manual_count: int | None = None
     closed_at: datetime | None = None
+    plate_last_seen_at: datetime | None = None  # drives auto-close: the truck has left
 
     def attach_plate(self, read: PlateRead) -> None:
         if self.status is not SessionStatus.OPEN:
             raise SessionClosedError(self.id)
         self.plate = read.plate
+        self.plate_last_seen_at = read.read_at
+
+    def idle_since(self, now: datetime) -> timedelta:
+        """How long since the truck was last seen (or since opening, if never seen)."""
+        return now - (self.plate_last_seen_at or self.opened_at)
 
     def record_crossing(self, crossing: CrateCrossing) -> None:
         if self.status is not SessionStatus.OPEN:

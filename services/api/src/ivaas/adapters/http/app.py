@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, time
@@ -48,8 +50,23 @@ from ivaas.domain.models import (
 from ivaas.ports.assistant import ChatMessage, ChatModelUnavailableError
 from ivaas.ports.auth import Principal, Role
 
+log = logging.getLogger(__name__)
+
 CROSSINGS = Counter("ivaas_crate_crossings_total", "Crate crossings ingested", ["direction"])
 PLATES = Counter("ivaas_plate_reads_total", "LPR plate reads ingested")
+
+
+async def _sweep_idle_sessions(container: Container, every_s: float = 60.0) -> None:
+    while True:
+        await asyncio.sleep(every_s)
+        use_case = container.close_idle_sessions
+        if use_case is None:
+            continue
+        try:
+            for session in await use_case():
+                log.info("auto-closed session %s (%s): truck left", session.id, session.plate)
+        except Exception:  # a failing sweep must not kill the API
+            log.exception("idle-session sweep failed")
 
 
 def get_container(request: Request) -> Container:
@@ -58,11 +75,19 @@ def get_container(request: Request) -> Container:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
+    # uvicorn configures only its own loggers; ours would otherwise be silent
+    logging.getLogger("ivaas").setLevel(logging.INFO)
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
+        )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.container = await build_container(settings)
+        sweeper = asyncio.create_task(_sweep_idle_sessions(app.state.container))
         yield
+        sweeper.cancel()
         await app.state.container.aclose()
 
     app = FastAPI(title="IVaaS Core API", version="0.1.0", lifespan=lifespan)

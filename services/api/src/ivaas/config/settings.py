@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     reconcile_tolerance: float = 0.95
     # A confirmed LPR read at an idle bay opens a session in this direction; "" disables.
     auto_open_direction: str = "loading"
+    # A session whose plate has not been read for this long is closed automatically; 0 disables.
+    auto_close_idle_minutes: float = 10
     cors_origins: list[str] = ["http://localhost:5173"]
     seed_demo_data: bool = True
     # empty = no media server (dev): cameras are stored but no stream is provisioned

@@ -37,9 +37,13 @@ def run_clip(
     zone: tuple[float, float, float, float],
     stride: int = 2,
     min_seconds: float = 3.0,
+    window: tuple[float, float] | None = None,
 ) -> tuple[list[Crossing], dict]:
     cap = cv2.VideoCapture(str(clip))
     fps = cap.get(cv2.CAP_PROP_FPS) or 20.0
+    start_s, end_s = window or (0.0, float("inf"))
+    if start_s:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(start_s * fps))
     W, H = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     zx1, zy1, zx2, zy2 = zone
     counter = StackPresenceCounter(
@@ -48,8 +52,8 @@ def run_clip(
     tracker = IouTracker(0.2, int(fps * 1.5))
     base = datetime(2000, 1, 1, tzinfo=UTC)
     crossings: list[Crossing] = []
-    i, started = 0, time.time()
-    while True:
+    i, started = int(start_s * fps), time.time()
+    while i < end_s * fps:
         ok, img = cap.read()
         if not ok:
             break
@@ -59,7 +63,22 @@ def run_clip(
         f = Frame(clip.stem, img, base + timedelta(seconds=i / fps))
         crossings += counter.update(f, tracker.update(detector.detect(f)))
     cap.release()
-    return crossings, {"frames": i, "seconds": i / fps, "wall": time.time() - started}
+    return crossings, {
+        "window": [start_s, min(end_s, i / fps)],
+        "seconds": i / fps - start_s,
+        "wall": time.time() - started,
+    }
+
+
+def clip_entries(entries: list) -> list[tuple[Path, tuple[float, float] | None]]:
+    """A clip entry is a path string, or {"path": ..., "window": [start_s, end_s]}."""
+    out = []
+    for e in entries:
+        if isinstance(e, dict):
+            out.append((Path(e["path"]), tuple(e["window"]) if "window" in e else None))
+        else:
+            out.append((Path(e), None))
+    return out
 
 
 def group_loads(crossings: list[Crossing], idle_seconds: float) -> list[dict]:
@@ -100,15 +119,15 @@ def main() -> None:
 
     report = []
     for cam in cfg["cameras"]:
-        for clip in cam["clips"]:
-            clip = Path(clip)
-            log.info("running %s", clip.name)
+        for clip, window in clip_entries(cam["clips"]):
+            log.info("running %s %s", clip.name, window or "")
             crossings, meta = run_clip(
                 clip,
                 detector=detector,
                 layers=layers,
                 zone=cam["zone"],
                 stride=cam.get("stride", 2),
+                window=window,
             )
             loads = group_loads(crossings, args.idle)
             log.info(

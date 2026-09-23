@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -10,6 +10,7 @@ from ivaas.adapters.persistence.memory import (
     SystemClock,
 )
 from ivaas.application.sessions import (
+    CloseIdleSessions,
     CloseSession,
     OpenSession,
     ReconcileSession,
@@ -175,3 +176,40 @@ async def test_plate_without_auto_open_is_dropped_at_idle_bay(ctx):
     assert (
         await record(ctx["bay"].id, PlateRead("ABC 1234", 0.96, uuid4(), datetime.now(UTC))) is None
     )
+
+
+class FixedClock:
+    def __init__(self, at):
+        self.at = at
+
+    def now(self):
+        return self.at
+
+
+async def test_idle_session_closes_after_the_truck_stops_being_seen(ctx):
+    t0 = datetime(2026, 9, 23, 8, 0, tzinfo=UTC)
+    clock = FixedClock(t0)
+    opener = OpenSession(ctx["bays"], ctx["sessions"], ctx["events"], clock)
+    record = RecordPlateRead(ctx["sessions"], ctx["events"], auto_open=opener)
+    sweep = CloseIdleSessions(
+        ctx["sessions"], ctx["events"], clock, idle_after=timedelta(minutes=10)
+    )
+
+    session = await record(ctx["bay"].id, PlateRead("ABC 1234", 0.96, uuid4(), t0))
+    clock.at = t0 + timedelta(minutes=8)
+    await record(ctx["bay"].id, PlateRead("ABC 1234", 0.96, uuid4(), clock.at))  # still parked
+    clock.at = t0 + timedelta(minutes=17)
+    assert await sweep() == []  # last seen 9 min ago: not yet
+    clock.at = t0 + timedelta(minutes=19)
+    assert [s.id for s in await sweep()] == [session.id]
+    assert session.status is SessionStatus.CLOSED and session.closed_at == clock.at
+
+
+async def test_manually_opened_session_without_a_plate_is_never_auto_closed(ctx):
+    t0 = datetime(2026, 9, 23, 8, 0, tzinfo=UTC)
+    clock = FixedClock(t0)
+    await OpenSession(ctx["bays"], ctx["sessions"], ctx["events"], clock)(
+        ctx["bay"].id, SessionDirection.LOADING
+    )
+    clock.at = t0 + timedelta(hours=5)
+    assert await CloseIdleSessions(ctx["sessions"], ctx["events"], clock)() == []

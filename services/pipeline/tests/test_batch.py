@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
-from ivaas_pipeline.batch import group_loads
+from ivaas_pipeline.batch import clip_entries, group_loads
 from ivaas_pipeline.types import CrossDirection, Crossing
 
 T0 = datetime(2000, 1, 1, tzinfo=UTC)
@@ -28,3 +29,11 @@ def test_out_of_order_crossings_are_sorted_first():
 
 def test_empty():
     assert group_loads([], 120) == []
+
+
+def test_clip_entries_accept_paths_and_windows():
+    assert clip_entries(["/a.mp4", {"path": "/b.mp4", "window": [10, 20]}, {"path": "/c.mp4"}]) == [
+        (Path("/a.mp4"), None),
+        (Path("/b.mp4"), (10, 20)),
+        (Path("/c.mp4"), None),
+    ]

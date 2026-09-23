@@ -64,6 +64,7 @@ class SessionRow(Base):
     manual_count: Mapped[int | None] = mapped_column(Integer)
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    plate_last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 def _session_to_domain(r: SessionRow) -> LoadingSession:
@@ -77,6 +78,7 @@ def _session_to_domain(r: SessionRow) -> LoadingSession:
         manual_count=r.manual_count,
         opened_at=r.opened_at,
         closed_at=r.closed_at,
+        plate_last_seen_at=r.plate_last_seen_at,
     )
 
 
@@ -203,6 +205,7 @@ class PostgresSessionRepository:
             "manual_count": session.manual_count,
             "opened_at": session.opened_at,
             "closed_at": session.closed_at,
+            "plate_last_seen_at": session.plate_last_seen_at,
         }
         stmt = insert(SessionRow).values(**values)
         stmt = stmt.on_conflict_do_update(index_elements=[SessionRow.id], set_=values)

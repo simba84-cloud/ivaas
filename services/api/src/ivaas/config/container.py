@@ -6,6 +6,7 @@ change here and nowhere else (dependency inversion).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 from uuid import NAMESPACE_DNS, uuid5
 
@@ -28,6 +29,7 @@ from ivaas.application.analytics import AnalyticsTools
 from ivaas.application.assistant import AskAssistant
 from ivaas.application.cameras import RegisterCamera, RemoveCamera
 from ivaas.application.sessions import (
+    CloseIdleSessions,
     CloseSession,
     OpenSession,
     ReconcileSession,
@@ -114,6 +116,15 @@ class Container:
             self.events,
             auto_open=self.open_session if direction else None,
             auto_open_direction=SessionDirection(direction or "loading"),
+        )
+
+    @property
+    def close_idle_sessions(self) -> CloseIdleSessions | None:
+        minutes = self.settings.auto_close_idle_minutes
+        if minutes <= 0:
+            return None
+        return CloseIdleSessions(
+            self.sessions, self.events, self.clock, idle_after=timedelta(minutes=minutes)
         )
 
     @property

@@ -189,9 +189,11 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
    from CC 2's wide view (plates ~250 px wide); a dedicated plate camera at the bay entry
    will read earlier and more reliably, and just registers as a camera with role `lpr`.
    Cooldown means a truck that leaves and returns within 2 minutes is one session.
-4. **Sessions open automatically on a confirmed plate**, always in the bay's default
-   direction (`IVAAS_AUTO_OPEN_DIRECTION`); the operator changes it by ending and
-   restarting. Sessions still close manually. Auto-close on plate departure is not built.
+4. **Sessions open and close automatically.** A confirmed plate at an idle bay opens a
+   session in the bay's default direction (`IVAAS_AUTO_OPEN_DIRECTION`). A session whose
+   plate has not been re-read for `IVAAS_AUTO_CLOSE_IDLE_MINUTES` (default 10; the LPR
+   voter re-reads a parked truck every ~2 min) is closed by a background sweep and logged.
+   Sessions opened by hand with no plate are left to the operator. Verified live in dev.
 5. **Lost-update risk under concurrency.** `RecordCrateCrossing` is read-modify-write.
    Safe today (one pipeline, sequential posts per bay); before adding writers, move
    to an append-only `crossings` table (Timescale hypertable) with the count derived,
