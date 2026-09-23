@@ -13,11 +13,13 @@ jobs:
       matrix:
         service: [services/api, services/pipeline, ml]
     defaults:
-      run: { working-directory: ${{ matrix.service }} }
+      run:
+        working-directory: ${{ matrix.service }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-        with: { enable-cache: true }
+        with:
+          enable-cache: true
       - name: Install
         run: uv sync --python 3.13
       - name: Lint
@@ -29,11 +31,15 @@ jobs:
     name: web (vitest, tsc, build)
     runs-on: ubuntu-latest
     defaults:
-      run: { working-directory: web }
+      run:
+        working-directory: web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npx tsc -b
       - run: npm test --silent
