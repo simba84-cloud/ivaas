@@ -7,8 +7,8 @@ import { roleLabel } from "./ui";
 
 const ROLES: CameraRole[] = ["chokepoint", "overhead", "side_high", "side_mid", "side_low", "lpr"];
 const input =
-  "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20";
-const label = "mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500";
+  "w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/10";
+const label = "mb-1 block text-xs font-semibold uppercase tracking-wide text-muted";
 
 /** Register a camera of any make: paste a stream URL, or find it over ONVIF. */
 export function AddCamera({ bayId, onClose }: { bayId: string; onClose: () => void }) {
@@ -43,9 +43,9 @@ export function AddCamera({ bayId, onClose }: { bayId: string; onClose: () => vo
 
   return (
     <div className="card mb-6 overflow-hidden">
-      <div className="flex items-center justify-between bg-brand-navy px-5 py-3 text-white">
+      <div className="flex items-center justify-between bg-brand px-5 py-3 text-white">
         <h2 className="font-semibold">Add camera</h2>
-        <button onClick={onClose} aria-label="Close" className="rounded p-1 hover:bg-white/10">
+        <button onClick={onClose} aria-label="Close" className="rounded p-1 hover:bg-surface/10">
           <X size={18} />
         </button>
       </div>
@@ -87,7 +87,7 @@ export function AddCamera({ bayId, onClose }: { bayId: string; onClose: () => vo
           <div className="mt-4">
             <label className={label}>Stream URL</label>
             <input
-              className={`${input} font-mono text-xs disabled:bg-slate-100`}
+              className={`${input} num text-xs disabled:bg-ground`}
               value={push ? "" : url}
               onChange={(e) => setUrl(e.target.value)}
               disabled={push}
@@ -96,18 +96,18 @@ export function AddCamera({ bayId, onClose }: { bayId: string; onClose: () => vo
               autoComplete="off"
               spellCheck={false}
             />
-            <p className="mt-1.5 text-xs text-slate-500">
+            <p className="mt-1.5 text-xs text-muted">
               RTSP, RTMP, SRT, HLS/MJPEG over HTTP, MPEG-TS over UDP, or WebRTC (WHEP): any vendor.
               The password is stored server-side and never shown again.
             </p>
-            <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+            <label className="mt-3 flex items-center gap-2 text-sm text-muted">
               <input type="checkbox" checked={push} onChange={(e) => setPush(e.target.checked)} />
               This device pushes its stream to the platform instead
             </label>
           </div>
 
           {add.isError && (
-            <p className="mt-3 text-sm text-red-600">{(add.error as Error).message}</p>
+            <p className="mt-3 text-sm text-bad">{(add.error as Error).message}</p>
           )}
           <div className="mt-5 flex gap-3">
             <button className="btn-primary" disabled={add.isPending}>
@@ -119,11 +119,11 @@ export function AddCamera({ bayId, onClose }: { bayId: string; onClose: () => vo
           </div>
         </form>
 
-        <div className="rounded-lg border border-slate-200 bg-brand-surface/60 p-4">
+        <div className="rounded-lg border border-line bg-ground p-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm font-semibold text-brand-navy">Find on network</div>
-              <div className="text-xs text-slate-500">ONVIF discovery: works across vendors</div>
+              <div className="text-sm font-semibold text-ink">Find on network</div>
+              <div className="text-xs text-muted">ONVIF discovery: works across vendors</div>
             </div>
             <button
               className="btn-ghost"
@@ -136,7 +136,7 @@ export function AddCamera({ bayId, onClose }: { bayId: string; onClose: () => vo
           </div>
 
           {discover.isSuccess && discover.data.length === 0 && (
-            <p className="mt-3 text-xs text-slate-500">
+            <p className="mt-3 text-xs text-muted">
               No ONVIF devices answered. The API server must be on the same network segment as the
               cameras (multicast does not cross routers or Docker's default bridge).
             </p>
@@ -152,12 +152,12 @@ export function AddCamera({ bayId, onClose }: { bayId: string; onClose: () => vo
                   }}
                   className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
                     device?.address === d.address
-                      ? "bg-brand-navy text-white"
-                      : "bg-white hover:bg-brand-navy-tint"
+                      ? "bg-brand text-white"
+                      : "bg-surface hover:bg-brand-tint"
                   }`}
                 >
                   <span className="font-semibold">{d.name ?? d.host}</span>
-                  <span className="ml-2 font-mono text-xs opacity-70">
+                  <span className="ml-2 num text-xs opacity-70">
                     {d.host} {d.hardware ? `· ${d.hardware}` : ""}
                   </span>
                 </button>
@@ -194,17 +194,17 @@ export function AddCamera({ bayId, onClose }: { bayId: string; onClose: () => vo
             </form>
           )}
           {streams.isError && (
-            <p className="mt-2 text-xs text-red-600">{(streams.error as Error).message}</p>
+            <p className="mt-2 text-xs text-bad">{(streams.error as Error).message}</p>
           )}
           <ul className="mt-2 space-y-1">
             {streams.data?.map((s) => (
               <li key={s.url}>
                 <button
                   onClick={() => pick(s)}
-                  className="flex w-full items-center justify-between rounded-lg bg-white px-3 py-2 text-sm hover:bg-brand-magenta-tint"
+                  className="flex w-full items-center justify-between rounded-lg bg-surface px-3 py-2 text-sm hover:bg-accent-tint"
                 >
-                  <span className="font-semibold text-brand-navy">{s.profile}</span>
-                  <span className="text-xs text-slate-500">
+                  <span className="font-semibold text-ink">{s.profile}</span>
+                  <span className="text-xs text-muted">
                     {s.resolution ? `${s.resolution[0]}×${s.resolution[1]}` : ""} {s.encoding ?? ""}
                   </span>
                 </button>

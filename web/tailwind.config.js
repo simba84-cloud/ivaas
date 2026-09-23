@@ -1,24 +1,43 @@
-/** Liquid Intelligent Technologies brand palette. */
+/**
+ * IVaaS design tokens. Colours are CSS variables so light and dark themes are one set of
+ * class names; see src/index.css for the values. Brand: Liquid Intelligent Technologies.
+ */
 export default {
+  darkMode: ["class", '[data-theme="dark"]'],
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
+        ground: "rgb(var(--ground) / <alpha-value>)",
+        surface: "rgb(var(--surface) / <alpha-value>)",
+        raised: "rgb(var(--raised) / <alpha-value>)",
+        line: "rgb(var(--line) / <alpha-value>)",
+        ink: "rgb(var(--ink) / <alpha-value>)",
+        muted: "rgb(var(--muted) / <alpha-value>)",
+        faint: "rgb(var(--faint) / <alpha-value>)",
         brand: {
-          navy: "#273c87",
-          "navy-dark": "#1d2d66",
-          "navy-tint": "#e9ecf5",
-          magenta: "#c8187d",
-          "magenta-tint": "#fbe8f3",
-          surface: "#f1f1f1",
+          DEFAULT: "rgb(var(--brand) / <alpha-value>)",
+          deep: "rgb(var(--brand-deep) / <alpha-value>)",
+          tint: "rgb(var(--brand-tint) / <alpha-value>)",
         },
+        accent: {
+          DEFAULT: "rgb(var(--accent) / <alpha-value>)",
+          tint: "rgb(var(--accent-tint) / <alpha-value>)",
+        },
+        good: "rgb(var(--good) / <alpha-value>)",
+        warn: "rgb(var(--warn) / <alpha-value>)",
+        bad: "rgb(var(--bad) / <alpha-value>)",
       },
       fontFamily: {
-        sans: ["Montserrat", "Inter", "system-ui", "sans-serif"],
+        sans: ["Manrope", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       boxShadow: {
-        card: "0 1px 2px rgba(39,60,135,0.06), 0 4px 12px rgba(39,60,135,0.06)",
+        card: "0 1px 0 rgb(var(--ink) / 0.04), 0 8px 24px -12px rgb(var(--ink) / 0.18)",
+        lift: "0 12px 32px -12px rgb(var(--ink) / 0.28)",
       },
+      borderRadius: { lg: "10px", xl: "14px", "2xl": "18px" },
+      transitionTimingFunction: { out: "cubic-bezier(0.2, 0.7, 0.2, 1)" },
     },
   },
   plugins: [],

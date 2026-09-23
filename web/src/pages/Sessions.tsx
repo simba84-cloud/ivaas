@@ -1,11 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
-import type { Session } from "../api/types";
+import type { Session, SessionStatus } from "../api/types";
 import { type Me, hasRole } from "../auth/session";
-import { EmptyState, PageHeader, SessionBadge, dateTime, pct } from "../components/ui";
+import { EmptyState, PageHeader, SessionBadge, VarianceBar, dateTime, pct } from "../components/ui";
 
-function ReconcileCell({ session, canOperate }: { session: Session; canOperate: boolean }) {
+const FILTERS: { key: SessionStatus | "all"; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "closed", label: "Awaiting count" },
+  { key: "disputed", label: "Disputed" },
+  { key: "reconciled", label: "Reconciled" },
+  { key: "open", label: "In progress" },
+];
+
+function VerifyCell({ session, canOperate }: { session: Session; canOperate: boolean }) {
   const qc = useQueryClient();
   const [value, setValue] = useState("");
   const reconcile = useMutation({
@@ -16,34 +25,40 @@ function ReconcileCell({ session, canOperate }: { session: Session; canOperate: 
     },
   });
 
-  if (session.status === "open") return <span className="text-xs text-slate-400">In progress</span>;
+  if (session.status === "open") return <span className="text-xs text-faint">In progress</span>;
   if (session.manual_count !== null)
-    return <span className="tabular-nums">{session.manual_count.toLocaleString()}</span>;
-  if (!canOperate) return <span className="text-xs text-slate-400">Awaiting verification</span>;
+    return <span className="num text-sm">{session.manual_count.toLocaleString()}</span>;
+  if (!canOperate) return <span className="text-xs text-faint">Awaiting count</span>;
 
   const n = Number(value);
   const valid = value !== "" && Number.isInteger(n) && n >= 0;
   return (
     <form
-      className="flex items-center justify-end gap-2"
+      className="flex items-center justify-end gap-1.5"
       onSubmit={(e) => {
         e.preventDefault();
         if (valid) reconcile.mutate(n);
       }}
     >
       <input
+        id={`manual-${session.id}`}
         inputMode="numeric"
         value={value}
         onChange={(e) => setValue(e.target.value.replace(/\D/g, ""))}
-        placeholder="Manual count"
+        placeholder="Manual"
         aria-label="Manual count"
-        className="w-28 rounded-lg border border-slate-300 px-2.5 py-1.5 text-right text-sm tabular-nums outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
+        className="input num h-8 w-24 px-2 text-right text-sm"
       />
-      <button className="btn-primary px-3 py-1.5" disabled={!valid || reconcile.isPending}>
-        Verify
+      <button
+        className="btn-primary btn-sm px-2"
+        disabled={!valid || reconcile.isPending}
+        aria-label="Verify"
+        title="Verify"
+      >
+        <Check size={14} />
       </button>
       {reconcile.isError && (
-        <span className="text-xs text-red-600">{(reconcile.error as Error).message}</span>
+        <span className="text-xs text-bad">{(reconcile.error as Error).message}</span>
       )}
     </form>
   );
@@ -51,50 +66,77 @@ function ReconcileCell({ session, canOperate }: { session: Session; canOperate: 
 
 export default function Sessions({ me }: { me: Me | undefined }) {
   const canOperate = hasRole(me, "operator");
+  const [filter, setFilter] = useState<SessionStatus | "all">("all");
   const sessions = useQuery({ queryKey: ["sessions"], queryFn: api.sessions });
+  const rows = (sessions.data ?? []).filter((s) => filter === "all" || s.status === filter);
+  const counts = Object.fromEntries(
+    FILTERS.map((f) => [f.key, (sessions.data ?? []).filter((s) => f.key === "all" || s.status === f.key).length]),
+  );
+  const verified = (sessions.data ?? []).filter((s) => s.accuracy !== null);
+  const mean = verified.length ? verified.reduce((a, s) => a + (s.accuracy ?? 0), 0) / verified.length : null;
 
   return (
     <>
       <PageHeader
         title="Reconciliation"
-        subtitle="Compare AI crate counts against manual verification, per truck"
+        subtitle="AI count against the manual count, per truck. Type the manual count to verify a load."
+        actions={
+          mean !== null ? (
+            <div className="text-right">
+              <div className="eyebrow">Mean accuracy</div>
+              <div className={`num text-2xl font-bold ${mean >= 0.95 ? "text-good" : "text-warn"}`}>{pct(mean)}</div>
+            </div>
+          ) : undefined
+        }
       />
+
+      <div className="mb-4 flex flex-wrap gap-1.5">
+        {FILTERS.map((f) => (
+          <button
+            key={f.key}
+            onClick={() => setFilter(f.key)}
+            className={`chip h-8 px-3 transition ${
+              filter === f.key ? "bg-ink text-surface" : "bg-surface text-muted hover:text-ink"
+            }`}
+          >
+            {f.label}
+            <span className={`num ${filter === f.key ? "text-surface/70" : "text-faint"}`}>{counts[f.key]}</span>
+          </button>
+        ))}
+      </div>
+
       <div className="card overflow-hidden">
-        {sessions.data?.length ? (
+        {rows.length ? (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-brand-navy-tint/60">
+              <thead className="bg-ground">
                 <tr>
                   <th className="th">Plate</th>
                   <th className="th">Direction</th>
                   <th className="th">Opened</th>
                   <th className="th text-right">AI count</th>
-                  <th className="th text-right">Manual count</th>
-                  <th className="th text-right">Variance</th>
+                  <th className="th text-right">Manual</th>
+                  <th className="th">Variance</th>
                   <th className="th text-right">Accuracy</th>
                   <th className="th">Status</th>
                 </tr>
               </thead>
-              <tbody>
-                {sessions.data.map((s) => (
-                  <tr key={s.id} className="border-t border-slate-100">
-                    <td className="td font-mono font-semibold text-brand-navy">{s.plate ?? "—"}</td>
-                    <td className="td capitalize">{s.direction}</td>
-                    <td className="td text-slate-500">{dateTime(s.opened_at)}</td>
-                    <td className="td text-right font-semibold tabular-nums">
-                      {s.ai_count.toLocaleString()}
-                    </td>
+              <tbody className="divide-y divide-line">
+                {rows.map((s) => (
+                  <tr key={s.id} className="transition hover:bg-ground/60">
+                    <td className="td num font-semibold text-ink">{s.plate ?? "—"}</td>
+                    <td className="td capitalize text-muted">{s.direction}</td>
+                    <td className="td text-muted">{dateTime(s.opened_at)}</td>
+                    <td className="td num text-right font-semibold">{s.ai_count.toLocaleString()}</td>
                     <td className="td text-right">
-                      <ReconcileCell session={s} canOperate={canOperate} />
+                      <VerifyCell session={s} canOperate={canOperate} />
                     </td>
-                    <td
-                      className={`td text-right tabular-nums ${
-                        s.variance ? "font-semibold text-amber-700" : ""
-                      }`}
-                    >
-                      {s.variance === null ? "—" : s.variance > 0 ? `+${s.variance}` : s.variance}
+                    <td className="td">
+                      <VarianceBar variance={s.variance} manual={s.manual_count} />
                     </td>
-                    <td className="td text-right tabular-nums">{pct(s.accuracy)}</td>
+                    <td className={`td num text-right ${s.accuracy !== null && s.accuracy < 0.95 ? "font-semibold text-warn" : ""}`}>
+                      {pct(s.accuracy)}
+                    </td>
                     <td className="td">
                       <SessionBadge status={s.status} />
                     </td>
@@ -105,8 +147,8 @@ export default function Sessions({ me }: { me: Me | undefined }) {
           </div>
         ) : (
           <EmptyState
-            title="Nothing to reconcile yet"
-            body="Closed truck sessions will be listed here for manual verification."
+            title={filter === "all" ? "Nothing to reconcile yet" : "No sessions match this filter"}
+            body="Closed truck sessions are listed here for manual verification."
           />
         )}
       </div>

@@ -5,9 +5,11 @@ import {
   LayoutDashboard,
   LogOut,
   MonitorPlay,
+  Moon,
   Sparkles,
+  Sun,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import type { Me } from "../auth/session";
 
@@ -20,6 +22,34 @@ const NAV = [
   { to: "/assistant", label: "Assistant", icon: Sparkles },
 ];
 
+type Theme = "light" | "dark" | null;
+
+const systemDark = () =>
+  typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches;
+
+function useTheme(): [boolean, () => void] {
+  const [theme, setTheme] = useState<Theme>(() => {
+    try {
+      return (localStorage.getItem("ivaas.theme") as Theme) ?? null;
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme) root.setAttribute("data-theme", theme);
+    else root.removeAttribute("data-theme");
+    try {
+      if (theme) localStorage.setItem("ivaas.theme", theme);
+      else localStorage.removeItem("ivaas.theme");
+    } catch {
+      /* storage blocked: the choice lasts for this page */
+    }
+  }, [theme]);
+  const isDark = theme === "dark" || (theme === null && systemDark());
+  return [isDark, () => setTheme(isDark ? "light" : "dark")];
+}
+
 export function Layout({
   connected,
   me,
@@ -31,89 +61,100 @@ export function Layout({
   onLogout: () => void;
   children: ReactNode;
 }) {
+  const [isDark, toggleTheme] = useTheme();
+
   return (
-    <div className="flex min-h-screen">
-      <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-slate-200 bg-white lg:flex">
-        <div className="border-b border-slate-100 px-6 py-5">
-          <img src="/logo-liquid.png" alt="Liquid Intelligent Technologies" className="h-10" />
+    <div className="flex min-h-full">
+      <aside className="fixed inset-y-0 left-0 hidden w-56 flex-col border-r border-line bg-surface lg:flex">
+        <div className="px-5 pb-4 pt-5">
+          <img
+            src="/logo-liquid.png"
+            alt="Liquid Intelligent Technologies"
+            className="h-9 dark:brightness-0 dark:invert"
+          />
+          <div className="eyebrow mt-3">Intelligent Video</div>
         </div>
-        <div className="px-6 pb-2 pt-5 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
-          Intelligent Video
-        </div>
-        <nav className="flex-1 space-y-1 px-3">
+        <nav className="flex-1 space-y-0.5 px-3">
           {NAV.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
               end={to === "/"}
               className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
-                  isActive
-                    ? "bg-brand-navy text-white shadow-sm"
-                    : "text-slate-600 hover:bg-brand-navy-tint hover:text-brand-navy"
+                `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  isActive ? "bg-brand-tint text-brand" : "text-muted hover:bg-ground hover:text-ink"
                 }`
               }
             >
-              <Icon size={18} strokeWidth={2} />
-              {label}
+              {({ isActive }) => (
+                <>
+                  <span
+                    className={`h-5 w-0.5 rounded-full ${isActive ? "bg-accent" : "bg-transparent"}`}
+                  />
+                  <Icon size={17} strokeWidth={2.2} />
+                  {label}
+                </>
+              )}
             </NavLink>
           ))}
         </nav>
-        <div className="border-t border-slate-100 px-6 py-4 text-xs text-slate-400">
-          IVaaS Platform · v0.1.0
+        <div className="border-t border-line px-5 py-4">
+          <div className="truncate text-sm font-semibold text-ink">{me?.name ?? ""}</div>
+          <div className="truncate text-xs capitalize text-muted">{me?.roles.join(" · ")}</div>
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col lg:pl-64">
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-8">
-          <div className="flex items-center gap-3">
-            <img src="/logo-liquid.png" alt="Liquid" className="h-7 lg:hidden" />
-            <div className="hidden lg:block">
-              <div className="text-sm font-semibold text-brand-navy">
-                Demo Bakery Industrial Site
-              </div>
-              <div className="text-xs text-slate-500">POC Loading Bay · Crate reconciliation</div>
+      <div className="flex min-w-0 flex-1 flex-col lg:pl-56">
+        <header
+          className="sticky z-10 flex h-14 items-center justify-between gap-4 border-b border-line bg-surface/85 px-4 backdrop-blur sm:px-8"
+          style={{ top: "env(safe-area-inset-top, 0px)" }}
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <img
+              src="/logo-liquid.png"
+              alt="Liquid"
+              className="h-6 lg:hidden dark:brightness-0 dark:invert"
+            />
+            <div className="hidden min-w-0 lg:block">
+              <div className="truncate text-sm font-bold text-ink">Demo Bakery Industrial Site</div>
+              <div className="truncate text-xs text-muted">POC Loading Bay</div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-          <div
-            className={`flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${
-              connected ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
-            }`}
-          >
+          <div className="flex items-center gap-1.5">
             <span
-              className={`h-2 w-2 rounded-full ${
-                connected ? "animate-pulse bg-emerald-500" : "bg-slate-400"
-              }`}
-            />
-            {connected ? "Live" : "Reconnecting"}
-          </div>
-          <div className="hidden text-right sm:block">
-            <div className="text-sm font-semibold text-brand-navy">{me?.name ?? ""}</div>
-            <div className="text-xs capitalize text-slate-500">{me?.roles.join(", ")}</div>
-          </div>
-          <button
-            onClick={onLogout}
-            aria-label="Sign out"
-            title="Sign out"
-            className="rounded-lg p-2 text-slate-500 hover:bg-brand-navy-tint hover:text-brand-navy"
-          >
-            <LogOut size={18} />
-          </button>
+              className={`chip mr-1 ${connected ? "bg-good/10 text-good" : "bg-ground text-muted"}`}
+              title={connected ? "Receiving live events" : "Reconnecting to the platform"}
+            >
+              <span className={`dot ${connected ? "animate-pulse bg-good" : "bg-faint"}`} />
+              {connected ? "Live" : "Reconnecting"}
+            </span>
+            <button
+              onClick={toggleTheme}
+              aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
+              className="rounded-lg p-2 text-muted transition hover:bg-ground hover:text-ink"
+            >
+              {isDark ? <Sun size={17} /> : <Moon size={17} />}
+            </button>
+            <button
+              onClick={onLogout}
+              aria-label="Sign out"
+              title="Sign out"
+              className="rounded-lg p-2 text-muted transition hover:bg-ground hover:text-ink"
+            >
+              <LogOut size={17} />
+            </button>
           </div>
         </header>
 
-        <nav className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-2 lg:hidden">
+        <nav className="flex gap-1 overflow-x-auto border-b border-line bg-surface px-2 lg:hidden">
           {NAV.map(({ to, label }) => (
             <NavLink
               key={to}
               to={to}
               end={to === "/"}
               className={({ isActive }) =>
-                `whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium ${
-                  isActive
-                    ? "border-brand-magenta text-brand-navy"
-                    : "border-transparent text-slate-500"
+                `whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-semibold ${
+                  isActive ? "border-accent text-ink" : "border-transparent text-muted"
                 }`
               }
             >
@@ -122,7 +163,7 @@ export function Layout({
           ))}
         </nav>
 
-        <main className="flex-1 px-4 py-6 sm:px-8">{children}</main>
+        <main className="flex-1 px-4 pb-10 pt-6 sm:px-8">{children}</main>
       </div>
     </div>
   );

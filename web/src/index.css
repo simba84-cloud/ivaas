@@ -2,32 +2,138 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Tokens: light on :root, dark under system preference (unless explicitly light) and under
+   an explicit dark stamp. Components only ever use the token classes. */
+:root {
+  --ground: 244 245 249;
+  --surface: 255 255 255;
+  --raised: 255 255 255;
+  --line: 226 229 238;
+  --ink: 26 34 71;
+  --muted: 107 115 148;
+  --faint: 158 164 190;
+  --brand: 39 60 135;
+  --brand-deep: 29 45 102;
+  --brand-tint: 233 236 245;
+  --accent: 200 24 125;
+  --accent-tint: 251 232 243;
+  --good: 31 157 99;
+  --warn: 217 139 19;
+  --bad: 209 59 59;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: 15 20 40;
+    --surface: 23 29 54;
+    --raised: 30 37 66;
+    --line: 45 53 88;
+    --ink: 236 238 247;
+    --muted: 160 168 200;
+    --faint: 110 118 152;
+    --brand: 120 142 220;
+    --brand-deep: 90 112 196;
+    --brand-tint: 34 43 80;
+    --accent: 232 78 160;
+    --accent-tint: 60 28 52;
+    --good: 62 190 128;
+    --warn: 235 168 52;
+    --bad: 232 92 92;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: 15 20 40;
+  --surface: 23 29 54;
+  --raised: 30 37 66;
+  --line: 45 53 88;
+  --ink: 236 238 247;
+  --muted: 160 168 200;
+  --faint: 110 118 152;
+  --brand: 120 142 220;
+  --brand-deep: 90 112 196;
+  --brand-tint: 34 43 80;
+  --accent: 232 78 160;
+  --accent-tint: 60 28 52;
+  --good: 62 190 128;
+  --warn: 235 168 52;
+  --bad: 232 92 92;
+  color-scheme: dark;
+}
+
 @layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
   body {
-    @apply bg-brand-surface font-sans text-slate-800 antialiased;
+    @apply bg-ground font-sans text-ink antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--brand));
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
 @layer components {
   .card {
-    @apply rounded-xl border border-slate-200/70 bg-white shadow-card;
+    @apply rounded-xl border border-line bg-surface;
+  }
+  .card-lift {
+    @apply rounded-xl bg-surface shadow-card;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-40;
   }
   .btn-primary {
-    @apply btn bg-brand-navy text-white hover:bg-brand-navy-dark;
+    @apply btn bg-brand text-white hover:bg-brand-deep;
   }
   .btn-accent {
-    @apply btn bg-brand-magenta text-white hover:brightness-110;
+    @apply btn bg-accent text-white hover:brightness-110;
   }
   .btn-ghost {
-    @apply btn border border-slate-300 bg-white text-brand-navy hover:bg-brand-navy-tint;
+    @apply btn border border-line bg-surface text-ink hover:border-brand/40 hover:bg-brand-tint;
+  }
+  .btn-sm {
+    @apply h-8 px-3 text-xs;
+  }
+  .input {
+    @apply h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-brand focus:ring-4 focus:ring-brand/10 disabled:bg-ground;
+  }
+  .label {
+    @apply mb-1.5 block text-[11px] font-bold uppercase tracking-[0.12em] text-muted;
+  }
+  .eyebrow {
+    @apply text-[11px] font-bold uppercase tracking-[0.14em] text-muted;
   }
   .th {
-    @apply whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500;
+    @apply whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-muted;
   }
   .td {
     @apply whitespace-nowrap px-4 py-3 text-sm;
+  }
+  .num {
+    @apply font-mono tabular-nums;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold;
+  }
+  .dot {
+    @apply inline-block h-2 w-2 rounded-full;
   }
 }

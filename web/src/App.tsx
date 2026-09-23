@@ -29,7 +29,7 @@ function OidcCallback({ config }: { config: AuthConfig }) {
       .then((path) => navigate(path, { replace: true }))
       .catch(() => navigate("/", { replace: true }));
   }, [config, navigate]);
-  return <div className="p-8 text-sm text-slate-500">Completing sign-in…</div>;
+  return <div className="p-8 text-sm text-muted">Completing sign-in…</div>;
 }
 
 export default function App() {

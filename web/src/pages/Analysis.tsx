@@ -8,10 +8,10 @@ import { type Me, hasRole } from "../auth/session";
 import { EmptyState, PageHeader, dateTime } from "../components/ui";
 
 const STATUS: Record<AnalysisJob["status"], string> = {
-  queued: "bg-slate-100 text-slate-600",
-  running: "bg-brand-magenta-tint text-brand-magenta",
-  done: "bg-emerald-50 text-emerald-700",
-  failed: "bg-red-50 text-red-700",
+  queued: "bg-ground text-muted",
+  running: "bg-accent-tint text-accent",
+  done: "bg-good/10 text-good",
+  failed: "bg-bad/10 text-bad",
 };
 
 export function fmtSeconds(s: number | null): string {
@@ -55,7 +55,7 @@ function UploadCard({ bayId }: { bayId: string }) {
         }}
         onClick={() => input.current?.click()}
         className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition ${
-          dragging ? "border-brand-magenta bg-brand-magenta-tint" : "border-slate-300 hover:border-brand-navy"
+          dragging ? "border-accent bg-accent-tint" : "border-line hover:border-brand"
         }`}
       >
         <input
@@ -67,32 +67,32 @@ function UploadCard({ bayId }: { bayId: string }) {
         />
         {file ? (
           <>
-            <FileVideo size={32} className="text-brand-navy" />
-            <div className="mt-3 font-semibold text-brand-navy">{file.name}</div>
-            <div className="text-xs text-slate-500">{(file.size / 1e6).toFixed(1)} MB</div>
+            <FileVideo size={32} className="text-ink" />
+            <div className="mt-3 font-semibold text-ink">{file.name}</div>
+            <div className="text-xs text-muted">{(file.size / 1e6).toFixed(1)} MB</div>
           </>
         ) : (
           <>
-            <UploadCloud size={32} className="text-slate-400" />
-            <div className="mt-3 font-semibold text-brand-navy">Drop a video here, or click to choose</div>
-            <div className="text-xs text-slate-500">MP4, MOV, MKV or WebM · up to 2 GB</div>
+            <UploadCloud size={32} className="text-faint" />
+            <div className="mt-3 font-semibold text-ink">Drop a video here, or click to choose</div>
+            <div className="text-xs text-muted">MP4, MOV, MKV or WebM · up to 2 GB</div>
           </>
         )}
       </div>
 
       {upload.isPending && (
         <div className="mt-4">
-          <div className="mb-1 flex justify-between text-xs text-slate-500">
+          <div className="mb-1 flex justify-between text-xs text-muted">
             <span>Uploading</span>
             <span>{Math.round(sent * 100)}%</span>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-            <div className="h-full bg-brand-magenta transition-all" style={{ width: `${sent * 100}%` }} />
+          <div className="h-2 overflow-hidden rounded-full bg-line">
+            <div className="h-full bg-accent transition-all" style={{ width: `${sent * 100}%` }} />
           </div>
         </div>
       )}
       {upload.isError && (
-        <p className="mt-3 text-sm text-red-600">{(upload.error as Error).message}</p>
+        <p className="mt-3 text-sm text-bad">{(upload.error as Error).message}</p>
       )}
       <div className="mt-4 flex gap-3">
         <button
@@ -133,20 +133,20 @@ export default function Analysis({ me }: { me: Me | undefined }) {
           {hasRole(me, "operator") ? (
             bayId && <UploadCard bayId={bayId} />
           ) : (
-            <div className="card p-5 text-sm text-slate-500">
+            <div className="card p-5 text-sm text-muted">
               Operators and admins can upload videos. You can view completed reports.
             </div>
           )}
         </div>
 
         <section className="card overflow-hidden xl:col-span-2">
-          <div className="border-b border-slate-100 px-5 py-4">
-            <h2 className="font-semibold text-brand-navy">Analyses</h2>
+          <div className="border-b border-line px-5 py-4">
+            <h2 className="font-semibold text-ink">Analyses</h2>
           </div>
           {jobs.data?.length ? (
             <table className="w-full">
               <thead>
-                <tr className="border-b border-slate-100">
+                <tr className="border-b border-line">
                   <th className="th">Video</th>
                   <th className="th">Status</th>
                   <th className="th text-right">Loads</th>
@@ -156,13 +156,13 @@ export default function Analysis({ me }: { me: Me | undefined }) {
               </thead>
               <tbody>
                 {jobs.data.map((j) => (
-                  <tr key={j.id} className="border-b border-slate-50 last:border-0">
+                  <tr key={j.id} className="border-b border-line last:border-0">
                     <td className="td">
-                      <Link to={`/analysis/${j.id}`} className="font-semibold text-brand-navy hover:underline">
+                      <Link to={`/analysis/${j.id}`} className="font-semibold text-ink hover:underline">
                         {j.filename}
                       </Link>
                       {j.duration_s !== null && (
-                        <span className="ml-2 text-xs text-slate-400">{fmtSeconds(j.duration_s)}</span>
+                        <span className="ml-2 text-xs text-faint">{fmtSeconds(j.duration_s)}</span>
                       )}
                     </td>
                     <td className="td">
@@ -173,15 +173,15 @@ export default function Analysis({ me }: { me: Me | undefined }) {
                         {j.status}
                         {j.status === "running" && ` ${Math.round(j.progress * 100)}%`}
                       </span>
-                      {j.error && <div className="mt-1 max-w-xs truncate text-xs text-red-600">{j.error}</div>}
+                      {j.error && <div className="mt-1 max-w-xs truncate text-xs text-bad">{j.error}</div>}
                     </td>
                     <td className="td text-right tabular-nums">{j.status === "done" ? j.loads.length : "—"}</td>
                     <td className="td text-right font-semibold tabular-nums">
                       {j.status === "done" ? j.total_crates.toLocaleString() : "—"}
                     </td>
-                    <td className="td text-slate-500">
+                    <td className="td text-muted">
                       {dateTime(j.created_at)}
-                      <div className="text-xs text-slate-400">{j.created_by}</div>
+                      <div className="text-xs text-faint">{j.created_by}</div>
                     </td>
                   </tr>
                 ))}

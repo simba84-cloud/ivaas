@@ -68,7 +68,7 @@ export default function Assistant() {
       <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           {disabled && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <div className="rounded-lg border border-warn/30 bg-warn/10 p-4 text-sm text-warn">
               The assistant is not configured. Point <code>IVAAS_LLM_URL</code> at an
               OpenAI-compatible model server (Ollama, vLLM, llama.cpp) and restart the API.
             </div>
@@ -76,10 +76,10 @@ export default function Assistant() {
 
           {entries.length === 0 && !disabled && (
             <div className="py-8 text-center">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-brand-magenta-tint text-brand-magenta">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent-tint text-accent">
                 <Sparkles size={22} />
               </div>
-              <p className="mt-3 text-sm text-slate-500">
+              <p className="mt-3 text-sm text-muted">
                 Answers come from live platform data. Every reply shows which data it used.
               </p>
               <div className="mt-5 flex flex-wrap justify-center gap-2">
@@ -87,7 +87,7 @@ export default function Assistant() {
                   <button
                     key={s}
                     onClick={() => send(s)}
-                    className="rounded-full border border-slate-300 bg-white px-3.5 py-1.5 text-sm text-brand-navy hover:border-brand-navy hover:bg-brand-navy-tint"
+                    className="rounded-full border border-line bg-surface px-3.5 py-1.5 text-sm text-ink hover:border-brand hover:bg-brand-tint"
                   >
                     {s}
                   </button>
@@ -102,24 +102,24 @@ export default function Assistant() {
                 <div
                   className={`whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
                     m.role === "user"
-                      ? "rounded-br-sm bg-brand-navy text-white"
-                      : "rounded-bl-sm bg-brand-surface text-slate-800"
+                      ? "rounded-br-sm bg-brand text-white"
+                      : "rounded-bl-sm bg-ground text-ink"
                   }`}
                 >
                   {m.content || "(no answer)"}
                 </div>
                 {m.tools && m.tools.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
                     <Database size={12} />
                     {[...new Set(m.tools.map((t) => t.name))].map((name) => (
-                      <span key={name} className="rounded bg-brand-navy-tint px-1.5 py-0.5">
+                      <span key={name} className="rounded bg-brand-tint px-1.5 py-0.5">
                         {TOOL_LABEL[name] ?? name}
                       </span>
                     ))}
                   </div>
                 )}
                 {m.role === "assistant" && (!m.tools || m.tools.length === 0) && (
-                  <div className="mt-1.5 text-xs text-amber-700">
+                  <div className="mt-1.5 text-xs text-warn">
                     No platform data was queried for this reply. Treat any figures with caution.
                   </div>
                 )}
@@ -128,13 +128,13 @@ export default function Assistant() {
           ))}
 
           {ask.isPending && (
-            <div className="flex items-center gap-2 text-sm text-slate-500">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-brand-magenta" />
+            <div className="flex items-center gap-2 text-sm text-muted">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
               Analysing…
             </div>
           )}
           {ask.isError && (
-            <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">
+            <div className="rounded-lg bg-bad/10 px-4 py-2 text-sm text-bad">
               {(ask.error as Error).message}
             </div>
           )}
@@ -142,7 +142,7 @@ export default function Assistant() {
         </div>
 
         <form
-          className="flex gap-2 border-t border-slate-200 bg-white p-3"
+          className="flex gap-2 border-t border-line bg-surface p-3"
           onSubmit={(e) => {
             e.preventDefault();
             send(draft);
@@ -154,7 +154,7 @@ export default function Assistant() {
             disabled={disabled}
             placeholder="Ask about crate counts, accuracy, trucks or cameras…"
             aria-label="Message"
-            className="flex-1 rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20 disabled:bg-slate-100"
+            className="flex-1 rounded-lg border border-line px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 disabled:bg-ground"
           />
           <button className="btn-accent" disabled={disabled || ask.isPending || !draft.trim()}>
             <SendHorizontal size={16} />

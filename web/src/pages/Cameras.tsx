@@ -47,7 +47,7 @@ export default function Cameras({ me }: { me: Me | undefined }) {
         {cameras.data?.length ? (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-brand-navy-tint/60">
+              <thead className="bg-ground">
                 <tr>
                   <th className="th">Camera</th>
                   <th className="th">Position</th>
@@ -60,15 +60,15 @@ export default function Cameras({ me }: { me: Me | undefined }) {
               </thead>
               <tbody>
                 {cameras.data.map((c) => (
-                  <tr key={c.id} className="border-t border-slate-100">
-                    <td className="td font-semibold text-brand-navy">{c.name}</td>
+                  <tr key={c.id} className="border-t border-line">
+                    <td className="td font-semibold text-ink">{c.name}</td>
                     <td className="td">{roleLabel(c.role)}</td>
                     <td className="td">
-                      <span className="rounded bg-brand-navy-tint px-2 py-0.5 text-xs font-semibold uppercase text-brand-navy">
+                      <span className="rounded bg-brand-tint px-2 py-0.5 text-xs font-semibold uppercase text-ink">
                         {c.protocol}
                       </span>
                     </td>
-                    <td className="td max-w-xs truncate font-mono text-xs text-slate-500">
+                    <td className="td max-w-xs truncate num text-xs text-muted">
                       {c.source_url ?? `publish to ${c.stream_path}`}
                     </td>
                     <td className="td">
@@ -77,27 +77,27 @@ export default function Cameras({ me }: { me: Me | undefined }) {
                         {c.status}
                       </span>
                     </td>
-                    <td className="td text-slate-500">
+                    <td className="td text-muted">
                       {c.last_seen_at ? dateTime(c.last_seen_at) : "Never"}
                     </td>
                     <td className="td text-right">
                       {!isAdmin ? null : confirming === c.id ? (
                         <span className="inline-flex items-center gap-2 text-xs">
                           <button
-                            className="font-semibold text-red-600 hover:underline"
+                            className="font-semibold text-bad hover:underline"
                             disabled={remove.isPending}
                             onClick={() => remove.mutate(c.id)}
                           >
                             Remove
                           </button>
-                          <button className="text-slate-500" onClick={() => setConfirming(null)}>
+                          <button className="text-muted" onClick={() => setConfirming(null)}>
                             Keep
                           </button>
                         </span>
                       ) : (
                         <button
                           aria-label={`Remove ${c.name}`}
-                          className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          className="rounded p-1 text-faint hover:bg-bad/10 hover:text-bad"
                           onClick={() => setConfirming(c.id)}
                         >
                           <Trash2 size={16} />
