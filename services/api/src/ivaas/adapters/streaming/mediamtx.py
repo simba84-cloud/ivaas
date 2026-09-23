@@ -44,6 +44,14 @@ class MediaMtxGateway:
             raise StreamGatewayError(f"media gateway rejected path '{stream_path}': {exc}") from exc
         log.info("provisioned %s (%s)", stream_path, source.protocol)
 
+    async def live_paths(self) -> set[str]:
+        try:
+            r = await self._client.get("/v3/paths/list", params={"itemsPerPage": 1000})
+            r.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise StreamGatewayError(f"media gateway unreachable: {exc}") from exc
+        return {p["name"] for p in r.json().get("items", []) if p.get("ready")}
+
     async def remove(self, stream_path: str) -> None:
         name = quote(stream_path, safe="/")
         try:
@@ -59,9 +67,13 @@ class NullStreamGateway:
 
     def __init__(self) -> None:
         self.paths: dict[str, StreamSource] = {}
+        self.live: set[str] = set()
 
     async def provision(self, stream_path: str, source: StreamSource) -> None:
         self.paths[stream_path] = source
 
     async def remove(self, stream_path: str) -> None:
         self.paths.pop(stream_path, None)
+
+    async def live_paths(self) -> set[str]:
+        return set(self.live)  # tests set this directly

@@ -27,7 +27,7 @@ from ivaas.adapters.streaming.mediamtx import MediaMtxGateway, NullStreamGateway
 from ivaas.adapters.streaming.onvif import OnvifDiscovery
 from ivaas.application.analytics import AnalyticsTools
 from ivaas.application.assistant import AskAssistant
-from ivaas.application.cameras import RegisterCamera, RemoveCamera
+from ivaas.application.cameras import RefreshCameraStatus, RegisterCamera, RemoveCamera
 from ivaas.application.sessions import (
     CloseIdleSessions,
     CloseSession,
@@ -130,6 +130,10 @@ class Container:
     @property
     def register_camera(self) -> RegisterCamera:
         return RegisterCamera(self.bays, self.cameras, self.gateway, self.events)
+
+    @property
+    def refresh_camera_status(self) -> RefreshCameraStatus:
+        return RefreshCameraStatus(self.bays, self.cameras, self.gateway, self.clock)
 
     @property
     def remove_camera(self) -> RemoveCamera:

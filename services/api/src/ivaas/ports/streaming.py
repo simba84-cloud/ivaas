@@ -20,6 +20,10 @@ class StreamGateway(Protocol):
 
     async def remove(self, stream_path: str) -> None: ...
 
+    async def live_paths(self) -> set[str]:
+        """Stream paths currently receiving video, whatever their source."""
+        ...
+
 
 @dataclass(frozen=True)
 class DiscoveredDevice:

@@ -43,6 +43,12 @@ Keycloak (http://localhost:8180, realm `ivaas`, same demo users, forced password
 
 API docs: http://localhost:8000/docs · Metrics: `/metrics` · Grafana: `:3000` · MinIO: `:9001`
 
+Use a laptop webcam as a camera (register it as a push camera in the portal first):
+
+```bash
+./deploy/webcam.sh poc-loading-bay/laptop-webcam
+```
+
 Replay recorded footage as a live camera (needs ffmpeg):
 
 ```bash

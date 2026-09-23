@@ -17,6 +17,14 @@ authInternalUsers:
 
 webrtc: yes
 webrtcAddress: :8889
+# Browsers connect to the media port directly, so MediaMTX must advertise an address
+# they can reach. The host is set from docker-compose via MTX_WEBRTCADDITIONALHOSTS
+# (IVAAS_MEDIA_HOST: the edge node's LAN IP on site, localhost on a laptop).
+# TCP is offered too: it survives Docker NAT where UDP does not.
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: [localhost]
 rtspAddress: :8554
 hls: no
 rtmp: no

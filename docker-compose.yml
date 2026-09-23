@@ -34,11 +34,14 @@ services:
 
   mediamtx:
     image: bluenviron/mediamtx:latest
+    environment:
+      MTX_WEBRTCADDITIONALHOSTS: ${IVAAS_MEDIA_HOST:-localhost}
     volumes: [./deploy/mediamtx/mediamtx.yml:/mediamtx.yml:ro]
     ports:
       - "8554:8554" # RTSP in/out
       - "8889:8889" # WebRTC (WHEP) players used by the portal
       - "8189:8189/udp"
+      - "8189:8189"       # WebRTC over TCP fallback
     restart: unless-stopped
 
   api:

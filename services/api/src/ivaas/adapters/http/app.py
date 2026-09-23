@@ -69,6 +69,17 @@ async def _sweep_idle_sessions(container: Container, every_s: float = 60.0) -> N
             log.exception("idle-session sweep failed")
 
 
+async def _refresh_camera_status(container: Container, every_s: float = 10.0) -> None:
+    while True:
+        try:
+            changed = await container.refresh_camera_status()
+            if changed["offline"]:
+                log.warning("%d camera(s) stopped streaming", changed["offline"])
+        except Exception:
+            log.exception("camera status refresh failed")
+        await asyncio.sleep(every_s)
+
+
 def get_container(request: Request) -> Container:
     return request.app.state.container
 
@@ -85,9 +96,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.container = await build_container(settings)
-        sweeper = asyncio.create_task(_sweep_idle_sessions(app.state.container))
+        tasks = [
+            asyncio.create_task(_sweep_idle_sessions(app.state.container)),
+            asyncio.create_task(_refresh_camera_status(app.state.container)),
+        ]
         yield
-        sweeper.cancel()
+        for t in tasks:
+            t.cancel()
         await app.state.container.aclose()
 
     app = FastAPI(title="IVaaS Core API", version="0.1.0", lifespan=lifespan)

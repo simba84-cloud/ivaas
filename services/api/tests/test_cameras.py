@@ -209,3 +209,32 @@ def test_onvif_streams_endpoint_refuses_non_lan_targets(client):
         json={"address": "http://127.0.0.1:8000/x", "username": "a", "password": "b"},
     )
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_camera_status_follows_what_the_gateway_receives():
+    from ivaas.adapters.persistence.memory import (
+        InMemoryBayRepository,
+        InMemoryCameraRepository,
+        SystemClock,
+    )
+    from ivaas.adapters.streaming.mediamtx import NullStreamGateway
+    from ivaas.application.cameras import RefreshCameraStatus
+    from ivaas.config.container import demo_topology
+    from ivaas.domain.models import CameraStatus
+
+    _, bay, cams = demo_topology()
+    repo, gw = InMemoryCameraRepository(cams), NullStreamGateway()
+    refresh = RefreshCameraStatus(InMemoryBayRepository([bay]), repo, gw, SystemClock())
+
+    gw.live = {cams[0].stream_path}
+    changed = await refresh()
+    assert changed == {"online": 1, "offline": 0}
+    assert (await repo.get(cams[0].id)).status is CameraStatus.ONLINE
+    assert (await repo.get(cams[1].id)).status is CameraStatus.OFFLINE
+
+    gw.live = set()  # the stream drops
+    changed = await refresh()
+    assert changed["offline"] == 1
+    assert (await repo.get(cams[0].id)).status is CameraStatus.OFFLINE
+    assert (await repo.get(cams[0].id)).last_seen_at is not None  # history kept

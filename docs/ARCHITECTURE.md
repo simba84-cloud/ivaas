@@ -59,6 +59,12 @@ Nothing downstream of the media gateway knows what kind of camera it is looking 
 - The streams endpoint makes the server call a client-supplied address, so it only accepts
   private LAN IPs (no hostnames, loopback, or link-local/cloud-metadata): SSRF guard, tested.
 - Streams are pulled **on demand**: 16 idle 4K cameras cost no bandwidth.
+- **Camera status comes from the gateway**, not from the camera: every 10 s the API asks
+  MediaMTX which paths are receiving video and marks cameras online/offline. Works the
+  same for a pulled Hikvision, a pushed encoder, or a laptop webcam (`deploy/webcam.sh`).
+- **WebRTC through Docker** needs MediaMTX to advertise a host the browser can reach:
+  `IVAAS_MEDIA_HOST` (the edge node's LAN IP on site). Found the hard way: MediaMTX does
+  not expand `${VAR}` in its YAML; use its `MTX_*` environment variables.
 
 Not covered: cameras that expose *only* a proprietary cloud/P2P protocol and no RTSP/ONVIF
 (some consumer devices). Those need the vendor's NVR or a bridge in front of them.
@@ -205,6 +211,6 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
    until OIDC is added. Default passwords in `docker-compose.yml` are for local use only.
 8. **Camera credentials are stored in plain text** in `cameras.source_url` (redacted on
    the way out, but not encrypted at rest). Use pgcrypto or a KMS-wrapped key before production.
-9. **Camera status is heartbeat-only.** Nothing yet probes a registered stream to confirm
-   it actually plays; a wrong URL is accepted and simply never goes online.
+9. **A wrong camera URL is accepted silently**: the camera just never goes online. A
+   registration-time probe would catch typos earlier.
 9. **MinIO is provisioned but unused** — evidence-clip capture per session is not built.
