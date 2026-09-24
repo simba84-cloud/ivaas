@@ -43,8 +43,13 @@ docker compose --profile edge up pipeline     # on the GPU edge node; needs mode
 Assistant (dev): `docker run -d -p 11434:11434 -v ivaas_ollama:/root/.ollama ollama/ollama`, pull a model, then start
 the API with `IVAAS_LLM_URL=http://localhost:11434 IVAAS_LLM_MODEL=qwen3:8b`.
 
-Dev logins (local auth mode): `admin/admin`, `operator/operator`, `viewer/viewer`. The Docker stack uses
-Keycloak (http://localhost:8180, realm `ivaas`, same demo users, forced password change on first login).
+Logins: `admin/admin`, `operator/operator`, `viewer/viewer`. The stack defaults to `IVAAS_AUTH_MODE=local`,
+so the portal's own sign-in page is the login and there is no redirect. These accounts live in config, which
+is a demo posture, not a production one.
+
+For real identity management set `IVAAS_AUTH_MODE=oidc`: the portal then redirects to Keycloak
+(http://localhost:8180, realm `ivaas`, same demo users, forced password change on first login), or to any
+other OpenID Connect provider via `IVAAS_OIDC_ISSUER` / `IVAAS_OIDC_AUDIENCE`.
 
 API docs: http://localhost:8000/docs · Metrics: `/metrics` · Grafana: `:3000` · MinIO: `:9001`
 

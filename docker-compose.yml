@@ -62,7 +62,11 @@ services:
       IVAAS_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-ivaas-secret}
       IVAAS_STACK_MODEL: /models/stacks-v2.onnx
       IVAAS_LAYERS_MODEL: /models/layers-v3.onnx
-      IVAAS_AUTH_MODE: oidc
+      # "local": the portal's own branded page is the login, no redirect. Demo posture:
+      # the accounts below live in config. Switch to "oidc" for Keycloak (still wired up
+      # below) when this needs real identity management.
+      IVAAS_AUTH_MODE: ${IVAAS_AUTH_MODE:-local}
+      IVAAS_AUTH_LOCAL_SECRET: ${IVAAS_AUTH_LOCAL_SECRET:-dev-only-change-me-please-32chars}
       # the browser and the API must agree on the issuer string, so use the host-visible URL
       IVAAS_OIDC_ISSUER: http://localhost:8180/realms/ivaas
       IVAAS_OIDC_AUDIENCE: ivaas-portal
