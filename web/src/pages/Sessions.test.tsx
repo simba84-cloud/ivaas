@@ -2,7 +2,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
-import { session } from "../test/fixtures";
+import { bay, session, site } from "../test/fixtures";
 import { renderPage } from "../test/render";
 import { server } from "../test/server";
 import Sessions from "./Sessions";
@@ -22,7 +22,12 @@ const disputed = session({
 const row = (plate: string) => screen.getByText(plate).closest("tr") as HTMLElement;
 
 function api(rows = [disputed]) {
-  server.use(http.get("/api/v1/sessions", () => HttpResponse.json(rows)));
+  server.use(
+    // the page reads its bay from the shared scope, so the shell's calls are needed too
+    http.get("/api/v1/sites", () => HttpResponse.json([site])),
+    http.get("/api/v1/bays", () => HttpResponse.json([bay])),
+    http.get("/api/v1/sessions", () => HttpResponse.json(rows)),
+  );
 }
 
 describe("reconciliation sign-off", () => {

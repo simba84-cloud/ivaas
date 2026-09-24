@@ -1,4 +1,18 @@
-import type { AnalysisJob, Bay, Camera, Overview, Session, Summary } from "../api/types";
+import type {
+  AnalysisJob,
+  Bay,
+  Camera,
+  Overview,
+  Session,
+  Site,
+  Summary,
+} from "../api/types";
+
+export const site: Site = {
+  id: "s", // matches bay.site_id below
+  name: "Bakery Industrial Site",
+  timezone: "UTC",
+};
 
 export const bay: Bay = {
   id: "0bc39dce-7ea1-5331-b0dc-4ffcd94bbfd3",

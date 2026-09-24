@@ -11,6 +11,7 @@ import {
   onAuthChange,
   resumeOidc,
 } from "./auth/session";
+import { ScopeProvider } from "./api/scope";
 import { Layout } from "./components/Layout";
 import { useLiveEvents } from "./hooks/useLiveEvents";
 import Analysis from "./pages/Analysis";
@@ -59,17 +60,20 @@ export default function App() {
   if (me.isPending) return null;
 
   return (
-    <Layout connected={connected} me={me.data} onLogout={() => logout(config.data)}>
-      <Routes>
-        <Route path="/" element={<Dashboard me={me.data} />} />
-        <Route path="/live" element={<LiveView />} />
-        <Route path="/sessions" element={<Sessions me={me.data} />} />
-        <Route path="/cameras" element={<Cameras me={me.data} />} />
-        <Route path="/analysis" element={<Analysis me={me.data} />} />
-        <Route path="/analysis/:id" element={<AnalysisReport />} />
-        <Route path="/assistant" element={<Assistant />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Layout>
+    // the whole shell shares one bay selection, header and pages alike
+    <ScopeProvider>
+      <Layout connected={connected} me={me.data} onLogout={() => logout(config.data)}>
+        <Routes>
+          <Route path="/" element={<Dashboard me={me.data} />} />
+          <Route path="/live" element={<LiveView />} />
+          <Route path="/sessions" element={<Sessions me={me.data} />} />
+          <Route path="/cameras" element={<Cameras me={me.data} />} />
+          <Route path="/analysis" element={<Analysis me={me.data} />} />
+          <Route path="/analysis/:id" element={<AnalysisReport />} />
+          <Route path="/assistant" element={<Assistant />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Layout>
+    </ScopeProvider>
   );
 }

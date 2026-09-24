@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
+import { useScope } from "../api/scope";
 import type { ApprovalReason, Session, SessionStatus } from "../api/types";
 import { type Me, hasRole } from "../auth/session";
 import {
@@ -170,7 +171,12 @@ export default function Sessions({ me }: { me: Me | undefined }) {
   const canOperate = hasRole(me, "operator");
   const isAdmin = hasRole(me, "admin");
   const [filter, setFilter] = useState<SessionStatus | "all">("all");
-  const sessions = useQuery({ queryKey: ["sessions"], queryFn: api.sessions });
+  const { bay } = useScope();
+  const sessions = useQuery({
+    queryKey: ["sessions", bay?.id],
+    queryFn: () => api.sessions(bay?.id),
+    enabled: !!bay,
+  });
   const rows = (sessions.data ?? []).filter((s) => filter === "all" || s.status === filter);
   const counts = Object.fromEntries(
     FILTERS.map((f) => [f.key, (sessions.data ?? []).filter((s) => f.key === "all" || s.status === f.key).length]),

@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
-from uuid import NAMESPACE_DNS, uuid5
+from uuid import NAMESPACE_DNS, UUID, uuid5
 
 from ivaas.adapters.analysis_runner import PipelineVideoAnalyser
 from ivaas.adapters.auth.jwt_verifiers import (
@@ -25,6 +25,7 @@ from ivaas.adapters.persistence.memory import (
     InMemoryCameraRepository,
     InMemoryEventPublisher,
     InMemorySessionRepository,
+    InMemorySiteRepository,
     SystemClock,
 )
 from ivaas.adapters.storage.objects import LocalObjectStore, S3ObjectStore
@@ -87,6 +88,7 @@ def demo_topology() -> tuple[Site, Bay, list[Camera]]:
 @dataclass
 class Container:
     settings: Settings
+    sites: Any
     bays: Any
     cameras: Any
     sessions: Any
@@ -167,8 +169,9 @@ class Container:
     def remove_camera(self) -> RemoveCamera:
         return RemoveCamera(self.cameras, self.gateway, self.events)
 
-    async def overview(self, days: int = 14) -> Overview:
-        return await OperationsOverview(self.sessions, self.cameras, self.bays, self.clock)(days)
+    async def overview(self, days: int = 14, bay_id: UUID | None = None) -> Overview:
+        use_case = OperationsOverview(self.sessions, self.cameras, self.bays, self.clock)
+        return await use_case(days, bay_id=bay_id)
 
     @property
     def approve_session(self) -> ApproveSession:
@@ -201,7 +204,7 @@ async def build_container(settings: Settings) -> Container:
     else:
         sinks.append(InMemoryEventPublisher())
 
-    _, bay, cams = demo_topology()
+    site, bay, cams = demo_topology()
     if settings.storage == "postgres":
         from ivaas.adapters.persistence.postgres import build_postgres_repositories
         from ivaas.adapters.persistence.secrets import SecretBox
@@ -211,15 +214,16 @@ async def build_container(settings: Settings) -> Container:
                 "IVAAS_SECRETS_KEYS is required with postgres storage: camera credentials "
                 "are encrypted at rest (see Settings.secrets_keys for how to generate one)"
             )
-        bays, cameras, sessions, dispose, sm = await build_postgres_repositories(
+        sites, bays, cameras, sessions, dispose, sm = await build_postgres_repositories(
             settings.database_url,
-            seed=(bay, cams) if settings.seed_demo_data else None,
+            seed=(site, bay, cams) if settings.seed_demo_data else None,
             box=SecretBox(settings.secrets_keys),
         )
         closers.append(dispose)
         pg_sessionmaker: Any = sm
     else:
         seed = settings.seed_demo_data
+        sites = InMemorySiteRepository([site] if seed else [])
         bays = InMemoryBayRepository([bay] if seed else [])
         cameras = InMemoryCameraRepository(cams if seed else [])
         sessions = InMemorySessionRepository()
@@ -272,6 +276,7 @@ async def build_container(settings: Settings) -> Container:
 
     return Container(
         settings=settings,
+        sites=sites,
         bays=bays,
         cameras=cameras,
         sessions=sessions,

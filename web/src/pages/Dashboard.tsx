@@ -13,6 +13,7 @@ import {
 import { Link } from "react-router-dom";
 import { MEDIA_BASE, useMediaServerUp } from "../api/media";
 import { api } from "../api/client";
+import { useScope } from "../api/scope";
 import type { Camera as Cam, Direction } from "../api/types";
 import { type Me, hasRole } from "../auth/session";
 import { ThroughputChart } from "../components/charts";
@@ -147,16 +148,20 @@ export default function Dashboard({ me }: { me: Me | undefined }) {
   const still = useReducedMotion();
   const canOperate = hasRole(me, "operator");
 
+  const { bay } = useScope();
   const overview = useQuery({
-    queryKey: ["overview"],
-    queryFn: () => api.overview(14),
+    queryKey: ["overview", bay?.id],
+    queryFn: () => api.overview(14, bay?.id),
+    enabled: !!bay,
     refetchInterval: 30_000,
   });
-  const bays = useQuery({ queryKey: ["bays"], queryFn: api.bays });
-  const sessions = useQuery({ queryKey: ["sessions"], queryFn: api.sessions });
+  const sessions = useQuery({
+    queryKey: ["sessions", bay?.id],
+    queryFn: () => api.sessions(bay?.id),
+    enabled: !!bay,
+  });
   const assistant = useQuery({ queryKey: ["assistant-status"], queryFn: api.assistantStatus });
   const mediaUp = useMediaServerUp();
-  const bay = bays.data?.[0];
   const cameras = useQuery({
     queryKey: ["cameras", bay?.id],
     queryFn: () => api.cameras(bay!.id),

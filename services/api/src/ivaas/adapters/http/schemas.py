@@ -16,6 +16,7 @@ from ivaas.domain.models import (
     LoadingSession,
     SessionDirection,
     SessionStatus,
+    Site,
 )
 
 
@@ -29,6 +30,27 @@ class BayOut(BaseModel):
     @classmethod
     def of(cls, bay: Bay) -> BayOut:
         return cls(**bay.__dict__)
+
+
+class SiteOut(BaseModel):
+    id: UUID
+    name: str
+    timezone: str
+
+    @classmethod
+    def of(cls, site: Site) -> SiteOut:
+        return cls(id=site.id, name=site.name, timezone=site.timezone)
+
+
+class SiteIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    timezone: str = Field(default="UTC", max_length=64)
+
+
+class BayIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    height_m: float = Field(default=4.5, gt=0, le=50)
+    width_m: float = Field(default=4.0, gt=0, le=50)
 
 
 class CameraOut(BaseModel):

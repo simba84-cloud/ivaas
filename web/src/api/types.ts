@@ -9,6 +9,12 @@ export type CameraStatus = "online" | "degraded" | "offline";
 export type Direction = "loading" | "offloading";
 export type SessionStatus = "open" | "closed" | "reconciled" | "disputed" | "approved";
 
+export interface Site {
+  id: string;
+  name: string;
+  timezone: string;
+}
+
 export interface Bay {
   id: string;
   site_id: string;

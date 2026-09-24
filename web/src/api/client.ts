@@ -10,6 +10,7 @@ import type {
   DiscoveredStream,
   Direction,
   Session,
+  Site,
   Overview,
   Summary,
   ToolUse,
@@ -39,8 +40,20 @@ export const api = {
   me: () => request<Me>("/api/v1/auth/me"),
   summary: () => request<Summary>("/api/v1/summary"),
   platformConfig: () => request<{ max_upload_mb: number }>("/api/v1/config"),
-  overview: (days = 14) => request<Overview>(`/api/v1/analytics/overview?days=${days}`),
+  overview: (days = 14, bayId?: string) =>
+    request<Overview>(
+      `/api/v1/analytics/overview?days=${days}${bayId ? `&bay_id=${bayId}` : ""}`,
+    ),
   bays: () => request<Bay[]>("/api/v1/bays"),
+  sites: () => request<Site[]>("/api/v1/sites"),
+  siteBays: (siteId: string) => request<Bay[]>(`/api/v1/sites/${siteId}/bays`),
+  createSite: (name: string) =>
+    request<Site>("/api/v1/sites", { method: "POST", body: JSON.stringify({ name }) }),
+  createBay: (siteId: string, name: string) =>
+    request<Bay>(`/api/v1/sites/${siteId}/bays`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
   cameras: (bayId: string) => request<Camera[]>(`/api/v1/bays/${bayId}/cameras`),
   addCamera: (bayId: string, body: { name: string; role: CameraRole; source_url: string | null }) =>
     request<Camera>(`/api/v1/bays/${bayId}/cameras`, { method: "POST", body: JSON.stringify(body) }),
@@ -88,7 +101,8 @@ export const api = {
       body.append("file", file);
       xhr.send(body);
     }),
-  sessions: () => request<Session[]>("/api/v1/sessions?limit=100"),
+  sessions: (bayId?: string) =>
+    request<Session[]>(`/api/v1/sessions?limit=100${bayId ? `&bay_id=${bayId}` : ""}`),
   openSession: (bay_id: string, direction: Direction) =>
     request<Session>("/api/v1/sessions", {
       method: "POST",

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Grid2x2, Grid3x3, LayoutGrid, VideoOff } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
+import { useScope } from "../api/scope";
 import type { Camera, CameraRole } from "../api/types";
 import { MEDIA_BASE, useMediaServerUp } from "../api/media";
 import { EmptyState, roleLabel } from "../components/ui";
@@ -86,8 +87,7 @@ export default function LiveView() {
   const [role, setRole] = useState<CameraRole | "all">("all");
   const [onlyOffline, setOnlyOffline] = useState(false);
 
-  const bays = useQuery({ queryKey: ["bays"], queryFn: api.bays });
-  const bayId = bays.data?.[0]?.id;
+  const bayId = useScope().bay?.id;
   const cameras = useQuery({
     queryKey: ["cameras", bayId],
     queryFn: () => api.cameras(bayId!),

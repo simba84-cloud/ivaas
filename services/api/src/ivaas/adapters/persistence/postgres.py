@@ -24,12 +24,20 @@ from ivaas.domain.models import (
     LoadingSession,
     SessionDirection,
     SessionStatus,
+    Site,
     StreamSource,
 )
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class SiteRow(Base):
+    __tablename__ = "sites"
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    timezone: Mapped[str] = mapped_column(String(64), default="UTC")
 
 
 class BayRow(Base):
@@ -117,6 +125,28 @@ def _camera_values(c: Camera, box: SecretBox) -> dict:
     }
 
 
+class PostgresSiteRepository:
+    def __init__(self, sm: async_sessionmaker[AsyncSession]) -> None:
+        self._sm = sm
+
+    async def get(self, site_id: UUID) -> Site | None:
+        async with self._sm() as db:
+            r = await db.get(SiteRow, site_id)
+            return Site(r.id, r.name, r.timezone) if r else None
+
+    async def list_all(self) -> list[Site]:
+        async with self._sm() as db:
+            rows = (await db.scalars(select(SiteRow).order_by(SiteRow.name))).all()
+            return [Site(r.id, r.name, r.timezone) for r in rows]
+
+    async def save(self, site: Site) -> None:
+        values = {"id": site.id, "name": site.name, "timezone": site.timezone}
+        stmt = insert(SiteRow).values(**values)
+        stmt = stmt.on_conflict_do_update(index_elements=[SiteRow.id], set_=values)
+        async with self._sm.begin() as db:
+            await db.execute(stmt)
+
+
 class PostgresBayRepository:
     def __init__(self, sm: async_sessionmaker[AsyncSession]) -> None:
         self._sm = sm
@@ -130,6 +160,25 @@ class PostgresBayRepository:
         async with self._sm() as db:
             rows = (await db.scalars(select(BayRow).order_by(BayRow.name))).all()
             return [Bay(r.id, r.site_id, r.name, r.height_m, r.width_m) for r in rows]
+
+    async def list_for_site(self, site_id: UUID) -> list[Bay]:
+        async with self._sm() as db:
+            stmt = select(BayRow).where(BayRow.site_id == site_id).order_by(BayRow.name)
+            rows = (await db.scalars(stmt)).all()
+            return [Bay(r.id, r.site_id, r.name, r.height_m, r.width_m) for r in rows]
+
+    async def save(self, bay: Bay) -> None:
+        values = {
+            "id": bay.id,
+            "site_id": bay.site_id,
+            "name": bay.name,
+            "height_m": bay.height_m,
+            "width_m": bay.width_m,
+        }
+        stmt = insert(BayRow).values(**values)
+        stmt = stmt.on_conflict_do_update(index_elements=[BayRow.id], set_=values)
+        async with self._sm.begin() as db:
+            await db.execute(stmt)
 
 
 class PostgresCameraRepository:
@@ -249,8 +298,9 @@ async def run_migrations(url: str) -> None:
 
 
 async def build_postgres_repositories(
-    url: str, seed: tuple[Bay, list[Camera]] | None, box: SecretBox
+    url: str, seed: tuple[Site, Bay, list[Camera]] | None, box: SecretBox
 ) -> tuple[
+    PostgresSiteRepository,
     PostgresBayRepository,
     PostgresCameraRepository,
     PostgresSessionRepository,
@@ -262,8 +312,14 @@ async def build_postgres_repositories(
     sm = async_sessionmaker(engine, expire_on_commit=False)
 
     if seed is not None:
-        bay, cameras = seed
+        site, bay, cameras = seed
         async with sm.begin() as db:
+            # the site name is authored in code, so keep the row in step with it
+            await db.execute(
+                insert(SiteRow)
+                .values(id=site.id, name=site.name, timezone=site.timezone)
+                .on_conflict_do_update(index_elements=[SiteRow.id], set_={"name": site.name})
+            )
             await db.execute(
                 insert(BayRow)
                 .values(
@@ -281,6 +337,7 @@ async def build_postgres_repositories(
                 )
 
     return (
+        PostgresSiteRepository(sm),
         PostgresBayRepository(sm),
         PostgresCameraRepository(sm, box),
         PostgresSessionRepository(sm),

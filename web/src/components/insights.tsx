@@ -90,7 +90,7 @@ export function InsightFeed({ insights }: { insights: Insight[] }) {
             <CheckCircle2 size={22} className="mx-auto text-good" />
             <p className="mt-2 text-sm font-semibold text-ink">Nothing needs attention</p>
             <p className="mt-1 text-xs text-muted">
-              Cameras are streaming and no loads are outstanding.
+              No alerts for this bay over the reporting window.
             </p>
           </div>
         )}

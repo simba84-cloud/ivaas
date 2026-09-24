@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from ivaas.domain.models import Bay, Camera, LoadingSession, SessionStatus
+from ivaas.domain.models import Bay, Camera, LoadingSession, SessionStatus, Site
 
 
 class CameraReader(Protocol):
@@ -28,10 +28,26 @@ class CameraWriter(Protocol):
     async def delete(self, camera_id: UUID) -> None: ...
 
 
+class SiteReader(Protocol):
+    async def get(self, site_id: UUID) -> Site | None: ...
+
+    async def list_all(self) -> list[Site]: ...
+
+
+class SiteWriter(Protocol):
+    async def save(self, site: Site) -> None: ...
+
+
 class BayReader(Protocol):
     async def get(self, bay_id: UUID) -> Bay | None: ...
 
     async def list_all(self) -> list[Bay]: ...
+
+    async def list_for_site(self, site_id: UUID) -> list[Bay]: ...
+
+
+class BayWriter(Protocol):
+    async def save(self, bay: Bay) -> None: ...
 
 
 class SessionReader(Protocol):

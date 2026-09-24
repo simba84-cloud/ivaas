@@ -3,6 +3,7 @@ import { FileVideo, Loader2, UploadCloud } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import { useScope } from "../api/scope";
 import type { AnalysisJob } from "../api/types";
 import { type Me, hasRole } from "../auth/session";
 import { EmptyState, PageHeader, dateTime } from "../components/ui";
@@ -136,7 +137,7 @@ function UploadCard({ bayId, maxMb }: { bayId: string; maxMb: number }) {
 }
 
 export default function Analysis({ me }: { me: Me | undefined }) {
-  const bays = useQuery({ queryKey: ["bays"], queryFn: api.bays });
+  const { bay } = useScope();
   const config = useQuery({ queryKey: ["platform-config"], queryFn: api.platformConfig });
   const jobs = useQuery({
     queryKey: ["analyses"],
@@ -144,7 +145,7 @@ export default function Analysis({ me }: { me: Me | undefined }) {
     refetchInterval: (q) =>
       q.state.data?.some((j) => j.status === "queued" || j.status === "running") ? 2000 : 15000,
   });
-  const bayId = bays.data?.[0]?.id;
+  const bayId = bay?.id;
 
   return (
     <>

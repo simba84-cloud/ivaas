@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
+import { useScope } from "../api/scope";
 import type { Camera, CameraRole } from "../api/types";
 import { type Me, hasRole } from "../auth/session";
 import { AddCamera } from "../components/AddCamera";
@@ -50,8 +51,7 @@ function FleetBar({ cameras }: { cameras: Camera[] }) {
 
 export default function Cameras({ me }: { me: Me | undefined }) {
   const isAdmin = hasRole(me, "admin");
-  const bays = useQuery({ queryKey: ["bays"], queryFn: api.bays });
-  const bayId = bays.data?.[0]?.id;
+  const bayId = useScope().bay?.id;
   const cameras = useQuery({
     queryKey: ["cameras", bayId],
     queryFn: () => api.cameras(bayId!),

@@ -7,7 +7,21 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from ivaas.domain.models import Bay, Camera, LoadingSession, SessionStatus
+from ivaas.domain.models import Bay, Camera, LoadingSession, SessionStatus, Site
+
+
+class InMemorySiteRepository:
+    def __init__(self, sites: list[Site] | None = None) -> None:
+        self._sites = {s.id: s for s in sites or []}
+
+    async def get(self, site_id: UUID) -> Site | None:
+        return self._sites.get(site_id)
+
+    async def list_all(self) -> list[Site]:
+        return sorted(self._sites.values(), key=lambda s: s.name)
+
+    async def save(self, site: Site) -> None:
+        self._sites[site.id] = site
 
 
 class InMemoryBayRepository:
@@ -18,7 +32,13 @@ class InMemoryBayRepository:
         return self._bays.get(bay_id)
 
     async def list_all(self) -> list[Bay]:
-        return list(self._bays.values())
+        return sorted(self._bays.values(), key=lambda b: b.name)
+
+    async def list_for_site(self, site_id: UUID) -> list[Bay]:
+        return [b for b in await self.list_all() if b.site_id == site_id]
+
+    async def save(self, bay: Bay) -> None:
+        self._bays[bay.id] = bay
 
 
 class InMemoryCameraRepository:

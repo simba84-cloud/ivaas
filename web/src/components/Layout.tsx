@@ -14,7 +14,46 @@ import {
 import { type ReactNode, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import type { Me } from "../auth/session";
+import { useScope } from "../api/scope";
 import { CrateMotif, RAIL_GRADIENT, RAIL_STACKS } from "./brand";
+
+/**
+ * Which bay the portal is showing. A single-bay deployment gets a plain label,
+ * because a dropdown with one option is a decision nobody has to make.
+ */
+function BayPicker() {
+  const { bays, bay, site, sites, multi, setBay } = useScope();
+  const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? "Site";
+
+  if (!bay) return null;
+  if (!multi) {
+    return (
+      <span className="hidden min-w-0 items-center gap-1.5 rounded-lg border border-line bg-ground px-2.5 py-1 lg:inline-flex">
+        <Warehouse size={13} className="flex-none text-muted" />
+        <span className="truncate text-xs font-semibold text-ink">{site?.name ?? "Site"}</span>
+        <span className="text-xs text-faint">/ {bay.name}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="hidden min-w-0 items-center gap-1.5 rounded-lg border border-line bg-ground pl-2.5 lg:inline-flex">
+      <Warehouse size={13} className="flex-none text-muted" />
+      <select
+        id="bay-picker"
+        aria-label="Bay"
+        className="max-w-[18rem] truncate border-0 bg-transparent py-1 pr-2 text-xs font-semibold text-ink outline-none"
+        value={bay.id}
+        onChange={(e) => setBay(e.target.value)}
+      >
+        {bays.map((b) => (
+          <option key={b.id} value={b.id}>
+            {siteName(b.site_id)} / {b.name}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
+}
 
 /** Navigation grouped by what the person is doing, not by page count. */
 const NAV = [
@@ -36,9 +75,6 @@ const NAV = [
   { group: "Configure", items: [{ to: "/cameras", label: "Cameras", icon: Camera }] },
 ];
 const FLAT = NAV.flatMap((g) => g.items);
-
-const SITE = "Bakery Industrial Site";
-const BAY = "Loading Bay";
 
 type Theme = "light" | "dark" | null;
 
@@ -99,6 +135,8 @@ export function Layout({
 }) {
   const [isDark, toggleTheme] = useTheme();
   const level = accessLevel(me);
+  const { bay, site } = useScope();
+  const where = bay ? `${site?.name ?? "Site"} · ${bay.name}` : "No bay configured";
 
   return (
     <div className="flex min-h-full">
@@ -134,9 +172,7 @@ export function Layout({
           </div>
           <div className="mt-2 flex items-center gap-1.5 border-t border-white/10 pt-2 text-[11px] text-white/65">
             <Warehouse size={12} className="flex-none" />
-            <span className="truncate">
-              {SITE} · {BAY}
-            </span>
+            <span className="truncate">{where}</span>
           </div>
         </div>
 
@@ -202,11 +238,7 @@ export function Layout({
               alt="Liquid"
               className="h-6 lg:hidden dark:brightness-0 dark:invert"
             />
-            <span className="hidden min-w-0 items-center gap-1.5 rounded-lg border border-line bg-ground px-2.5 py-1 lg:inline-flex">
-              <Warehouse size={13} className="flex-none text-muted" />
-              <span className="truncate text-xs font-semibold text-ink">{SITE}</span>
-              <span className="text-xs text-faint">/ {BAY}</span>
-            </span>
+            <BayPicker />
           </div>
 
           <div className="flex items-center gap-1.5">

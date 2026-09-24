@@ -220,3 +220,12 @@ async def test_counts_each_stage_of_the_load_lifecycle():
 
     assert (r.open_sessions, r.unverified_sessions) == (1, 2)
     assert (r.disputed_sessions, r.reconciled_sessions) == (1, 1)
+
+
+async def test_a_bay_with_no_cameras_says_so_rather_than_reading_as_all_clear():
+    result = await (await build([], []))(days=7)
+
+    insight = next(i for i in result.insights if i.key == "no_cameras")
+    assert insight.severity is Severity.WARN
+    # and it must not also claim cameras are offline, which would be two ways of saying it
+    assert not [i for i in result.insights if i.key == "cameras_offline"]

@@ -12,6 +12,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
+from uuid import UUID
 
 from ivaas.domain.models import CameraStatus, LoadingSession, SessionStatus
 from ivaas.ports.repositories import BayReader, CameraReader, Clock, SessionReader
@@ -101,15 +102,15 @@ class OperationsOverview:
     bays: BayReader
     clock: Clock
 
-    async def __call__(self, days: int = 14) -> Overview:
+    async def __call__(self, days: int = 14, bay_id: UUID | None = None) -> Overview:
         days = max(2, min(MAX_DAYS, days))
         now = self.clock.now()
         today = now.date()
         since = datetime.combine(today - timedelta(days=days - 1), time.min, tzinfo=now.tzinfo)
-        rows = await self.sessions.list_recent(since=since, limit=MAX_SESSIONS)
-        cams = [
-            c for b in await self.bays.list_all() for c in await self.cameras.list_for_bay(b.id)
-        ]
+        # bay_id=None means every bay, which is what a single-site deployment wants
+        rows = await self.sessions.list_recent(since=since, limit=MAX_SESSIONS, bay_id=bay_id)
+        bays = [b for b in await self.bays.list_all() if bay_id is None or b.id == bay_id]
+        cams = [c for b in bays for c in await self.cameras.list_for_bay(b.id)]
 
         daily = self._daily(rows, today, days)
         todays = [s for s in rows if s.opened_at.date() == today]
@@ -209,6 +210,18 @@ class OperationsOverview:
         prior: list[DayPoint],
     ) -> list[Insight]:
         out: list[Insight] = []
+
+        if not cams:
+            # an empty bay counts nothing, which must not read as "all clear"
+            out.append(
+                Insight(
+                    "no_cameras",
+                    Severity.WARN,
+                    "No cameras registered at this bay",
+                    "Nothing can be counted here until a camera is added on the Cameras screen.",
+                    metric="0",
+                )
+            )
 
         offline = [c for c in cams if c.status is not CameraStatus.ONLINE]
         if offline and cams:

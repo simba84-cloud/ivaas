@@ -5,7 +5,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, time
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import (
     Depends,
@@ -26,6 +26,7 @@ from ivaas.adapters.http.schemas import (
     AnalysisJobOut,
     ApproveIn,
     AuthConfigOut,
+    BayIn,
     BayOut,
     CameraIn,
     CameraOut,
@@ -43,6 +44,8 @@ from ivaas.adapters.http.schemas import (
     PlatformConfigOut,
     ReconcileIn,
     SessionOut,
+    SiteIn,
+    SiteOut,
     SummaryOut,
     TokenOut,
     ToolUseOut,
@@ -54,6 +57,7 @@ from ivaas.application.analysis import job_worker
 from ivaas.config.container import Container, build_container
 from ivaas.config.settings import Settings
 from ivaas.domain.models import (
+    Bay,
     CameraStatus,
     CrateCrossing,
     DomainError,
@@ -61,6 +65,7 @@ from ivaas.domain.models import (
     NotFoundError,
     PlateRead,
     SessionStatus,
+    Site,
 )
 from ivaas.ports.assistant import ChatMessage, ChatModelUnavailableError
 from ivaas.ports.auth import Principal, Role
@@ -159,6 +164,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     # topology ------------------------------------------------------------
+    @app.get(
+        "/api/v1/sites", response_model=list[SiteOut], dependencies=[Depends(require(Role.VIEWER))]
+    )
+    async def list_sites(c: Container = Depends(get_container)) -> list[SiteOut]:
+        return [SiteOut.of(s) for s in await c.sites.list_all()]
+
+    @app.post(
+        "/api/v1/sites",
+        response_model=SiteOut,
+        status_code=201,
+        dependencies=[Depends(require(Role.ADMIN))],
+    )
+    async def create_site(body: SiteIn, c: Container = Depends(get_container)) -> SiteOut:
+        site = Site(id=uuid4(), name=body.name, timezone=body.timezone)
+        await c.sites.save(site)
+        return SiteOut.of(site)
+
+    @app.get(
+        "/api/v1/sites/{site_id}/bays",
+        response_model=list[BayOut],
+        dependencies=[Depends(require(Role.VIEWER))],
+    )
+    async def list_site_bays(site_id: UUID, c: Container = Depends(get_container)) -> list[BayOut]:
+        if await c.sites.get(site_id) is None:
+            raise NotFoundError(f"site {site_id} not found")
+        return [BayOut.of(b) for b in await c.bays.list_for_site(site_id)]
+
+    @app.post(
+        "/api/v1/sites/{site_id}/bays",
+        response_model=BayOut,
+        status_code=201,
+        dependencies=[Depends(require(Role.ADMIN))],
+    )
+    async def create_bay(
+        site_id: UUID, body: BayIn, c: Container = Depends(get_container)
+    ) -> BayOut:
+        if await c.sites.get(site_id) is None:
+            raise NotFoundError(f"site {site_id} not found")
+        bay = Bay(
+            id=uuid4(),
+            site_id=site_id,
+            name=body.name,
+            height_m=body.height_m,
+            width_m=body.width_m,
+        )
+        await c.bays.save(bay)
+        return BayOut.of(bay)
+
     @app.get(
         "/api/v1/bays", response_model=list[BayOut], dependencies=[Depends(require(Role.VIEWER))]
     )
@@ -357,8 +410,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response_model=OverviewOut,
         dependencies=[Depends(require(Role.VIEWER))],
     )
-    async def overview(days: int = 14, c: Container = Depends(get_container)) -> OverviewOut:
-        return OverviewOut.of(await c.overview(days))
+    async def overview(
+        days: int = 14,
+        bay_id: UUID | None = None,
+        c: Container = Depends(get_container),
+    ) -> OverviewOut:
+        return OverviewOut.of(await c.overview(days, bay_id=bay_id))
 
     # video analysis --------------------------------------------------------
     async def _job_out(c: Container, job) -> AnalysisJobOut:

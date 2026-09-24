@@ -158,3 +158,67 @@ def test_approved_loads_leave_the_disputed_insight(client):
     after = client.get("/api/v1/analytics/overview").json()
     assert (after["disputed_sessions"], after["approved_sessions"]) == (0, 1)
     assert not [i for i in after["insights"] if i["key"] == "disputed"]
+
+
+def test_sites_are_listed_and_bays_belong_to_them(client):
+    sites = client.get("/api/v1/sites").json()
+    assert len(sites) == 1, "the seeded site should now be a real row"
+    site = sites[0]
+    assert site["name"] == "Bakery Industrial Site"
+
+    bays = client.get(f"/api/v1/sites/{site['id']}/bays").json()
+    assert [b["name"] for b in bays] == ["Loading Bay"]
+    assert bays[0]["site_id"] == site["id"]
+
+
+def test_admin_can_add_a_second_site_with_its_own_bay(client):
+    site = client.post("/api/v1/sites", json={"name": "Second Plant"}).json()
+    assert client.post("/api/v1/sites", json={"name": "Second Plant"}).status_code == 201
+
+    bay = client.post(
+        f"/api/v1/sites/{site['id']}/bays", json={"name": "Bay 2", "height_m": 5, "width_m": 4}
+    )
+    assert bay.status_code == 201, bay.text
+    assert bay.json()["site_id"] == site["id"]
+
+    # the new bay is listed under its own site, and not under the original one
+    assert [b["name"] for b in client.get(f"/api/v1/sites/{site['id']}/bays").json()] == ["Bay 2"]
+    assert len(client.get("/api/v1/bays").json()) >= 2
+
+
+def test_bay_under_an_unknown_site_is_a_404(client):
+    unknown = "0bc39dce-0000-0000-0000-4ffcd94bbfd3"
+    assert client.get(f"/api/v1/sites/{unknown}/bays").status_code == 404
+    assert client.post(f"/api/v1/sites/{unknown}/bays", json={"name": "x"}).status_code == 404
+
+
+def test_only_admins_create_sites_and_bays(anon):
+    from conftest import login
+
+    operator = login(anon, "operator")
+    assert anon.post("/api/v1/sites", json={"name": "X"}, headers=operator).status_code == 403
+    site = anon.get("/api/v1/sites", headers=operator).json()[0]["id"]
+    r = anon.post(f"/api/v1/sites/{site}/bays", json={"name": "X"}, headers=operator)
+    assert r.status_code == 403
+
+
+def test_overview_can_be_scoped_to_one_bay(client):
+    """Two bays must not blend into one accuracy figure."""
+    first = client.get("/api/v1/bays").json()[0]
+    site = client.post("/api/v1/sites", json={"name": "Other Plant"}).json()
+    other = client.post(f"/api/v1/sites/{site['id']}/bays", json={"name": "Other Bay"}).json()
+
+    s = client.post("/api/v1/sessions", json={"bay_id": first["id"], "direction": "loading"}).json()
+    client.post(f"/api/v1/sessions/{s['id']}/close")
+    client.post(f"/api/v1/sessions/{s['id']}/reconcile", json={"manual_count": 0})
+
+    everything = client.get("/api/v1/analytics/overview").json()
+    just_first = client.get(f"/api/v1/analytics/overview?bay_id={first['id']}").json()
+    just_other = client.get(f"/api/v1/analytics/overview?bay_id={other['id']}").json()
+
+    assert everything["reconciled_sessions"] == 1
+    assert just_first["reconciled_sessions"] == 1
+    # the empty bay reports its own emptiness, not the other bay's numbers
+    assert just_other["reconciled_sessions"] == 0
+    assert just_other["cameras_total"] == 0
+    assert just_first["cameras_total"] == everything["cameras_total"]
