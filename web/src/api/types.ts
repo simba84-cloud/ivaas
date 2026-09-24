@@ -67,6 +67,47 @@ export interface Summary {
   cameras_total: number;
 }
 
+export type Severity = "good" | "info" | "warn" | "critical";
+
+export interface Trend {
+  value: number | null;
+  delta_pct: number | null;
+  series: number[];
+}
+
+export interface DayPoint {
+  day: string;
+  crates: number;
+  sessions: number;
+  accuracy: number | null;
+}
+
+export interface Insight {
+  key: string;
+  severity: Severity;
+  title: string;
+  detail: string;
+  metric: string | null;
+}
+
+export interface Overview {
+  generated_at: string;
+  days: number;
+  crates_today: number;
+  sessions_today: number;
+  open_sessions: number;
+  verified_sessions: number;
+  unverified_sessions: number;
+  mean_accuracy: number | null;
+  cameras_online: number;
+  cameras_total: number;
+  crates: Trend;
+  throughput: Trend;
+  accuracy: Trend;
+  daily: DayPoint[];
+  insights: Insight[];
+}
+
 export interface ChatTurn {
   role: "user" | "assistant";
   content: string;

@@ -34,6 +34,7 @@ from ivaas.application.analysis import RunNextJob, SubmitVideo
 from ivaas.application.analytics import AnalyticsTools
 from ivaas.application.assistant import AskAssistant
 from ivaas.application.cameras import RefreshCameraStatus, RegisterCamera, RemoveCamera
+from ivaas.application.overview import OperationsOverview, Overview
 from ivaas.application.sessions import (
     CloseIdleSessions,
     CloseSession,
@@ -164,6 +165,9 @@ class Container:
     @property
     def remove_camera(self) -> RemoveCamera:
         return RemoveCamera(self.cameras, self.gateway, self.events)
+
+    async def overview(self, days: int = 14) -> Overview:
+        return await OperationsOverview(self.sessions, self.cameras, self.bays, self.clock)(days)
 
     @property
     def ask_assistant(self) -> AskAssistant | None:

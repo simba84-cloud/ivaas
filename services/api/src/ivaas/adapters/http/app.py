@@ -37,6 +37,7 @@ from ivaas.adapters.http.schemas import (
     LoginIn,
     MeOut,
     OpenSessionIn,
+    OverviewOut,
     PlateReadIn,
     ReconcileIn,
     SessionOut,
@@ -324,6 +325,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cameras_online=sum(1 for cam in cams if cam.status is CameraStatus.ONLINE),
             cameras_total=len(cams),
         )
+
+    @app.get(
+        "/api/v1/analytics/overview",
+        response_model=OverviewOut,
+        dependencies=[Depends(require(Role.VIEWER))],
+    )
+    async def overview(days: int = 14, c: Container = Depends(get_container)) -> OverviewOut:
+        return OverviewOut.of(await c.overview(days))
 
     # video analysis --------------------------------------------------------
     async def _job_out(c: Container, job) -> AnalysisJobOut:

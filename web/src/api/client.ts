@@ -9,6 +9,7 @@ import type {
   DiscoveredStream,
   Direction,
   Session,
+  Overview,
   Summary,
   ToolUse,
 } from "./types";
@@ -36,6 +37,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   me: () => request<Me>("/api/v1/auth/me"),
   summary: () => request<Summary>("/api/v1/summary"),
+  overview: (days = 14) => request<Overview>(`/api/v1/analytics/overview?days=${days}`),
   bays: () => request<Bay[]>("/api/v1/bays"),
   cameras: (bayId: string) => request<Camera[]>(`/api/v1/bays/${bayId}/cameras`),
   addCamera: (bayId: string, body: { name: string; role: CameraRole; source_url: string | null }) =>

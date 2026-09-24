@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from conftest import SERVICE
@@ -70,3 +70,19 @@ def test_heartbeat_marks_camera_online(client):
     cam = client.get(f"/api/v1/bays/{bay['id']}/cameras").json()[0]
     assert client.post(f"/api/v1/cameras/{cam['id']}/heartbeat", headers=SERVICE).status_code == 204
     assert client.get("/api/v1/summary").json()["cameras_online"] == 1
+
+
+def test_overview_endpoint_returns_series_deltas_and_insights(client):
+    bay = client.get("/api/v1/bays").json()[0]
+    s = client.post("/api/v1/sessions", json={"bay_id": bay["id"], "direction": "loading"}).json()
+    client.post(f"/api/v1/sessions/{s['id']}/close")
+    client.post(f"/api/v1/sessions/{s['id']}/reconcile", json={"manual_count": 0})
+
+    body = client.get("/api/v1/analytics/overview?days=14").json()
+    assert body["days"] == 14
+    assert len(body["daily"]) == 14
+    assert len(body["crates"]["series"]) == 14
+    assert body["daily"][-1]["day"] == date.today().isoformat()
+    # every camera in the seeded bay is offline, so that insight must be present
+    assert any(i["key"] == "cameras_offline" for i in body["insights"])
+    assert all(i["severity"] in {"good", "info", "warn", "critical"} for i in body["insights"])

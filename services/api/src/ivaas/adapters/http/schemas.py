@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from ivaas.application.overview import Overview, Severity, Trend
 from ivaas.domain.models import (
     Bay,
     Camera,
@@ -152,6 +153,81 @@ class SummaryOut(BaseModel):
     mean_accuracy: float | None
     cameras_online: int
     cameras_total: int
+
+
+class TrendOut(BaseModel):
+    value: float | None
+    delta_pct: float | None
+    series: list[float]
+
+    @staticmethod
+    def of(t: Trend) -> TrendOut:
+        return TrendOut(value=t.value, delta_pct=t.delta_pct, series=t.series)
+
+
+class DayPointOut(BaseModel):
+    day: date
+    crates: int
+    sessions: int
+    accuracy: float | None
+
+
+class InsightOut(BaseModel):
+    key: str
+    severity: Severity
+    title: str
+    detail: str
+    metric: str | None
+
+
+class OverviewOut(BaseModel):
+    generated_at: datetime
+    days: int
+    crates_today: int
+    sessions_today: int
+    open_sessions: int
+    verified_sessions: int
+    unverified_sessions: int
+    mean_accuracy: float | None
+    cameras_online: int
+    cameras_total: int
+    crates: TrendOut
+    throughput: TrendOut
+    accuracy: TrendOut
+    daily: list[DayPointOut]
+    insights: list[InsightOut]
+
+    @staticmethod
+    def of(o: Overview) -> OverviewOut:
+        return OverviewOut(
+            generated_at=o.generated_at,
+            days=o.days,
+            crates_today=o.crates_today,
+            sessions_today=o.sessions_today,
+            open_sessions=o.open_sessions,
+            verified_sessions=o.verified_sessions,
+            unverified_sessions=o.unverified_sessions,
+            mean_accuracy=o.mean_accuracy,
+            cameras_online=o.cameras_online,
+            cameras_total=o.cameras_total,
+            crates=TrendOut.of(o.crates),
+            throughput=TrendOut.of(o.throughput),
+            accuracy=TrendOut.of(o.accuracy),
+            daily=[
+                DayPointOut(day=d.day, crates=d.crates, sessions=d.sessions, accuracy=d.accuracy)
+                for d in o.daily
+            ],
+            insights=[
+                InsightOut(
+                    key=i.key,
+                    severity=i.severity,
+                    title=i.title,
+                    detail=i.detail,
+                    metric=i.metric,
+                )
+                for i in o.insights
+            ],
+        )
 
 
 class ChatTurnIn(BaseModel):

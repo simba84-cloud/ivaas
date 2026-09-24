@@ -26,6 +26,7 @@ def test_every_route_is_closed_to_anonymous(anon):
         ("GET", "/api/v1/bays"),
         ("GET", "/api/v1/sessions"),
         ("GET", "/api/v1/summary"),
+        ("GET", "/api/v1/analytics/overview"),
         ("POST", "/api/v1/sessions"),
         ("POST", f"/api/v1/bays/{bay}/cameras"),
         ("POST", "/api/v1/discovery/onvif"),
