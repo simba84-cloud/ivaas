@@ -24,6 +24,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 from ivaas.adapters.http.auth import current_principal, require, websocket_principal
 from ivaas.adapters.http.schemas import (
     AnalysisJobOut,
+    ApproveIn,
     AuthConfigOut,
     BayOut,
     CameraIn,
@@ -270,6 +271,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session_id: UUID, body: ReconcileIn, c: Container = Depends(get_container)
     ) -> SessionOut:
         return SessionOut.of(await c.reconcile_session(session_id, body.manual_count))
+
+    @app.post(
+        "/api/v1/sessions/{session_id}/approve",
+        response_model=SessionOut,
+        dependencies=[Depends(require(Role.ADMIN))],
+    )
+    async def approve(
+        session_id: UUID,
+        body: ApproveIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> SessionOut:
+        session = await c.approve_session(
+            session_id, by=principal.name, reason=body.reason, note=body.note
+        )
+        return SessionOut.of(session)
 
     # ingest (called by the AI pipeline) ----------------------------------
     @app.post(

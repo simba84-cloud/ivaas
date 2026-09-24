@@ -86,3 +86,75 @@ def test_overview_endpoint_returns_series_deltas_and_insights(client):
     # every camera in the seeded bay is offline, so that insight must be present
     assert any(i["key"] == "cameras_offline" for i in body["insights"])
     assert all(i["severity"] in {"good", "info", "warn", "critical"} for i in body["insights"])
+
+
+def _disputed_session(client) -> str:
+    """A load counted by the pipeline, closed, then reconciled well outside tolerance."""
+    bay = client.get("/api/v1/bays").json()[0]
+    s = client.post("/api/v1/sessions", json={"bay_id": bay["id"], "direction": "loading"}).json()
+    cam = client.get(f"/api/v1/bays/{bay['id']}/cameras").json()[0]
+    client.post(
+        "/api/v1/ingest/crossings",
+        headers=SERVICE,
+        json={
+            "bay_id": bay["id"],
+            "camera_id": cam["id"],
+            "track_id": 1,
+            "direction": "loading",
+            "crates": 20,
+            "confidence": 0.9,
+            "crossed_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    client.post(f"/api/v1/sessions/{s['id']}/close")
+    done = client.post(f"/api/v1/sessions/{s['id']}/reconcile", json={"manual_count": 10}).json()
+    assert done["status"] == "disputed"
+    return s["id"]
+
+
+def test_admin_approves_a_disputed_load_without_changing_the_counts(client):
+    session_id = _disputed_session(client)
+
+    r = client.post(
+        f"/api/v1/sessions/{session_id}/approve",
+        json={"reason": "damaged_removed", "note": "10 crates pulled damaged"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "approved"
+    assert body["approval_reason"] == "damaged_removed"
+    assert body["approved_by"]
+    assert body["approved_at"]
+    # the variance is what the system exists to report, so approval must not erase it
+    assert (body["ai_count"], body["manual_count"], body["variance"]) == (20, 10, 10)
+
+
+def test_approving_anything_not_disputed_is_a_conflict(client):
+    bay = client.get("/api/v1/bays").json()[0]
+    s = client.post("/api/v1/sessions", json={"bay_id": bay["id"], "direction": "loading"}).json()
+    r = client.post(f"/api/v1/sessions/{s['id']}/approve", json={"reason": "other"})
+    assert r.status_code == 409
+
+
+def test_operators_cannot_approve_only_admins(anon):
+    from conftest import login
+
+    bay = anon.get("/api/v1/bays", headers=login(anon, "viewer")).json()[0]["id"]
+    operator = login(anon, "operator")
+    s = anon.post(
+        "/api/v1/sessions", json={"bay_id": bay, "direction": "loading"}, headers=operator
+    ).json()
+    r = anon.post(f"/api/v1/sessions/{s['id']}/approve", json={"reason": "other"}, headers=operator)
+    assert r.status_code == 403
+
+
+def test_approved_loads_leave_the_disputed_insight(client):
+    session_id = _disputed_session(client)
+    before = client.get("/api/v1/analytics/overview").json()
+    assert before["disputed_sessions"] == 1
+
+    client.post(f"/api/v1/sessions/{session_id}/approve", json={"reason": "ai_miscount"})
+
+    after = client.get("/api/v1/analytics/overview").json()
+    assert (after["disputed_sessions"], after["approved_sessions"]) == (0, 1)
+    assert not [i for i in after["insights"] if i["key"] == "disputed"]

@@ -16,6 +16,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from ivaas.adapters.persistence.secrets import SecretBox
 from ivaas.domain.models import (
+    ApprovalReason,
     Bay,
     Camera,
     CameraRole,
@@ -65,6 +66,10 @@ class SessionRow(Base):
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     plate_last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_by: Mapped[str | None] = mapped_column(String(128))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approval_reason: Mapped[str | None] = mapped_column(String(32))
+    approval_note: Mapped[str | None] = mapped_column(String(280))
 
 
 def _session_to_domain(r: SessionRow) -> LoadingSession:
@@ -79,6 +84,10 @@ def _session_to_domain(r: SessionRow) -> LoadingSession:
         opened_at=r.opened_at,
         closed_at=r.closed_at,
         plate_last_seen_at=r.plate_last_seen_at,
+        approved_by=r.approved_by,
+        approved_at=r.approved_at,
+        approval_reason=ApprovalReason(r.approval_reason) if r.approval_reason else None,
+        approval_note=r.approval_note,
     )
 
 
@@ -206,6 +215,10 @@ class PostgresSessionRepository:
             "opened_at": session.opened_at,
             "closed_at": session.closed_at,
             "plate_last_seen_at": session.plate_last_seen_at,
+            "approved_by": session.approved_by,
+            "approved_at": session.approved_at,
+            "approval_reason": session.approval_reason.value if session.approval_reason else None,
+            "approval_note": session.approval_note,
         }
         stmt = insert(SessionRow).values(**values)
         stmt = stmt.on_conflict_do_update(index_elements=[SessionRow.id], set_=values)

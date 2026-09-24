@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from ivaas.application.overview import Overview, Severity, Trend
 from ivaas.domain.models import (
+    ApprovalReason,
     Bay,
     Camera,
     CameraRole,
@@ -98,6 +99,10 @@ class SessionOut(BaseModel):
     accuracy: float | None
     opened_at: datetime
     closed_at: datetime | None
+    approved_by: str | None
+    approved_at: datetime | None
+    approval_reason: ApprovalReason | None
+    approval_note: str | None
 
     @classmethod
     def of(cls, s: LoadingSession) -> SessionOut:
@@ -113,6 +118,10 @@ class SessionOut(BaseModel):
             accuracy=s.accuracy,
             opened_at=s.opened_at,
             closed_at=s.closed_at,
+            approved_by=s.approved_by,
+            approved_at=s.approved_at,
+            approval_reason=s.approval_reason,
+            approval_note=s.approval_note,
         )
 
 
@@ -123,6 +132,13 @@ class OpenSessionIn(BaseModel):
 
 class ReconcileIn(BaseModel):
     manual_count: int = Field(ge=0)
+
+
+class ApproveIn(BaseModel):
+    """Signing off a disputed load. The counts are not changed, only accepted."""
+
+    reason: ApprovalReason
+    note: str | None = Field(default=None, max_length=280)
 
 
 class CrossingIn(BaseModel):
@@ -190,6 +206,7 @@ class OverviewOut(BaseModel):
     unverified_sessions: int
     disputed_sessions: int
     reconciled_sessions: int
+    approved_sessions: int
     mean_accuracy: float | None
     cameras_online: int
     cameras_total: int
@@ -211,6 +228,7 @@ class OverviewOut(BaseModel):
             unverified_sessions=o.unverified_sessions,
             disputed_sessions=o.disputed_sessions,
             reconciled_sessions=o.reconciled_sessions,
+            approved_sessions=o.approved_sessions,
             mean_accuracy=o.mean_accuracy,
             cameras_online=o.cameras_online,
             cameras_total=o.cameras_total,

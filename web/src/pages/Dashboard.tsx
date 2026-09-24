@@ -284,6 +284,7 @@ export default function Dashboard({ me }: { me: Me | undefined }) {
           open={o?.open_sessions ?? 0}
           awaiting={o?.unverified_sessions ?? 0}
           disputed={o?.disputed_sessions ?? 0}
+          approved={o?.approved_sessions ?? 0}
           reconciled={o?.reconciled_sessions ?? 0}
         />
       </div>

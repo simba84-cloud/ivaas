@@ -7,7 +7,7 @@ export type CameraRole =
   | "lpr";
 export type CameraStatus = "online" | "degraded" | "offline";
 export type Direction = "loading" | "offloading";
-export type SessionStatus = "open" | "closed" | "reconciled" | "disputed";
+export type SessionStatus = "open" | "closed" | "reconciled" | "disputed" | "approved";
 
 export interface Bay {
   id: string;
@@ -43,6 +43,13 @@ export interface DiscoveredStream {
   url: string;
 }
 
+export type ApprovalReason =
+  | "damaged_removed"
+  | "camera_blocked"
+  | "sheet_error"
+  | "ai_miscount"
+  | "other";
+
 export interface Session {
   id: string;
   bay_id: string;
@@ -55,6 +62,10 @@ export interface Session {
   accuracy: number | null;
   opened_at: string;
   closed_at: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  approval_reason: ApprovalReason | null;
+  approval_note: string | null;
 }
 
 export interface Summary {
@@ -101,6 +112,7 @@ export interface Overview {
   unverified_sessions: number;
   disputed_sessions: number;
   reconciled_sessions: number;
+  approved_sessions: number;
   mean_accuracy: number | null;
   cameras_online: number;
   cameras_total: number;

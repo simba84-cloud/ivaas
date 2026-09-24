@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import type { CameraStatus, SessionStatus } from "../api/types";
+import type { ApprovalReason, CameraStatus, SessionStatus } from "../api/types";
 
 export function PageHeader({
   title,
@@ -92,7 +92,20 @@ const SESSION_CHIP: Record<SessionStatus, { cls: string; dot: string }> = {
   closed: { cls: "bg-ground text-muted", dot: "bg-faint" },
   reconciled: { cls: "bg-good/10 text-good", dot: "bg-good" },
   disputed: { cls: "bg-warn/10 text-warn", dot: "bg-warn" },
+  approved: { cls: "bg-brand-tint text-brand", dot: "bg-brand" },
 };
+
+/** The fixed reasons a discrepancy can be signed off under, worded for a person. */
+export const APPROVAL_REASONS: { value: ApprovalReason; label: string }[] = [
+  { value: "damaged_removed", label: "Damaged crates removed" },
+  { value: "camera_blocked", label: "Camera view blocked" },
+  { value: "sheet_error", label: "Error on the manual sheet" },
+  { value: "ai_miscount", label: "AI miscount" },
+  { value: "other", label: "Other" },
+];
+
+export const reasonLabel = (r: ApprovalReason | null) =>
+  APPROVAL_REASONS.find((x) => x.value === r)?.label ?? "—";
 
 export function SessionBadge({ status }: { status: SessionStatus }) {
   const s = SESSION_CHIP[status];

@@ -22,15 +22,17 @@ export function LoadLifecycle({
   open,
   awaiting,
   disputed,
+  approved,
   reconciled,
 }: {
   open: number;
   awaiting: number;
   disputed: number;
+  approved: number;
   reconciled: number;
 }) {
   const still = useReducedMotion();
-  const total = Math.max(1, open + awaiting + disputed + reconciled);
+  const total = Math.max(1, open + awaiting + disputed + approved + reconciled);
 
   const stages: Stage[] = [
     {
@@ -58,6 +60,14 @@ export function LoadLifecycle({
       to: "/sessions",
     },
     {
+      key: "approved",
+      label: "Approved",
+      value: approved,
+      hint: "Discrepancy signed off",
+      fill: "linear-gradient(135deg, #273c87 0%, #4462c9 100%)",
+      to: "/sessions",
+    },
+    {
       key: "reconciled",
       label: "Reconciled",
       value: reconciled,
@@ -68,7 +78,7 @@ export function LoadLifecycle({
   ];
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       {stages.map((s, i) => (
         <motion.div
           key={s.key}

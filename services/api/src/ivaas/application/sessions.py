@@ -12,6 +12,7 @@ from typing import Protocol
 from uuid import UUID
 
 from ivaas.domain.models import (
+    ApprovalReason,
     CrateCrossing,
     LoadingSession,
     NotFoundError,
@@ -31,6 +32,7 @@ SUBJECT_SESSION_OPENED = "ivaas.session.opened"
 SUBJECT_SESSION_UPDATED = "ivaas.session.updated"
 SUBJECT_SESSION_CLOSED = "ivaas.session.closed"
 SUBJECT_SESSION_RECONCILED = "ivaas.session.reconciled"
+SUBJECT_SESSION_APPROVED = "ivaas.session.approved"
 
 
 def session_payload(session: LoadingSession) -> dict:
@@ -145,6 +147,35 @@ class ReconcileSession:
         session.reconcile(manual_count, self.tolerance)
         await self.sessions.save(session)
         await self.events.publish(SUBJECT_SESSION_RECONCILED, session_payload(session))
+        return session
+
+
+@dataclass
+class ApproveSession:
+    """Sign off a disputed load: a person accepted the discrepancy, and why.
+
+    Deliberately does not touch the counts, so accuracy reporting keeps counting
+    the variance that actually occurred.
+    """
+
+    sessions: _SessionStore
+    events: EventPublisher
+    clock: Clock
+
+    async def __call__(
+        self,
+        session_id: UUID,
+        *,
+        by: str,
+        reason: ApprovalReason,
+        note: str | None = None,
+    ) -> LoadingSession:
+        session = await self.sessions.get(session_id)
+        if session is None:
+            raise NotFoundError(f"session {session_id} not found")
+        session.approve(by=by, reason=reason, at=self.clock.now(), note=note)
+        await self.sessions.save(session)
+        await self.events.publish(SUBJECT_SESSION_APPROVED, session_payload(session))
         return session
 
 

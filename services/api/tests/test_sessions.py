@@ -10,6 +10,8 @@ from ivaas.adapters.persistence.memory import (
     SystemClock,
 )
 from ivaas.application.sessions import (
+    SUBJECT_SESSION_APPROVED,
+    ApproveSession,
     CloseIdleSessions,
     CloseSession,
     OpenSession,
@@ -18,8 +20,10 @@ from ivaas.application.sessions import (
     RecordPlateRead,
 )
 from ivaas.domain.models import (
+    ApprovalReason,
     Bay,
     CrateCrossing,
+    NotDisputedError,
     NotFoundError,
     PlateRead,
     SessionClosedError,
@@ -213,3 +217,63 @@ async def test_manually_opened_session_without_a_plate_is_never_auto_closed(ctx)
     )
     clock.at = t0 + timedelta(hours=5)
     assert await CloseIdleSessions(ctx["sessions"], ctx["events"], clock)() == []
+
+
+async def disputed(ctx, ai: int = 42, manual: int = 30, tolerance: float = 0.95):
+    """A closed session reconciled outside tolerance, i.e. disputed."""
+    s = await open_session(ctx)
+    s.ai_count = ai
+    s.close(ctx["clock"].now())
+    s.reconcile(manual, tolerance)
+    await ctx["sessions"].save(s)
+    return s
+
+
+async def test_approving_a_disputed_load_records_who_why_and_when(ctx):
+    s = await disputed(ctx)
+    assert s.status is SessionStatus.DISPUTED
+
+    s.approve(
+        by="site.admin",
+        reason=ApprovalReason.DAMAGED_REMOVED,
+        at=ctx["clock"].now(),
+        note="2 crates pulled damaged",
+    )
+
+    assert s.status is SessionStatus.APPROVED
+    assert (s.approved_by, s.approval_reason) == ("site.admin", ApprovalReason.DAMAGED_REMOVED)
+    assert s.approval_note == "2 crates pulled damaged"
+
+
+async def test_approval_does_not_rewrite_the_counts_or_flatter_accuracy(ctx):
+    s = await disputed(ctx, ai=42, manual=40, tolerance=0.99)
+    before = (s.ai_count, s.manual_count, s.variance, s.accuracy)
+
+    s.approve(by="admin", reason=ApprovalReason.AI_MISCOUNT, at=ctx["clock"].now())
+
+    # the discrepancy happened; approving it says a person accepted it, not that it vanished
+    assert (s.ai_count, s.manual_count, s.variance, s.accuracy) == before
+
+
+@pytest.mark.parametrize(
+    "status", [SessionStatus.OPEN, SessionStatus.CLOSED, SessionStatus.RECONCILED]
+)
+async def test_only_a_disputed_load_can_be_approved(ctx, status):
+    s = await open_session(ctx)
+    if status is not SessionStatus.OPEN:
+        s.close(ctx["clock"].now())
+    if status is SessionStatus.RECONCILED:
+        s.reconcile(0, tolerance=0.95)
+    with pytest.raises(NotDisputedError):
+        s.approve(by="admin", reason=ApprovalReason.OTHER, at=ctx["clock"].now())
+
+
+async def test_approve_use_case_saves_and_publishes(ctx):
+    s = await disputed(ctx, ai=10, manual=2)
+
+    approve = ApproveSession(ctx["sessions"], ctx["events"], ctx["clock"])
+    out = await approve(s.id, by="admin", reason=ApprovalReason.SHEET_ERROR, note="recount")
+
+    assert out.status is SessionStatus.APPROVED
+    assert (await ctx["sessions"].get(s.id)).approved_by == "admin"
+    assert any(e[0] == SUBJECT_SESSION_APPROVED for e in ctx["events"].published)

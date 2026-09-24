@@ -38,6 +38,18 @@ class SessionStatus(StrEnum):
     CLOSED = "closed"
     RECONCILED = "reconciled"
     DISPUTED = "disputed"
+    # a disputed load a supervisor has reviewed and accepted, with a reason on record
+    APPROVED = "approved"
+
+
+class ApprovalReason(StrEnum):
+    """Why a discrepancy was accepted. Fixed options so the reasons can be counted."""
+
+    DAMAGED_REMOVED = "damaged_removed"
+    CAMERA_BLOCKED = "camera_blocked"
+    SHEET_ERROR = "sheet_error"
+    AI_MISCOUNT = "ai_miscount"
+    OTHER = "other"
 
 
 @dataclass(frozen=True)
@@ -157,6 +169,10 @@ class LoadingSession:
     manual_count: int | None = None
     closed_at: datetime | None = None
     plate_last_seen_at: datetime | None = None  # drives auto-close: the truck has left
+    approved_by: str | None = None
+    approved_at: datetime | None = None
+    approval_reason: ApprovalReason | None = None
+    approval_note: str | None = None
 
     def attach_plate(self, read: PlateRead) -> None:
         if self.status is not SessionStatus.OPEN:
@@ -196,6 +212,29 @@ class LoadingSession:
             else SessionStatus.DISPUTED
         )
 
+    def approve(
+        self,
+        *,
+        by: str,
+        reason: ApprovalReason,
+        at: datetime,
+        note: str | None = None,
+    ) -> None:
+        """Accept a disputed load, on the record.
+
+        The counts are left exactly as they were: an approval says a person looked
+        at the discrepancy and accepted it, not that the discrepancy did not happen.
+        Rewriting the numbers here would quietly flatter the accuracy figure that
+        this whole system exists to report.
+        """
+        if self.status is not SessionStatus.DISPUTED:
+            raise NotDisputedError(self.id)
+        self.status = SessionStatus.APPROVED
+        self.approved_by = by
+        self.approved_at = at
+        self.approval_reason = reason
+        self.approval_note = note
+
     @property
     def variance(self) -> int | None:
         if self.manual_count is None:
@@ -224,6 +263,11 @@ class SessionClosedError(DomainError):
 class SessionStillOpenError(DomainError):
     def __init__(self, session_id: UUID) -> None:
         super().__init__(f"session {session_id} must be closed before reconciliation")
+
+
+class NotDisputedError(DomainError):
+    def __init__(self, session_id: UUID) -> None:
+        super().__init__(f"session {session_id} is not disputed, so there is nothing to approve")
 
 
 class NotFoundError(DomainError):

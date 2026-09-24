@@ -1,6 +1,7 @@
 import { getToken, type Me } from "../auth/session";
 import type {
   AnalysisJob,
+  ApprovalReason,
   Bay,
   Camera,
   CameraRole,
@@ -94,6 +95,11 @@ export const api = {
     }),
   closeSession: (id: string) =>
     request<Session>(`/api/v1/sessions/${id}/close`, { method: "POST" }),
+  approve: (id: string, reason: ApprovalReason, note?: string) =>
+    request<Session>(`/api/v1/sessions/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ reason, note: note || null }),
+    }),
   reconcile: (id: string, manual_count: number) =>
     request<Session>(`/api/v1/sessions/${id}/reconcile`, {
       method: "POST",

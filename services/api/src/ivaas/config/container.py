@@ -36,6 +36,7 @@ from ivaas.application.assistant import AskAssistant
 from ivaas.application.cameras import RefreshCameraStatus, RegisterCamera, RemoveCamera
 from ivaas.application.overview import OperationsOverview, Overview
 from ivaas.application.sessions import (
+    ApproveSession,
     CloseIdleSessions,
     CloseSession,
     OpenSession,
@@ -168,6 +169,10 @@ class Container:
 
     async def overview(self, days: int = 14) -> Overview:
         return await OperationsOverview(self.sessions, self.cameras, self.bays, self.clock)(days)
+
+    @property
+    def approve_session(self) -> ApproveSession:
+        return ApproveSession(self.sessions, self.events, self.clock)
 
     @property
     def ask_assistant(self) -> AskAssistant | None:
