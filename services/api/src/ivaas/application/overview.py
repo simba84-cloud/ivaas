@@ -70,6 +70,8 @@ class Overview:
     open_sessions: int
     verified_sessions: int
     unverified_sessions: int
+    disputed_sessions: int
+    reconciled_sessions: int
     mean_accuracy: float | None
     cameras_online: int
     cameras_total: int
@@ -125,6 +127,8 @@ class OperationsOverview:
             open_sessions=sum(1 for s in rows if s.status is SessionStatus.OPEN),
             verified_sessions=len(verified),
             unverified_sessions=sum(1 for s in rows if s.status is SessionStatus.CLOSED),
+            disputed_sessions=sum(1 for s in rows if s.status is SessionStatus.DISPUTED),
+            reconciled_sessions=sum(1 for s in rows if s.status is SessionStatus.RECONCILED),
             mean_accuracy=_mean([s.accuracy or 0 for s in verified]),
             cameras_online=sum(1 for c in cams if c.status is CameraStatus.ONLINE),
             cameras_total=len(cams),

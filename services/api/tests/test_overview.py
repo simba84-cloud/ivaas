@@ -206,3 +206,17 @@ async def test_crate_series_keeps_real_zeroes():
     # Zero crates on a quiet day is a measured fact, so it stays 0.0, not None.
     result = await (await build([session(days_ago=0, ai=5)]))(days=3)
     assert result.crates.series == [0.0, 0.0, 5.0]
+
+
+async def test_counts_each_stage_of_the_load_lifecycle():
+    rows = [
+        session(status=SessionStatus.OPEN),
+        session(status=SessionStatus.CLOSED),
+        session(status=SessionStatus.CLOSED),
+        session(ai=10, manual=10, status=SessionStatus.RECONCILED),
+        session(ai=12, manual=10, status=SessionStatus.DISPUTED),
+    ]
+    r = await (await build(rows))(days=7)
+
+    assert (r.open_sessions, r.unverified_sessions) == (1, 2)
+    assert (r.disputed_sessions, r.reconciled_sessions) == (1, 1)

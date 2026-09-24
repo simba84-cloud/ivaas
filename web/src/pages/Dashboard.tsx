@@ -11,16 +11,17 @@ import {
   VideoOff,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { MEDIA_BASE, useMediaServerUp } from "../api/media";
 import { api } from "../api/client";
 import type { Camera as Cam, Direction } from "../api/types";
 import { type Me, hasRole } from "../auth/session";
 import { ThroughputChart } from "../components/charts";
 import { InsightFeed } from "../components/insights";
 import { KpiCard } from "../components/kpi";
+import { HealthStrip, LoadLifecycle } from "../components/lifecycle";
 import { CameraDot, EmptyState, SessionBadge, VarianceBar, pct, time } from "../components/ui";
 
 const TARGET = 0.95;
-const MEDIA_BASE = import.meta.env.VITE_MEDIA_URL ?? "http://localhost:8889";
 
 /** The bay itself, as large as the page allows: this is what the room watches. */
 function LiveBay({
@@ -153,6 +154,8 @@ export default function Dashboard({ me }: { me: Me | undefined }) {
   });
   const bays = useQuery({ queryKey: ["bays"], queryFn: api.bays });
   const sessions = useQuery({ queryKey: ["sessions"], queryFn: api.sessions });
+  const assistant = useQuery({ queryKey: ["assistant-status"], queryFn: api.assistantStatus });
+  const mediaUp = useMediaServerUp();
   const bay = bays.data?.[0];
   const cameras = useQuery({
     queryKey: ["cameras", bay?.id],
@@ -272,6 +275,43 @@ export default function Dashboard({ me }: { me: Me | undefined }) {
               </span>
             </div>
           }
+        />
+      </div>
+
+      {/* a load's journey, left to right: a pile-up at one stage shows as a shape */}
+      <div className="mt-3">
+        <LoadLifecycle
+          open={o?.open_sessions ?? 0}
+          awaiting={o?.unverified_sessions ?? 0}
+          disputed={o?.disputed_sessions ?? 0}
+          reconciled={o?.reconciled_sessions ?? 0}
+        />
+      </div>
+
+      <div className="mt-3">
+        <HealthStrip
+          services={[
+            {
+              name: "API",
+              ok: overview.isError ? false : overview.isSuccess ? true : undefined,
+              detail: overview.isError ? "unreachable" : "responding",
+            },
+            {
+              name: "Cameras",
+              ok: (o?.cameras_online ?? 0) > 0,
+              detail: `${o?.cameras_online ?? 0}/${o?.cameras_total ?? 0} streaming`,
+            },
+            {
+              name: "Media server",
+              ok: mediaUp,
+              detail: mediaUp === false ? "unreachable" : mediaUp ? "reachable" : "checking",
+            },
+            {
+              name: "Assistant",
+              ok: assistant.data?.enabled,
+              detail: assistant.data?.enabled ? (assistant.data.model ?? "ready") : "not configured",
+            },
+          ]}
         />
       </div>
 

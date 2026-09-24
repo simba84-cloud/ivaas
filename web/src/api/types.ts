@@ -99,6 +99,8 @@ export interface Overview {
   open_sessions: number;
   verified_sessions: number;
   unverified_sessions: number;
+  disputed_sessions: number;
+  reconciled_sessions: number;
   mean_accuracy: number | null;
   cameras_online: number;
   cameras_total: number;

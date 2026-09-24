@@ -188,6 +188,8 @@ class OverviewOut(BaseModel):
     open_sessions: int
     verified_sessions: int
     unverified_sessions: int
+    disputed_sessions: int
+    reconciled_sessions: int
     mean_accuracy: float | None
     cameras_online: int
     cameras_total: int
@@ -207,6 +209,8 @@ class OverviewOut(BaseModel):
             open_sessions=o.open_sessions,
             verified_sessions=o.verified_sessions,
             unverified_sessions=o.unverified_sessions,
+            disputed_sessions=o.disputed_sessions,
+            reconciled_sessions=o.reconciled_sessions,
             mean_accuracy=o.mean_accuracy,
             cameras_online=o.cameras_online,
             cameras_total=o.cameras_total,

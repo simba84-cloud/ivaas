@@ -79,6 +79,8 @@ export const overview = (over: Partial<Overview> = {}): Overview => ({
   open_sessions: 1,
   verified_sessions: 2,
   unverified_sessions: 1,
+  disputed_sessions: 1,
+  reconciled_sessions: 4,
   mean_accuracy: 0.962,
   cameras_online: 2,
   cameras_total: 4,

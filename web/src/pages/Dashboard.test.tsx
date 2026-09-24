@@ -18,6 +18,10 @@ function api({
     http.get("/api/v1/bays", () => HttpResponse.json([bay])),
     http.get("/api/v1/sessions", () => HttpResponse.json(sessions)),
     http.get(`/api/v1/bays/${bay.id}/cameras`, () => HttpResponse.json(cameras)),
+    http.get("/api/v1/assistant/status", () =>
+      HttpResponse.json({ enabled: true, model: "qwen3:8b" }),
+    ),
+    http.get("http://localhost:8889/", () => HttpResponse.json({})),
   );
 }
 
@@ -78,6 +82,31 @@ describe("operations dashboard", () => {
     expect(await screen.findByText(/No signal from the bay camera/)).toBeInTheDocument();
     expect(screen.getByText("OFFLINE")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start loading" })).toBeEnabled();
+  });
+
+  it("shows each stage of the load lifecycle with its count", async () => {
+    api();
+    renderPage(<Dashboard me={me(["admin"])} />);
+
+    await screen.findByText("+18%");
+    const stage = (label: string) =>
+      screen.getByText(label).closest("a") as HTMLElement;
+    expect(within(stage("At the bay")).getByText("1")).toBeInTheDocument();
+    expect(within(stage("Awaiting count")).getByText("1")).toBeInTheDocument();
+    expect(within(stage("Disputed")).getByText("1")).toBeInTheDocument();
+    expect(within(stage("Reconciled")).getByText("4")).toBeInTheDocument();
+    // the stages that need a person link to where that work happens
+    expect(stage("Awaiting count")).toHaveAttribute("href", "/sessions");
+  });
+
+  it("reports platform health from real signals", async () => {
+    api();
+    renderPage(<Dashboard me={me(["admin"])} />);
+
+    await screen.findByText("+18%"); // wait for the overview query to land
+    expect(screen.getByText("Platform health")).toBeInTheDocument();
+    expect(await screen.findByText("2/4 streaming")).toBeInTheDocument();
+    expect(screen.getByText("responding")).toBeInTheDocument();
   });
 
   it("does not let a viewer operate the bay", async () => {

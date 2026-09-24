@@ -2,102 +2,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { LogIn, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { type AuthConfig, loginLocal, loginOidc } from "../auth/session";
-
-/**
- * The brand panel is deliberately single-theme: it is a lit surface in its own
- * right, like the video wells, so it reads the same in light and dark. Its colours
- * are literals rather than tokens for that reason.
- */
-const GRADIENT =
-  "linear-gradient(150deg, #16234f 0%, #273c87 32%, #5b2a8c 62%, #a3187f 84%, #c8187d 100%)";
-
-/**
- * Crate stacks: the thing this platform counts, drawn as the panel's own motif.
- * Few and large rather than many and small, so it reads as a deliberate graphic
- * and not as a grid of loading skeletons.
- */
-const STACKS = [
-  { x: 296, base: 992, w: 300, h: 86, n: 6, o: 0.09 },
-  { x: 92, base: 1004, w: 250, h: 74, n: 4, o: 0.06 },
-  { x: 470, base: 560, w: 210, h: 62, n: 3, o: 0.05 },
-];
-
-/** One crate: an overhanging lip it stacks on, and a cut-out handle at each end. */
-function Crate({ x, y, w, h, o }: { x: number; y: number; w: number; h: number; o: number }) {
-  const lip = w * 0.035;
-  const slotW = w * 0.16;
-  return (
-    <g>
-      {/* body */}
-      <rect
-        x={x}
-        y={y}
-        width={w}
-        height={h}
-        rx={6}
-        fill="#fff"
-        fillOpacity={o}
-        stroke="#fff"
-        strokeOpacity={o * 2.6}
-        strokeWidth={1.5}
-      />
-      {/* the lip overhangs the body: what makes a stack read as a stack */}
-      <rect
-        x={x - lip}
-        y={y - h * 0.06}
-        width={w + lip * 2}
-        height={h * 0.17}
-        rx={4}
-        fill="#fff"
-        fillOpacity={o * 1.7}
-        stroke="#fff"
-        strokeOpacity={o * 2.2}
-        strokeWidth={1}
-      />
-      {/* handles, cut back towards the panel behind */}
-      {[x + w * 0.11, x + w * 0.73].map((sx) => (
-        <rect
-          key={sx}
-          x={sx}
-          y={y + h * 0.45}
-          width={slotW}
-          height={h * 0.22}
-          rx={3}
-          fill="#0d1636"
-          fillOpacity={0.35}
-        />
-      ))}
-    </g>
-  );
-}
-
-function CrateMotif() {
-  return (
-    <svg
-      aria-hidden
-      className="absolute inset-0 h-full w-full"
-      viewBox="0 0 640 960"
-      preserveAspectRatio="xMidYMax slice"
-      fill="none"
-    >
-      {STACKS.map((s) => (
-        <g key={`${s.x}-${s.base}`}>
-          {Array.from({ length: s.n }, (_, i) => (
-            <Crate
-              key={i}
-              // hand-loaded stacks lean a little
-              x={s.x + Math.round(Math.sin(i * 0.8) * (s.w * 0.012))}
-              y={s.base - (i + 1) * (s.h + 2)}
-              w={s.w}
-              h={s.h}
-              o={s.o}
-            />
-          ))}
-        </g>
-      ))}
-    </svg>
-  );
-}
+import { BRAND_GRADIENT, CrateMotif, LOGIN_STACKS } from "../components/brand";
 
 const FACTS = [
   { value: "95%", label: "Counting accuracy target" },
@@ -130,9 +35,9 @@ export default function Login({ config }: { config: AuthConfig }) {
       {/* brand panel */}
       <aside
         className="relative hidden overflow-hidden text-white lg:flex lg:flex-col lg:justify-between lg:p-12"
-        style={{ background: GRADIENT }}
+        style={{ background: BRAND_GRADIENT }}
       >
-        <CrateMotif />
+        <CrateMotif stacks={LOGIN_STACKS} />
         {/* light blooms for depth */}
         <div
           aria-hidden
@@ -193,9 +98,9 @@ export default function Login({ config }: { config: AuthConfig }) {
       {/* mobile brand band, so the identity survives on a phone */}
       <div
         className="relative flex h-32 items-end overflow-hidden px-5 pb-4 lg:hidden"
-        style={{ background: GRADIENT }}
+        style={{ background: BRAND_GRADIENT }}
       >
-        <CrateMotif />
+        <CrateMotif stacks={LOGIN_STACKS} />
         <img
           src="/logo-liquid.png"
           alt="Liquid Intelligent Technologies"

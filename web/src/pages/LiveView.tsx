@@ -3,6 +3,7 @@ import { AlertTriangle, Grid2x2, Grid3x3, LayoutGrid, VideoOff } from "lucide-re
 import { useState } from "react";
 import { api } from "../api/client";
 import type { Camera, CameraRole } from "../api/types";
+import { MEDIA_BASE, useMediaServerUp } from "../api/media";
 import { EmptyState, roleLabel } from "../components/ui";
 
 const ROLE_ORDER: CameraRole[] = [
@@ -13,9 +14,6 @@ const ROLE_ORDER: CameraRole[] = [
   "side_low",
   "lpr",
 ];
-
-// MediaMTX serves each path as a WebRTC (WHEP) player page on :8889.
-const MEDIA_BASE = import.meta.env.VITE_MEDIA_URL ?? "http://localhost:8889";
 
 /** Wall density, the way a VMS offers it: fewer, larger tiles or more, smaller ones. */
 const LAYOUTS = {
@@ -32,20 +30,6 @@ const LAYOUTS = {
   },
 } as const;
 type Layout = keyof typeof LAYOUTS;
-
-/** An iframe cannot report a refused connection, so probe the media server once. */
-function useMediaServerUp(): boolean | undefined {
-  const probe = useQuery({
-    queryKey: ["media-server"],
-    queryFn: () =>
-      fetch(MEDIA_BASE, { mode: "no-cors" }).then(
-        () => true,
-        () => false,
-      ),
-    refetchInterval: 30_000,
-  });
-  return probe.data;
-}
 
 function Tile({
   camera,
