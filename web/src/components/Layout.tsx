@@ -116,8 +116,8 @@ export function Layout({
               className="h-6 lg:hidden dark:brightness-0 dark:invert"
             />
             <div className="hidden min-w-0 lg:block">
-              <div className="truncate text-sm font-bold text-ink">Demo Bakery Industrial Site</div>
-              <div className="truncate text-xs text-muted">POC Loading Bay</div>
+              <div className="truncate text-sm font-bold text-ink">Bakery Industrial Site</div>
+              <div className="truncate text-xs text-muted">Loading Bay</div>
             </div>
           </div>
           <div className="flex items-center gap-1.5">

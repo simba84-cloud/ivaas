@@ -3,7 +3,7 @@ import type { AnalysisJob, Bay, Camera, Overview, Session, Summary } from "../ap
 export const bay: Bay = {
   id: "0bc39dce-7ea1-5331-b0dc-4ffcd94bbfd3",
   site_id: "s",
-  name: "POC Loading Bay",
+  name: "Loading Bay",
   height_m: 4,
   width_m: 3,
 };

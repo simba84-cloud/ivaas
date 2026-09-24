@@ -67,8 +67,8 @@ def _stable_id(name: str) -> Any:
 
 
 def demo_topology() -> tuple[Site, Bay, list[Camera]]:
-    site = Site(id=_stable_id("site.demo-bakery"), name="Demo Bakery Industrial Site")
-    bay = Bay(id=_stable_id("bay.poc"), site_id=site.id, name="POC Loading Bay")
+    site = Site(id=_stable_id("site.demo-bakery"), name="Bakery Industrial Site")
+    bay = Bay(id=_stable_id("bay.poc"), site_id=site.id, name="Loading Bay")
     cameras = [
         Camera(
             id=_stable_id(f"cam.{role.value}.{n}"),

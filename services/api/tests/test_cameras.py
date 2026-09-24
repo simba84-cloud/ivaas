@@ -58,7 +58,8 @@ def test_register_list_remove_camera(client):
     )
     assert r.status_code == 201, r.text
     cam = r.json()
-    assert cam["stream_path"] == "poc-loading-bay/dock-door-ptz"
+    # the stream path is derived from the bay name, so renaming the bay changes it
+    assert cam["stream_path"] == "loading-bay/dock-door-ptz"
     assert cam["protocol"] == "rtsp"
     assert "hunter2" not in r.text
 
