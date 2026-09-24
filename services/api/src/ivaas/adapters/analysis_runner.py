@@ -7,17 +7,22 @@ production the same work can move to the GPU edge node behind the same port.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 
 import cv2
 
 from ivaas.domain.analysis import AnalysisJob, DetectedLoad, TimelineEvent
 
+log = logging.getLogger(__name__)
+
 
 class PipelineVideoAnalyser:
     def __init__(self, model_path: str, layers_model: str | None, lpr: bool = True) -> None:
         self._model_path, self._layers_model, self._lpr = model_path, layers_model, lpr
         self._loaded = None
+        # None until the first analysis has tried to load the reader
+        self.plate_reading: bool | None = None
 
     def _load(self):
         if self._loaded is None:
@@ -31,8 +36,17 @@ class PipelineVideoAnalyser:
                     from ivaas_pipeline.adapters.fast_alpr_reader import FastAlprPlateReader
 
                     reader = FastAlprPlateReader()
-                except Exception:  # LPR extra not installed: analyse without plates
+                except Exception:
+                    # Analysis still counts crates, but every load will report no plate,
+                    # which is indistinguishable from "the camera could not read one".
+                    # Say so loudly: the report carries the same warning.
+                    log.warning(
+                        "plate reading is unavailable, so loads will have no number plate. "
+                        "Install the pipeline's [lpr] extra (fast-alpr) to enable it.",
+                        exc_info=True,
+                    )
                     reader = None
+            self.plate_reading = reader is not None
             self._loaded = (
                 OnnxRtDetrDetector(self._model_path, threshold=0.2),
                 OnnxLayerCounter(self._layers_model)

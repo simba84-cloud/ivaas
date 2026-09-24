@@ -18,7 +18,8 @@ dependencies = [
     "cryptography>=43",
     "aioboto3>=13",
     "python-multipart>=0.0.12",
-    "ivaas-pipeline",
+    # [lpr] pulls fast-alpr: without it uploaded videos are analysed with no plate reading
+    "ivaas-pipeline[lpr]",
 ]
 
 [tool.uv.sources]

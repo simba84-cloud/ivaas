@@ -676,6 +676,36 @@ wheels = [
 ]
 
 [[package]]
+name = "fast-alpr"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fast-plate-ocr" },
+    { name = "open-image-models" },
+    { name = "opencv-python-headless" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/53/54/5adde5e01028218db494084e932cd8fae391170b8da70f98ae36709721eb/fast_alpr-0.4.0.tar.gz", hash = "sha256:02e3011598c5c83c260e215f7bec8cae9f67a1e9b903db1079a14bdb15d4eb0d", size = 1757398, upload-time = "2026-03-15T23:39:17.69Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/f2/62454cec77ea25c01e3634a5ba645251eb3de821f9d29de72d9b62f4ccbc/fast_alpr-0.4.0-py3-none-any.whl", hash = "sha256:a3e835c60fcebe1445ccdd3128da958968866b0df2bfe3960357b78251296499", size = 10903, upload-time = "2026-03-15T23:39:16.67Z" },
+]
+
+[[package]]
+name = "fast-plate-ocr"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "opencv-python-headless" },
+    { name = "pyyaml" },
+    { name = "rich" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ab/23/0cf6a5d271e539c4660044b875eae6ef2fd26e682359d05b504f6e953bc1/fast_plate_ocr-1.1.0.tar.gz", hash = "sha256:911054d56b89d95ad6e56eae898a1c981a98d86510e4674595805de233645aa2", size = 316036, upload-time = "2026-03-14T20:22:21.214Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a5/e9/c806e94c98826234c5d04f1591cb9ed18f09a54c9a0fd907c0e0d7537468/fast_plate_ocr-1.1.0-py3-none-any.whl", hash = "sha256:98eba340ab90a04cf5daa693320942ce7eeb5977529143df6bb41afd08239062", size = 62334, upload-time = "2026-03-14T20:22:19.752Z" },
+]
+
+[[package]]
 name = "fastapi"
 version = "0.141.1"
 source = { registry = "https://pypi.org/simple" }
@@ -957,7 +987,7 @@ dependencies = [
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
-    { name = "ivaas-pipeline" },
+    { name = "ivaas-pipeline", extra = ["lpr"] },
     { name = "nats-py" },
     { name = "prometheus-client" },
     { name = "pydantic" },
@@ -985,7 +1015,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=43" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "ivaas-pipeline", editable = "../pipeline" },
+    { name = "ivaas-pipeline", extras = ["lpr"], editable = "../pipeline" },
     { name = "nats-py", specifier = ">=2.9" },
     { name = "prometheus-client", specifier = ">=0.21" },
     { name = "pydantic", specifier = ">=2.9" },
@@ -1014,6 +1044,11 @@ dependencies = [
     { name = "numpy" },
     { name = "onnxruntime" },
     { name = "opencv-python-headless" },
+]
+
+[package.optional-dependencies]
+lpr = [
+    { name = "fast-alpr" },
 ]
 
 [package.metadata]
@@ -1155,6 +1190,18 @@ wheels = [
 ]
 
 [[package]]
+name = "markdown-it-py"
+version = "4.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "mdurl" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/06/ff/7841249c247aa650a76b9ee4bbaeae59370dc8bfd2f6c01f3630c35eb134/markdown_it_py-4.2.0.tar.gz", hash = "sha256:04a21681d6fbb623de53f6f364d352309d4094dd4194040a10fd51833e418d49", size = 82454, upload-time = "2026-05-07T12:08:28.36Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b3/81/4da04ced5a082363ecfa159c010d200ecbd959ae410c10c0264a38cac0f5/markdown_it_py-4.2.0-py3-none-any.whl", hash = "sha256:9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a", size = 91687, upload-time = "2026-05-07T12:08:27.182Z" },
+]
+
+[[package]]
 name = "markupsafe"
 version = "3.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1215,6 +1262,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/fb/df/5bd7a48c256faecd1d36edc13133e51397e41b73bb77e1a69deab746ebac/markupsafe-3.0.3-cp314-cp314t-win32.whl", hash = "sha256:915c04ba3851909ce68ccc2b8e2cd691618c4dc4c4232fb7982bca3f41fd8c3d", size = 14819, upload-time = "2025-09-27T18:37:26.285Z" },
     { url = "https://files.pythonhosted.org/packages/1a/8a/0402ba61a2f16038b48b39bccca271134be00c5c9f0f623208399333c448/markupsafe-3.0.3-cp314-cp314t-win_amd64.whl", hash = "sha256:4faffd047e07c38848ce017e8725090413cd80cbc23d86e55c587bf979e579c9", size = 15426, upload-time = "2025-09-27T18:37:27.316Z" },
     { url = "https://files.pythonhosted.org/packages/70/bc/6f1c2f612465f5fa89b95bead1f44dcb607670fd42891d8fdcd5d039f4f4/markupsafe-3.0.3-cp314-cp314t-win_arm64.whl", hash = "sha256:32001d6a8fc98c8cb5c947787c5d08b0a50663d139f1305bac5885d98d9b40fa", size = 14146, upload-time = "2025-09-27T18:37:28.327Z" },
+]
+
+[[package]]
+name = "mdurl"
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729, upload-time = "2022-08-14T12:40:10.846Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
 ]
 
 [[package]]
@@ -1530,6 +1586,21 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/2f/db/db8e4c0cf6f70f1311060560630fd21763648e01dfbba5195a2592c052ef/onnxruntime-1.30.0-cp314-cp314-win_arm64.whl", hash = "sha256:83d543843cbd352cfa9996a6c7b92f8a480f114a18f95ff2a1acaf6921e85b6d", size = 14569360, upload-time = "2026-09-10T16:32:09.896Z" },
     { url = "https://files.pythonhosted.org/packages/24/0a/ec0a9d656e39b43887c378a5388b20c3b1e1ee43bded84580b0936466694/onnxruntime-1.30.0-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:265de607ba6f9814264e1d5d413fa7069d70f48e3049b5e460b3b04bdfcef294", size = 21348433, upload-time = "2026-09-10T16:32:12.772Z" },
     { url = "https://files.pythonhosted.org/packages/91/f0/40f74b7c00077e1e25627067ed98a70df1fef5c0e21b82849190d312554e/onnxruntime-1.30.0-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:67ad7f03433b6462c627d0f555dece80e6a26bc71e8542ced35cebd32142d1b7", size = 23579340, upload-time = "2026-09-10T16:32:15.532Z" },
+]
+
+[[package]]
+name = "open-image-models"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "opencv-python-headless" },
+    { name = "rich" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/95/51/e38e38b2e3e0fe23f9d3901b17fb7de9a1c378423920e39f179e092cedaa/open_image_models-0.6.0.tar.gz", hash = "sha256:3fc5b34fd400867b209a022bc0e6cca903aa9de0624fa233ff5c8b5d8c716ff1", size = 162295, upload-time = "2026-07-27T03:01:51.332Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c7/da/a9aa5d0e44d1e8fdf8a8d52dfe954a71d34c0ecbbce09258dc36d3fe1df8/open_image_models-0.6.0-py3-none-any.whl", hash = "sha256:b0ada0bff1290298fe7b9f3ad0c517058036cead7d4ebfcc45e797b981d6b0a1", size = 27375, upload-time = "2026-07-27T03:01:49.857Z" },
 ]
 
 [[package]]
@@ -1989,6 +2060,19 @@ wheels = [
 ]
 
 [[package]]
+name = "rich"
+version = "15.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "markdown-it-py" },
+    { name = "pygments" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c0/8f/0722ca900cc807c13a6a0c696dacf35430f72e0ec571c4275d2371fca3e9/rich-15.0.0.tar.gz", hash = "sha256:edd07a4824c6b40189fb7ac9bc4c52536e9780fbbfbddf6f1e2502c31b068c36", size = 230680, upload-time = "2026-04-12T08:24:00.75Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/82/3b/64d4899d73f91ba49a8c18a8ff3f0ea8f1c1d75481760df8c68ef5235bf5/rich-15.0.0-py3-none-any.whl", hash = "sha256:33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb", size = 310654, upload-time = "2026-04-12T08:24:02.83Z" },
+]
+
+[[package]]
 name = "ruff"
 version = "0.16.8"
 source = { registry = "https://pypi.org/simple" }
@@ -2107,6 +2191,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/4b/13/2cc466bddf26d0085f30a2b2bd56b7f8708b54a54db833eec97c5c69129b/testcontainers-4.15.0.tar.gz", hash = "sha256:085cde086337632e19002719460b7b80bbab2bdd51bb3ea04f77d0de96504706", size = 95340, upload-time = "2026-07-24T23:08:01.731Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/00/7e/424aac8b355597835deb333e757a0e94b5ccf38ad00f07fe6ed1f4e17c88/testcontainers-4.15.0-py3-none-any.whl", hash = "sha256:8796c14e76604031ad39cf0ed3b8e9806283a1fbf5270965c2b1c594caa31b74", size = 160771, upload-time = "2026-07-24T23:08:00.13Z" },
+]
+
+[[package]]
+name = "tqdm"
+version = "4.70.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0d/ea/b2a5bd54b28a324dae8211928b2d730b6547500342c7e6c6dea08bd0a485/tqdm-4.70.1.tar.gz", hash = "sha256:cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4", size = 171846, upload-time = "2026-09-11T07:25:16.601Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a7/03/921a3d3c75785aca9ebfbfcabfbc3a1be12e2ab5265deb026d55a5a3f83e/tqdm-4.70.1-py3-none-any.whl", hash = "sha256:c293e525e6fef9c20e8728fd4612df02a0aa31bb5fe91ecd93e123b1b7bffa73", size = 80199, upload-time = "2026-09-11T07:25:14.599Z" },
 ]
 
 [[package]]

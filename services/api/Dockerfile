@@ -10,7 +10,12 @@ COPY api/src ./src
 COPY api/alembic.ini ./alembic.ini
 COPY api/migrations ./migrations
 RUN uv sync --no-dev
-RUN useradd -r ivaas
+# -m: fast-alpr caches its ONNX weights under $HOME, and a user without one cannot start
+RUN useradd -r -m -d /home/ivaas ivaas
 USER ivaas
+# Fetch the plate-recognition weights now rather than on the first analysis: this image
+# is deployed on site, where outbound internet is not a safe assumption.
+RUN /app/.venv/bin/python -c \
+    "from ivaas_pipeline.adapters.fast_alpr_reader import FastAlprPlateReader; FastAlprPlateReader()"
 EXPOSE 8000
 CMD ["/app/.venv/bin/uvicorn", "ivaas.adapters.http.app:app", "--host", "0.0.0.0", "--port", "8000"]
