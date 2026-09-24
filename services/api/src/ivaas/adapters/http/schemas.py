@@ -252,6 +252,12 @@ class OverviewOut(BaseModel):
         )
 
 
+class PlatformConfigOut(BaseModel):
+    """Limits the portal needs so it can warn before a long upload, not after."""
+
+    max_upload_mb: int
+
+
 class ChatTurnIn(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(max_length=4000)

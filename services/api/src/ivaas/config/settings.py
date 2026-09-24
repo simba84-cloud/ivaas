@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     s3_bucket: str = "ivaas"
     stack_model: str = "../../models/stacks-v2.onnx"
     layers_model: str = "../../models/layers-v3.onnx"
-    max_upload_mb: int = 2048
+    max_upload_mb: int = 5120
     # Signs the short-lived links that let <img>/<video> load report objects without a token.
     object_link_secret: str = "dev-only-object-link-secret-change-me"
     cors_origins: list[str] = ["http://localhost:5173"]

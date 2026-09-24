@@ -40,6 +40,7 @@ from ivaas.adapters.http.schemas import (
     OpenSessionIn,
     OverviewOut,
     PlateReadIn,
+    PlatformConfigOut,
     ReconcileIn,
     SessionOut,
     SummaryOut,
@@ -342,6 +343,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cameras_online=sum(1 for cam in cams if cam.status is CameraStatus.ONLINE),
             cameras_total=len(cams),
         )
+
+    @app.get(
+        "/api/v1/config",
+        response_model=PlatformConfigOut,
+        dependencies=[Depends(require(Role.VIEWER))],
+    )
+    async def platform_config(c: Container = Depends(get_container)) -> PlatformConfigOut:
+        return PlatformConfigOut(max_upload_mb=c.settings.max_upload_mb)
 
     @app.get(
         "/api/v1/analytics/overview",

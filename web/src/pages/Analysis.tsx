@@ -20,12 +20,17 @@ export function fmtSeconds(s: number | null): string {
   return `${m}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 }
 
-function UploadCard({ bayId }: { bayId: string }) {
+const GB = 1024 * 1024 * 1024;
+
+function UploadCard({ bayId, maxMb }: { bayId: string; maxMb: number }) {
   const qc = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [sent, setSent] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const [rejected, setRejected] = useState<string | null>(null);
+  const maxBytes = maxMb * 1024 * 1024;
+  const maxLabel = maxMb >= 1024 ? `${Math.round(maxMb / 1024)} GB` : `${maxMb} MB`;
 
   const upload = useMutation({
     mutationFn: (f: File) => api.uploadVideo(bayId, f, setSent),
@@ -36,8 +41,21 @@ function UploadCard({ bayId }: { bayId: string }) {
     },
   });
 
+  /** Check before the upload starts: finding out at the end of 5 GB is no use. */
   const pick = (f: File | undefined) => {
-    if (f && f.type.startsWith("video/")) setFile(f);
+    if (!f) return;
+    if (!f.type.startsWith("video/")) {
+      setRejected(`${f.name} is not a video file.`);
+      return;
+    }
+    if (f.size > maxBytes) {
+      setRejected(
+        `${f.name} is ${(f.size / GB).toFixed(1)} GB. The limit is ${maxLabel} — trim the clip or ask an administrator to raise it.`,
+      );
+      return;
+    }
+    setRejected(null);
+    setFile(f);
   };
 
   return (
@@ -75,7 +93,7 @@ function UploadCard({ bayId }: { bayId: string }) {
           <>
             <UploadCloud size={32} className="text-faint" />
             <div className="mt-3 font-semibold text-ink">Drop a video here, or click to choose</div>
-            <div className="text-xs text-muted">MP4, MOV, MKV or WebM · up to 2 GB</div>
+            <div className="text-xs text-muted">MP4, MOV, MKV or WebM · up to {maxLabel}</div>
           </>
         )}
       </div>
@@ -90,6 +108,11 @@ function UploadCard({ bayId }: { bayId: string }) {
             <div className="h-full bg-accent transition-all" style={{ width: `${sent * 100}%` }} />
           </div>
         </div>
+      )}
+      {rejected && (
+        <p role="alert" className="mt-3 rounded-lg bg-warn/10 px-3 py-2 text-sm text-warn">
+          {rejected}
+        </p>
       )}
       {upload.isError && (
         <p className="mt-3 text-sm text-bad">{(upload.error as Error).message}</p>
@@ -114,6 +137,7 @@ function UploadCard({ bayId }: { bayId: string }) {
 
 export default function Analysis({ me }: { me: Me | undefined }) {
   const bays = useQuery({ queryKey: ["bays"], queryFn: api.bays });
+  const config = useQuery({ queryKey: ["platform-config"], queryFn: api.platformConfig });
   const jobs = useQuery({
     queryKey: ["analyses"],
     queryFn: api.analyses,
@@ -131,7 +155,7 @@ export default function Analysis({ me }: { me: Me | undefined }) {
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="xl:col-span-1">
           {hasRole(me, "operator") ? (
-            bayId && <UploadCard bayId={bayId} />
+            bayId && <UploadCard bayId={bayId} maxMb={config.data?.max_upload_mb ?? 5120} />
           ) : (
             <div className="card p-5 text-sm text-muted">
               Operators and admins can upload videos. You can view completed reports.
