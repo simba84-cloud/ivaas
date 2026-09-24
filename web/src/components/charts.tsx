@@ -59,13 +59,15 @@ export function useChartTheme(): Palette {
 export function Sparkline({
   series,
   color,
-  height = 44,
+  height = 40,
 }: {
-  series: number[];
+  series: (number | null)[];
   color: string;
   height?: number;
 }) {
-  if (series.length < 2) return <div style={{ height }} />;
+  // A gap means the metric was not measured that day. Drawing it as zero would show a
+  // collapse that never happened, so the line breaks instead.
+  if (series.filter((v) => v !== null).length < 2) return <div style={{ height }} />;
   const data = series.map((v, i) => ({ i, v }));
   const id = `spark-${color.replace(/\D/g, "")}`;
   return (
@@ -84,6 +86,7 @@ export function Sparkline({
           strokeWidth={2}
           fill={`url(#${id})`}
           isAnimationActive={false}
+          connectNulls={false}
           dot={false}
         />
       </AreaChart>

@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { VideoOff } from "lucide-react";
+import { AlertTriangle, Grid2x2, Grid3x3, LayoutGrid, VideoOff } from "lucide-react";
+import { useState } from "react";
 import { api } from "../api/client";
 import type { Camera, CameraRole } from "../api/types";
-import { CameraDot, PageHeader, roleLabel } from "../components/ui";
+import { EmptyState, roleLabel } from "../components/ui";
 
 const ROLE_ORDER: CameraRole[] = [
   "chokepoint",
@@ -15,6 +16,22 @@ const ROLE_ORDER: CameraRole[] = [
 
 // MediaMTX serves each path as a WebRTC (WHEP) player page on :8889.
 const MEDIA_BASE = import.meta.env.VITE_MEDIA_URL ?? "http://localhost:8889";
+
+/** Wall density, the way a VMS offers it: fewer, larger tiles or more, smaller ones. */
+const LAYOUTS = {
+  large: { cols: "sm:grid-cols-2 xl:grid-cols-3", icon: Grid2x2, label: "Large tiles" },
+  standard: {
+    cols: "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
+    icon: Grid3x3,
+    label: "Standard",
+  },
+  compact: {
+    cols: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6",
+    icon: LayoutGrid,
+    label: "Compact",
+  },
+} as const;
+type Layout = keyof typeof LAYOUTS;
 
 /** An iframe cannot report a refused connection, so probe the media server once. */
 function useMediaServerUp(): boolean | undefined {
@@ -30,37 +47,61 @@ function useMediaServerUp(): boolean | undefined {
   return probe.data;
 }
 
-function Tile({ camera, mediaUp }: { camera: Camera; mediaUp: boolean | undefined }) {
+function Tile({
+  camera,
+  mediaUp,
+  compact,
+}: {
+  camera: Camera;
+  mediaUp: boolean | undefined;
+  compact: boolean;
+}) {
+  const streaming = camera.status === "online" && mediaUp;
   return (
-    <div className="card overflow-hidden">
-      <div className="relative aspect-video bg-ink">
-        {camera.status === "online" && mediaUp ? (
-          <iframe
-            title={camera.name}
-            src={`${MEDIA_BASE}/${camera.stream_path}`}
-            className="h-full w-full"
-            allow="autoplay"
-          />
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-muted">
-            <VideoOff size={28} />
-            <span className="text-xs">
-              {camera.status === "online" && mediaUp === false
-                ? "Media server unreachable"
-                : "No signal"}
-            </span>
+    <figure className="video-well group aspect-video rounded-xl ring-1 ring-line">
+      {streaming ? (
+        <iframe
+          title={camera.name}
+          src={`${MEDIA_BASE}/${camera.stream_path}`}
+          className="absolute inset-0 h-full w-full"
+          allow="autoplay"
+        />
+      ) : (
+        <div className="absolute inset-0 grid place-items-center text-center">
+          <div>
+            <VideoOff size={compact ? 18 : 24} className="mx-auto text-white/30" />
+            {!compact && (
+              <p className="mt-2 text-xs text-white/50">
+                {camera.status === "online" && mediaUp === false
+                  ? "Media server unreachable"
+                  : "No signal"}
+              </p>
+            )}
           </div>
-        )}
-      </div>
-      <div className="flex items-center justify-between px-3 py-2">
-        <span className="truncate text-sm font-medium text-ink">{camera.name}</span>
-        <CameraDot status={camera.status} />
-      </div>
-    </div>
+        </div>
+      )}
+
+      {/* chrome over the well is always light: the well is dark in both themes */}
+      <figcaption className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/80 to-transparent px-2.5 pb-2 pt-6">
+        <span className="truncate text-xs font-semibold text-white">{camera.name}</span>
+        <span
+          className={`chip flex-none px-1.5 py-0 text-[10px] ${
+            streaming ? "bg-bad/90 text-white" : "bg-white/15 text-white/70"
+          }`}
+        >
+          {streaming && <span className="dot h-1.5 w-1.5 animate-pulse bg-white" />}
+          {streaming ? "LIVE" : camera.status === "degraded" ? "DEGRADED" : "OFFLINE"}
+        </span>
+      </figcaption>
+    </figure>
   );
 }
 
 export default function LiveView() {
+  const [layout, setLayout] = useState<Layout>("standard");
+  const [role, setRole] = useState<CameraRole | "all">("all");
+  const [onlyOffline, setOnlyOffline] = useState(false);
+
   const bays = useQuery({ queryKey: ["bays"], queryFn: api.bays });
   const bayId = bays.data?.[0]?.id;
   const cameras = useQuery({
@@ -68,34 +109,99 @@ export default function LiveView() {
     queryFn: () => api.cameras(bayId!),
     enabled: !!bayId,
   });
-
   const mediaUp = useMediaServerUp();
+
+  const all = cameras.data ?? [];
+  const online = all.filter((c) => c.status === "online").length;
+  const shown = all.filter(
+    (c) => (role === "all" || c.role === role) && (!onlyOffline || c.status !== "online"),
+  );
+  const roles = ROLE_ORDER.filter((r) => all.some((c) => c.role === r));
 
   return (
     <>
-      <PageHeader title="Live View" subtitle="All camera feeds for the POC loading bay, by position" />
-      {ROLE_ORDER.map((role) => {
-        const group = cameras.data?.filter((c) => c.role === role) ?? [];
-        if (!group.length) return null;
-        return (
-          <section key={role} className="mb-8">
-            <div className="mb-3 flex items-center gap-3">
-              <h2 className="text-sm font-bold uppercase tracking-wide text-ink">
-                {roleLabel(role)}
-              </h2>
-              <span className="rounded-full bg-brand-tint px-2 py-0.5 text-xs font-semibold text-ink">
-                {group.length}
-              </span>
-              <div className="h-px flex-1 bg-line" />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {group.map((c) => (
-                <Tile key={c.id} camera={c} mediaUp={mediaUp} />
-              ))}
-            </div>
-          </section>
-        );
-      })}
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-ink">Camera wall</h1>
+          <p className="mt-0.5 text-sm text-muted">
+            <span className={`num font-bold ${online ? "text-good" : "text-bad"}`}>
+              {online}/{all.length}
+            </span>{" "}
+            cameras streaming
+            {mediaUp === false && " · media server unreachable"}
+          </p>
+        </div>
+        <div className="segment" role="group" aria-label="Wall density">
+          {(Object.keys(LAYOUTS) as Layout[]).map((key) => {
+            const { icon: Icon, label } = LAYOUTS[key];
+            return (
+              <button
+                key={key}
+                onClick={() => setLayout(key)}
+                aria-pressed={layout === key}
+                title={label}
+                aria-label={label}
+                className={`segment-item ${layout === key ? "segment-item-on" : ""}`}
+              >
+                <Icon size={14} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* filters */}
+      <div className="mb-4 flex flex-wrap items-center gap-1.5">
+        <button
+          onClick={() => setRole("all")}
+          className={`chip h-7 px-2.5 ${
+            role === "all" ? "bg-ink text-surface" : "bg-surface text-muted hover:text-ink"
+          }`}
+        >
+          All <span className="num">{all.length}</span>
+        </button>
+        {roles.map((r) => (
+          <button
+            key={r}
+            onClick={() => setRole(r)}
+            className={`chip h-7 px-2.5 ${
+              role === r ? "bg-ink text-surface" : "bg-surface text-muted hover:text-ink"
+            }`}
+          >
+            {roleLabel(r)} <span className="num">{all.filter((c) => c.role === r).length}</span>
+          </button>
+        ))}
+        <span className="mx-1 h-4 w-px bg-line" />
+        <button
+          onClick={() => setOnlyOffline((v) => !v)}
+          aria-pressed={onlyOffline}
+          className={`chip h-7 px-2.5 ${
+            onlyOffline ? "bg-warn text-white" : "bg-surface text-muted hover:text-ink"
+          }`}
+        >
+          <AlertTriangle size={12} /> Needs attention
+          <span className="num">{all.length - online}</span>
+        </button>
+      </div>
+
+      {shown.length ? (
+        <div className={`grid gap-2.5 ${LAYOUTS[layout].cols}`}>
+          {shown.map((c) => (
+            <Tile key={c.id} camera={c} mediaUp={mediaUp} compact={layout === "compact"} />
+          ))}
+        </div>
+      ) : (
+        <div className="card">
+          <EmptyState
+            title={all.length ? "No cameras match this filter" : "No cameras registered"}
+            body={
+              all.length
+                ? "Clear the filter to see the rest of the wall."
+                : "Add cameras to this bay to see their feeds here."
+            }
+          />
+        </div>
+      )}
     </>
   );
 }

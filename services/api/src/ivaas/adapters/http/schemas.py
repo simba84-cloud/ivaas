@@ -158,7 +158,7 @@ class SummaryOut(BaseModel):
 class TrendOut(BaseModel):
     value: float | None
     delta_pct: float | None
-    series: list[float]
+    series: list[float | None]
 
     @staticmethod
     def of(t: Trend) -> TrendOut:

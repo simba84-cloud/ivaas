@@ -36,7 +36,7 @@ function LiveBay({
 }) {
   const live = camera?.status === "online";
   return (
-    <div className="relative aspect-video w-full overflow-hidden bg-[#0b1020]">
+    <div className="video-well aspect-video w-full">
       {live ? (
         <iframe
           title={camera.name}
@@ -209,7 +209,7 @@ export default function Dashboard({ me }: { me: Me | undefined }) {
       </div>
 
       {/* KPI row */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           index={0}
           label="Crates today"
@@ -276,7 +276,7 @@ export default function Dashboard({ me }: { me: Me | undefined }) {
       </div>
 
       {/* the bay, and what needs attention */}
-      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+      <div className="mt-3 grid gap-3 xl:grid-cols-3">
         <section className="card-lift overflow-hidden xl:col-span-2">
           <LiveBay
             camera={bayCam}
@@ -330,9 +330,9 @@ export default function Dashboard({ me }: { me: Me | undefined }) {
       </div>
 
       {/* trend and recent activity */}
-      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+      <div className="mt-3 grid gap-3 xl:grid-cols-3">
         <section className="card overflow-hidden xl:col-span-2">
-          <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <div className="panel-head">
             <div>
               <h2 className="text-sm font-bold text-ink">Throughput and accuracy</h2>
               <p className="text-xs text-muted">
@@ -358,8 +358,8 @@ export default function Dashboard({ me }: { me: Me | undefined }) {
         </section>
 
         <section className="card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
-            <h2 className="text-sm font-bold text-ink">Recent trucks</h2>
+          <div className="panel-head">
+            <h2 className="panel-title">Recent trucks</h2>
             <Link to="/sessions" className="text-xs font-semibold text-brand hover:underline">
               View all →
             </Link>

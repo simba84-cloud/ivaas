@@ -72,7 +72,8 @@ export type Severity = "good" | "info" | "warn" | "critical";
 export interface Trend {
   value: number | null;
   delta_pct: number | null;
-  series: number[];
+  /** null = not measured that day, which is not the same as zero */
+  series: (number | null)[];
 }
 
 export interface DayPoint {

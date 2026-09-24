@@ -72,7 +72,7 @@ export function KpiCard({
   delta?: number | null;
   deltaUnit?: "pct" | "points";
   higherIsBetter?: boolean;
-  series?: number[];
+  series?: (number | null)[];
   tone?: Tone;
   icon: LucideIcon;
   footer?: ReactNode;
@@ -112,7 +112,7 @@ export function KpiCard({
       {footer && <div className="mt-3 text-xs text-muted">{footer}</div>}
 
       {/* the shape of the metric, bled to the card's bottom edge */}
-      {series && series.length > 1 && (
+      {series && series.filter((v) => v !== null).length > 1 && (
         <div className="-mx-5 -mb-5 mt-auto pt-4 opacity-90">
           <Sparkline series={series} color={palette[t.token]} />
         </div>

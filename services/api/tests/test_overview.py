@@ -190,3 +190,19 @@ async def test_window_is_clamped_to_a_sane_range():
     overview = await build([])
     assert (await overview(days=1)).days == 2
     assert (await overview(days=10_000)).days == 90
+
+
+async def test_accuracy_series_leaves_unmeasured_days_unknown_not_zero():
+    # One verified load three days ago; every other day has no manual count at all.
+    rows = [session(days_ago=3, ai=10, manual=10, status=SessionStatus.RECONCILED)]
+    result = await (await build(rows))(days=5)
+
+    # A 0.0 here would draw a sparkline collapsing to zero on days nothing was measured.
+    # oldest day first, today last: three days ago is index 1 of five
+    assert result.accuracy.series == [None, 1.0, None, None, None]
+
+
+async def test_crate_series_keeps_real_zeroes():
+    # Zero crates on a quiet day is a measured fact, so it stays 0.0, not None.
+    result = await (await build([session(days_ago=0, ai=5)]))(days=3)
+    assert result.crates.series == [0.0, 0.0, 5.0]

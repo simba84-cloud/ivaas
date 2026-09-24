@@ -20,6 +20,8 @@
   --good: 31 157 99;
   --warn: 217 139 19;
   --bad: 209 59 59;
+  /* video wells stay dark in both themes: footage is dark, its chrome is light */
+  --video: 9 13 28;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -39,6 +41,7 @@
     --good: 62 190 128;
     --warn: 235 168 52;
     --bad: 232 92 92;
+    --video: 9 13 28;
     color-scheme: dark;
   }
 }
@@ -58,6 +61,7 @@
   --good: 62 190 128;
   --warn: 235 168 52;
   --bad: 232 92 92;
+  --video: 9 13 28;
   color-scheme: dark;
 }
 
@@ -98,7 +102,7 @@
     @apply rounded-xl bg-surface shadow-card;
   }
   .btn {
-    @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-40;
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-semibold transition duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-40;
   }
   .btn-primary {
     @apply btn bg-brand text-white hover:bg-brand-deep;
@@ -110,10 +114,10 @@
     @apply btn border border-line bg-surface text-ink hover:border-brand/40 hover:bg-brand-tint;
   }
   .btn-sm {
-    @apply h-8 px-3 text-xs;
+    @apply h-7 px-2.5 text-xs;
   }
   .input {
-    @apply h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-brand focus:ring-4 focus:ring-brand/10 disabled:bg-ground;
+    @apply h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-brand focus:ring-4 focus:ring-brand/10 disabled:bg-ground;
   }
   .label {
     @apply mb-1.5 block text-[11px] font-bold uppercase tracking-[0.12em] text-muted;
@@ -122,10 +126,10 @@
     @apply text-[11px] font-bold uppercase tracking-[0.14em] text-muted;
   }
   .th {
-    @apply whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-muted;
+    @apply whitespace-nowrap px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-muted;
   }
   .td {
-    @apply whitespace-nowrap px-4 py-3 text-sm;
+    @apply whitespace-nowrap px-3 py-2 text-sm;
   }
   .num {
     @apply font-mono tabular-nums;
@@ -135,5 +139,26 @@
   }
   .dot {
     @apply inline-block h-2 w-2 rounded-full;
+  }
+  /* every panel header is the same object: title left, controls right */
+  .panel-head {
+    @apply flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-2.5;
+  }
+  .panel-title {
+    @apply text-sm font-bold text-ink;
+  }
+  /* a dark well for footage; its chrome is always light, in both themes */
+  .video-well {
+    @apply relative overflow-hidden bg-video;
+  }
+  /* segmented control for view density / mode switches */
+  .segment {
+    @apply inline-flex items-center gap-0.5 rounded-lg border border-line bg-ground p-0.5;
+  }
+  .segment-item {
+    @apply grid h-7 place-items-center rounded-md px-2 text-xs font-semibold text-muted transition hover:text-ink;
+  }
+  .segment-item-on {
+    @apply bg-surface text-ink shadow-card;
   }
 }

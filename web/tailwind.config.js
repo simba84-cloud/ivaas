@@ -24,6 +24,7 @@ export default {
           DEFAULT: "rgb(var(--accent) / <alpha-value>)",
           tint: "rgb(var(--accent-tint) / <alpha-value>)",
         },
+        video: "rgb(var(--video) / <alpha-value>)",
         good: "rgb(var(--good) / <alpha-value>)",
         warn: "rgb(var(--warn) / <alpha-value>)",
         bad: "rgb(var(--bad) / <alpha-value>)",

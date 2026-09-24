@@ -43,10 +43,10 @@ export function InsightFeed({ insights }: { insights: Insight[] }) {
 
   return (
     <section className="card flex h-full flex-col overflow-hidden">
-      <header className="flex items-center justify-between border-b border-line px-5 py-3.5">
+      <header className="panel-head">
         <div className="flex items-center gap-2">
           <Sparkles size={15} className="text-accent" />
-          <h2 className="text-sm font-bold text-ink">Operational insights</h2>
+          <h2 className="panel-title">Operational insights</h2>
         </div>
         {needsAction.length > 0 && (
           <span className="chip num bg-warn/10 text-warn">{needsAction.length} to action</span>

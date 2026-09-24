@@ -49,11 +49,16 @@ class DayPoint:
 
 @dataclass(frozen=True)
 class Trend:
-    """A value with the sparkline behind it and its change on the prior period."""
+    """A value with the sparkline behind it and its change on the prior period.
+
+    A None in `series` means "not measured that day", which is not the same as zero:
+    accuracy on a day with no verified load is unknown, and a sparkline that drew it
+    as 0 would show a collapse that never happened.
+    """
 
     value: float | None
     delta_pct: float | None
-    series: list[float] = field(default_factory=list)
+    series: list[float | None] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -157,11 +162,15 @@ class OperationsOverview:
         return points
 
     def _trend(
-        self, series: list[float], recent: list[DayPoint], prior: list[DayPoint], field_: str
+        self,
+        series: list[float | None],
+        recent: list[DayPoint],
+        prior: list[DayPoint],
+        field_: str,
     ) -> Trend:
         take = (lambda d: float(d.crates)) if field_ == "crates" else (lambda d: float(d.sessions))
         return Trend(
-            value=sum(series),
+            value=sum(v for v in series if v is not None),
             delta_pct=_pct_change(
                 _mean([take(d) for d in recent]), _mean([take(d) for d in prior])
             ),
@@ -181,7 +190,8 @@ class OperationsOverview:
                 or (p := _mean([d.accuracy for d in prior if d.accuracy is not None])) is None
                 else r - p
             ),
-            series=[d.accuracy if d.accuracy is not None else 0.0 for d in daily],
+            # days with no verified load stay None: unknown, not zero
+            series=[d.accuracy for d in daily],
         )
 
     def _insights(
