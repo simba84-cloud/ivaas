@@ -82,8 +82,8 @@ export function LoadLifecycle({
       {stages.map((s, i) => (
         <motion.div
           key={s.key}
-          initial={still ? false : { opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={still ? false : { y: 10 }}
+          animate={{ y: 0 }}
           transition={{ duration: 0.3, delay: 0.25 + i * 0.05 }}
         >
           <Link

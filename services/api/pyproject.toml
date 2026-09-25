@@ -20,6 +20,7 @@ dependencies = [
     "python-multipart>=0.0.12",
     # [lpr] pulls fast-alpr: without it uploaded videos are analysed with no plate reading
     "ivaas-pipeline[lpr]",
+    "argon2-cffi>=25.1.0",
 ]
 
 [tool.uv.sources]

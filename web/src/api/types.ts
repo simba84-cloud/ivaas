@@ -140,7 +140,13 @@ export type AuditAction =
   | "video_uploaded"
   | "site_created"
   | "bay_created"
-  | "setting_changed";
+  | "setting_changed"
+  | "user_created"
+  | "user_roles_changed"
+  | "user_enabled"
+  | "user_disabled"
+  | "password_reset"
+  | "password_changed";
 
 export interface AuditEntry {
   id: string;
@@ -149,6 +155,25 @@ export interface AuditEntry {
   action: AuditAction;
   subject: string;
   detail: Record<string, string | number | boolean>;
+}
+
+export type UserRole = "viewer" | "operator" | "admin";
+
+export interface User {
+  username: string;
+  display_name: string;
+  roles: UserRole[];
+  disabled: boolean;
+  must_change_password: boolean;
+  password_is_default: boolean;
+  created_at: string | null;
+  password_changed_at: string | null;
+  last_login_at: string | null;
+}
+
+export interface TemporaryPassword {
+  user: User;
+  temporary_password: string;
 }
 
 export interface EditableSetting {

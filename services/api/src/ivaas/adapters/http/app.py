@@ -21,19 +21,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 
-from ivaas.adapters.http.auth import current_principal, require, websocket_principal
+from ivaas.adapters.http.auth import (
+    current_principal,
+    password_epoch,
+    require,
+    websocket_principal,
+)
 from ivaas.adapters.http.schemas import (
     AnalysisJobOut,
     ApproveIn,
+    AssignRolesIn,
     AuditEntryOut,
     AuthConfigOut,
     BayIn,
     BayOut,
     CameraIn,
     CameraOut,
+    ChangePasswordIn,
     ChatIn,
     ChatOut,
     ConfigFactOut,
+    CreateUserIn,
     CrossingIn,
     DiscoveredDeviceOut,
     DiscoveredStreamOut,
@@ -47,13 +55,16 @@ from ivaas.adapters.http.schemas import (
     PlatformConfigOut,
     ReconcileIn,
     SessionOut,
+    SetEnabledIn,
     SettingIn,
     SettingsOut,
     SiteIn,
     SiteOut,
     SummaryOut,
+    TemporaryPasswordOut,
     TokenOut,
     ToolUseOut,
+    UserOut,
 )
 from ivaas.adapters.storage.objects import LocalObjectStore
 from ivaas.adapters.streaming.mediamtx import StreamGatewayError
@@ -81,6 +92,7 @@ from ivaas.domain.platform_settings import (
     InvalidSettingError,
     validate,
 )
+from ivaas.domain.users import UserError, WeakPasswordError
 from ivaas.ports.assistant import ChatMessage, ChatModelUnavailableError
 from ivaas.ports.auth import Principal, Role
 
@@ -193,6 +205,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(InvalidStreamSourceError)
     async def _bad_source(_: Request, exc: InvalidStreamSourceError) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(WeakPasswordError)
+    async def _weak_password(_: Request, exc: WeakPasswordError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(UserError)
+    async def _user_error(_: Request, exc: UserError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.exception_handler(DomainError)
     async def _conflict(_: Request, exc: DomainError) -> JSONResponse:
@@ -539,6 +559,144 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def _yes_no(ok: bool) -> str:
         return "Configured" if ok else "Not configured"
 
+    # accounts ------------------------------------------------------------
+    def _require_local_accounts(c: Container) -> None:
+        if c.settings.auth_mode != "local":
+            raise HTTPException(
+                409,
+                "accounts are managed by your identity provider, not here",
+            )
+
+    @app.get(
+        "/api/v1/users",
+        response_model=list[UserOut],
+        dependencies=[Depends(require(Role.ADMIN))],
+    )
+    async def list_users(c: Container = Depends(get_container)) -> list[UserOut]:
+        return [UserOut.of(u) for u in await c.user_admin.list_users()]
+
+    @app.post(
+        "/api/v1/users",
+        response_model=TemporaryPasswordOut,
+        status_code=201,
+        dependencies=[Depends(require(Role.ADMIN))],
+    )
+    async def create_user(
+        body: CreateUserIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> TemporaryPasswordOut:
+        _require_local_accounts(c)
+        user, temporary = await c.user_admin.create(
+            body.username, body.display_name, set(body.roles)
+        )
+        await audit(
+            c,
+            principal.name,
+            AuditAction.USER_CREATED,
+            user.username,
+            roles=",".join(sorted(r.value for r in user.roles)),
+        )
+        return TemporaryPasswordOut(user=UserOut.of(user), temporary_password=temporary)
+
+    @app.put(
+        "/api/v1/users/{username}/roles",
+        response_model=UserOut,
+        dependencies=[Depends(require(Role.ADMIN))],
+    )
+    async def assign_roles(
+        username: str,
+        body: AssignRolesIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> UserOut:
+        _require_local_accounts(c)
+        user = await c.user_admin.assign_roles(username, set(body.roles), by=principal.subject)
+        await audit(
+            c,
+            principal.name,
+            AuditAction.USER_ROLES_CHANGED,
+            username,
+            roles=",".join(sorted(r.value for r in user.roles)),
+        )
+        return UserOut.of(user)
+
+    @app.put(
+        "/api/v1/users/{username}/enabled",
+        response_model=UserOut,
+        dependencies=[Depends(require(Role.ADMIN))],
+    )
+    async def set_user_enabled(
+        username: str,
+        body: SetEnabledIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> UserOut:
+        _require_local_accounts(c)
+        user = await c.user_admin.set_enabled(username, body.enabled, by=principal.subject)
+        await audit(
+            c,
+            principal.name,
+            AuditAction.USER_ENABLED if body.enabled else AuditAction.USER_DISABLED,
+            username,
+        )
+        return UserOut.of(user)
+
+    @app.post(
+        "/api/v1/users/{username}/reset-password",
+        response_model=TemporaryPasswordOut,
+        dependencies=[Depends(require(Role.ADMIN))],
+    )
+    async def reset_password(
+        username: str,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> TemporaryPasswordOut:
+        """Mint a temporary password and return it once.
+
+        There is no mail server on a loading bay, so the administrator reads the
+        temporary password to the person. It is never stored in the clear and the
+        platform cannot show it a second time; the owner must replace it before the
+        account can do anything else.
+        """
+        _require_local_accounts(c)
+        user, temporary = await c.user_admin.reset_password(username)
+        await audit(c, principal.name, AuditAction.PASSWORD_RESET, username)
+        return TemporaryPasswordOut(user=UserOut.of(user), temporary_password=temporary)
+
+    @app.post(
+        "/api/v1/auth/password",
+        response_model=TokenOut,
+        dependencies=[Depends(require(Role.VIEWER))],
+    )
+    async def change_own_password(
+        body: ChangePasswordIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> TokenOut:
+        """Change your own password and stay signed in, here only.
+
+        Every other session this account holds is minted against the old password
+        and stops working immediately, which is the point: if the password is being
+        changed because someone else learned it, their session must end. A fresh
+        token is returned so the person doing it is not thrown out of their own.
+        """
+        _require_local_accounts(c)
+        user = await c.user_admin.change_own_password(
+            principal.subject, body.current_password, body.new_password
+        )
+        await audit(c, principal.name, AuditAction.PASSWORD_CHANGED, user.username)
+        if c.local_auth is None:  # unreachable in local mode, but keeps the type honest
+            raise HTTPException(409, "password login is disabled")
+        return TokenOut(
+            access_token=c.local_auth.mint(
+                user.username,
+                user.display_name,
+                [Role(r.value) for r in user.roles],
+                password_epoch=password_epoch(user),
+            )
+        )
+
     @app.get(
         "/api/v1/settings",
         response_model=SettingsOut,
@@ -853,18 +1011,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Local mode only. With OIDC the browser logs in at the provider instead."""
         if c.local_auth is None:
             raise HTTPException(404, "password login is disabled; use the identity provider")
-        import hmac
 
-        user = c.settings.local_users.get(body.username)
-        if user is None or not hmac.compare_digest(user[0], body.password):
+        username = body.username.strip().lower()
+        user = await c.users.get(username)
+        # One message and one cost for every failure: whether the account exists, is
+        # disabled, or simply had the wrong password must not be distinguishable.
+        ok = user is not None and not user.disabled
+        if not c.hasher.verify(
+            body.password, user.password_hash if user else c.dummy_password_hash
+        ):
+            ok = False
+        if not ok or user is None:
             raise HTTPException(401, "invalid username or password")
-        token = c.local_auth.mint(body.username, body.username, [Role(user[1])])
-        await audit(c, body.username, AuditAction.SIGNED_IN, body.username, role=user[1])
-        return TokenOut(access_token=token)
+
+        if c.hasher.needs_rehash(user.password_hash):
+            user.password_hash = c.hasher.hash(body.password)  # upgrade quietly on sign-in
+        user.last_login_at = c.clock.now()
+        await c.users.save(user)
+
+        token = c.local_auth.mint(
+            user.username,
+            user.display_name,
+            [Role(r.value) for r in user.roles],
+            must_change_password=user.must_change_password,
+            password_epoch=password_epoch(user),
+        )
+        await audit(
+            c,
+            user.username,
+            AuditAction.SIGNED_IN,
+            user.username,
+            role=user.highest_role.value,
+        )
+        return TokenOut(access_token=token, must_change_password=user.must_change_password)
 
     @app.get("/api/v1/auth/me", response_model=MeOut)
-    async def me(principal: Principal = Depends(current_principal)) -> MeOut:
-        return MeOut(subject=principal.subject, name=principal.name, roles=sorted(principal.roles))
+    async def me(
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> MeOut:
+        user = await c.users.get(principal.subject) if c.users else None
+        return MeOut(
+            subject=principal.subject,
+            name=principal.name,
+            roles=sorted(principal.roles),
+            must_change_password=bool(user.must_change_password) if user else False,
+        )
 
     @app.websocket("/ws/events")
     async def events(ws: WebSocket) -> None:

@@ -16,6 +16,7 @@ export interface Me {
   subject: string;
   name: string;
   roles: string[];
+  must_change_password?: boolean;
 }
 
 const KEY = "ivaas.token";
@@ -81,14 +82,22 @@ export function resumeOidc(cfg: AuthConfig): void {
   if (cfg.mode === "oidc") manager(cfg);
 }
 
-export async function loginLocal(username: string, password: string): Promise<void> {
+/** Returns true when the account holds a temporary password and must set a new one. */
+export async function loginLocal(username: string, password: string): Promise<boolean> {
   const r = await fetch("/api/v1/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
   });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? "Login failed");
-  setToken((await r.json()).access_token);
+  const body = await r.json();
+  setToken(body.access_token);
+  return Boolean(body.must_change_password);
+}
+
+/** Replace the stored token, after a password change hands back a fresh one. */
+export function adoptToken(token: string): void {
+  setToken(token);
 }
 
 export function loginOidc(cfg: AuthConfig): Promise<void> {

@@ -61,8 +61,8 @@ export function InsightFeed({ insights }: { insights: Insight[] }) {
             return (
               <motion.article
                 key={insight.key}
-                initial={still ? false : { opacity: 0, x: -6 }}
-                animate={{ opacity: 1, x: 0 }}
+                initial={still ? false : { x: -6 }}
+                animate={{ x: 0 }}
                 transition={{ duration: 0.3, delay: i * 0.05 }}
                 className="relative flex gap-3 px-5 py-3.5"
               >

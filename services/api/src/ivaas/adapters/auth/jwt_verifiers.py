@@ -31,6 +31,8 @@ def _principal(claims: dict) -> Principal:
         subject=str(claims["sub"]),
         name=claims.get("name") or claims.get("preferred_username") or str(claims["sub"]),
         roles=_roles(claims),
+        password_epoch=int(claims.get("pwd") or 0),
+        must_change_password=bool(claims.get("mcp", False)),
     )
 
 
@@ -42,7 +44,16 @@ class LocalTokenVerifier:
             raise ValueError("local auth secret must be at least 16 characters")
         self._secret, self._issuer = secret, issuer
 
-    def mint(self, subject: str, name: str, roles: Iterable[Role], ttl_s: int = 8 * 3600) -> str:
+    def mint(
+        self,
+        subject: str,
+        name: str,
+        roles: Iterable[Role],
+        ttl_s: int = 8 * 3600,
+        *,
+        must_change_password: bool = False,
+        password_epoch: int = 0,
+    ) -> str:
         now = int(time.time())
         claims = {
             "iss": self._issuer,
@@ -51,6 +62,8 @@ class LocalTokenVerifier:
             ROLE_CLAIM: [r.value for r in roles],
             "iat": now,
             "exp": now + ttl_s,
+            "mcp": must_change_password,
+            "pwd": password_epoch,
         }
         return jwt.encode(claims, self._secret, algorithm=self.ALG)
 

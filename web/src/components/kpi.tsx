@@ -84,14 +84,16 @@ export function KpiCard({
   footer?: ReactNode;
   index?: number;
 }) {
+  // Entrances move, they do not fade in: content parked at opacity 0 is invisible
+  // if the animation never runs, and a sign-in card that does that is unusable.
   const palette = useChartTheme();
   const still = useReducedMotion();
   const t = TONE[tone];
 
   return (
     <motion.article
-      initial={still ? false : { opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={still ? false : { y: 12 }}
+      animate={{ y: 0 }}
       transition={{ duration: 0.35, delay: index * 0.06, ease: [0.2, 0.7, 0.2, 1] }}
       className="card-lift group relative flex h-full flex-col overflow-hidden p-5 transition duration-200 hover:shadow-lift"
     >

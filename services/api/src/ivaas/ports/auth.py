@@ -23,6 +23,10 @@ class Principal:
     subject: str
     name: str
     roles: frozenset[Role] = field(default_factory=frozenset)
+    #: which password this token was minted for; any change to it invalidates the token
+    password_epoch: int = 0
+    #: the account must set a new password before it may do anything else
+    must_change_password: bool = False
 
     def allows(self, required: Role) -> bool:
         if required is Role.SERVICE:

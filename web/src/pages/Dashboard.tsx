@@ -96,9 +96,9 @@ function LiveBay({
                 <AnimatePresence mode="popLayout" initial={false}>
                   <motion.div
                     key={count}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
+                    initial={{ y: 8 }}
+                    animate={{ y: 0 }}
+                    exit={{ y: -8 }}
                     transition={{ duration: 0.2 }}
                     className="num text-5xl font-bold leading-none text-white"
                   >

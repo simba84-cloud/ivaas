@@ -12,8 +12,10 @@ def make_client(**overrides) -> TestClient:
     return TestClient(create_app(settings))
 
 
-def login(client: TestClient, username: str) -> dict:
-    r = client.post("/api/v1/auth/login", json={"username": username, "password": username})
+def login(client: TestClient, username: str, password: str | None = None) -> dict:
+    r = client.post(
+        "/api/v1/auth/login", json={"username": username, "password": password or username}
+    )
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 

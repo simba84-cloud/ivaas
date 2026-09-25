@@ -19,6 +19,7 @@ from ivaas.domain.models import (
     SessionStatus,
     Site,
 )
+from ivaas.domain.users import User, UserRole
 
 
 class BayOut(BaseModel):
@@ -359,12 +360,70 @@ class LoginIn(BaseModel):
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    #: the portal must send the user to set a new password before anything else
+    must_change_password: bool = False
+
+
+class UserOut(BaseModel):
+    """An account as an administrator sees it. Never carries a hash."""
+
+    username: str
+    display_name: str
+    roles: list[UserRole]
+    disabled: bool
+    must_change_password: bool
+    password_is_default: bool
+    created_at: datetime | None
+    password_changed_at: datetime | None
+    last_login_at: datetime | None
+
+    @staticmethod
+    def of(u: User) -> UserOut:
+        return UserOut(
+            username=u.username,
+            display_name=u.display_name,
+            roles=sorted(u.roles),
+            disabled=u.disabled,
+            must_change_password=u.must_change_password,
+            password_is_default=u.password_is_default,
+            created_at=u.created_at,
+            password_changed_at=u.password_changed_at,
+            last_login_at=u.last_login_at,
+        )
+
+
+class CreateUserIn(BaseModel):
+    username: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    display_name: str = Field(default="", max_length=120)
+    roles: list[UserRole] = Field(min_length=1)
+
+
+class AssignRolesIn(BaseModel):
+    roles: list[UserRole] = Field(min_length=1)
+
+
+class SetEnabledIn(BaseModel):
+    enabled: bool
+
+
+class TemporaryPasswordOut(BaseModel):
+    """Shown to the administrator once. The platform cannot show it again."""
+
+    user: UserOut
+    temporary_password: str
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=1, max_length=200)
 
 
 class MeOut(BaseModel):
     subject: str
     name: str
     roles: list[str]
+    #: the portal must show the password screen and nothing else
+    must_change_password: bool = False
 
 
 class AuthConfigOut(BaseModel):

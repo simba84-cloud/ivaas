@@ -7,9 +7,14 @@ import {
   ClipboardCheck,
   FileVideo,
   LogIn,
+  KeyRound,
   MapPin,
   SlidersHorizontal,
   Truck,
+  UserCheck,
+  UserCog,
+  UserPlus,
+  UserX,
   Warehouse,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -38,6 +43,12 @@ const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon; tone: stri
   video_uploaded: { label: "Uploaded footage", icon: FileVideo, tone: "text-brand bg-brand-tint" },
   site_created: { label: "Added a site", icon: MapPin, tone: "text-brand bg-brand-tint" },
   bay_created: { label: "Added a bay", icon: Warehouse, tone: "text-brand bg-brand-tint" },
+  user_created: { label: "Added a user", icon: UserPlus, tone: "text-brand bg-brand-tint" },
+  user_roles_changed: { label: "Changed a role", icon: UserCog, tone: "text-warn bg-warn/10" },
+  user_enabled: { label: "Enabled a user", icon: UserCheck, tone: "text-good bg-good/10" },
+  user_disabled: { label: "Disabled a user", icon: UserX, tone: "text-bad bg-bad/10" },
+  password_reset: { label: "Reset a password", icon: KeyRound, tone: "text-bad bg-bad/10" },
+  password_changed: { label: "Changed their password", icon: KeyRound, tone: "text-good bg-good/10" },
   setting_changed: {
     label: "Changed a rule",
     icon: SlidersHorizontal,

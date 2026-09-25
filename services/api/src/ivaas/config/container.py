@@ -6,6 +6,7 @@ change here and nowhere else (dependency inversion).
 from __future__ import annotations
 
 import logging
+import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -17,6 +18,7 @@ from ivaas.adapters.auth.jwt_verifiers import (
     LocalTokenVerifier,
     OidcTokenVerifier,
 )
+from ivaas.adapters.auth.passwords import Argon2PasswordHasher
 from ivaas.adapters.http.signed import ObjectLinkSigner
 from ivaas.adapters.messaging.fanout import FanoutEventPublisher, WebSocketHub
 from ivaas.adapters.persistence.jobs import PersistentJobStore
@@ -47,6 +49,7 @@ from ivaas.application.sessions import (
     RecordPlateRead,
 )
 from ivaas.application.summarise import SummariseReport
+from ivaas.application.users import UserAdmin
 from ivaas.config.settings import Settings
 from ivaas.domain.models import Bay, Camera, CameraRole, SessionDirection, Site
 from ivaas.domain.platform_settings import (
@@ -54,6 +57,7 @@ from ivaas.domain.platform_settings import (
     AUTO_OPEN_DIRECTION,
     RECONCILE_TOLERANCE,
 )
+from ivaas.domain.users import User, UserRole
 from ivaas.ports.assistant import ChatModel
 from ivaas.ports.auth import TokenVerifier
 from ivaas.ports.repositories import Clock, EventPublisher
@@ -94,6 +98,8 @@ def demo_topology() -> tuple[Site, Bay, list[Camera]]:
 @dataclass
 class Container:
     settings: Settings
+    users: Any
+    hasher: Any
     audit: Any
     setting_store: Any
     sites: Any
@@ -118,6 +124,7 @@ class Container:
     OVERRIDE_TTL = timedelta(seconds=10)
     _overrides: dict[str, Any] = field(default_factory=dict)
     _overrides_at: datetime | None = None
+    _dummy_hash: str = ""
 
     async def effective(self, key: str, default: Any) -> Any:
         """The value in force: a stored override if there is one, else the environment."""
@@ -201,6 +208,21 @@ class Container:
     async def overview(self, days: int = 14, bay_id: UUID | None = None) -> Overview:
         use_case = OperationsOverview(self.sessions, self.cameras, self.bays, self.clock)
         return await use_case(days, bay_id=bay_id)
+
+    @property
+    def dummy_password_hash(self) -> str:
+        """A real hash of a random secret, verified against when no such user exists.
+
+        Without it a wrong username returns immediately while a wrong password pays
+        for Argon2, and the difference tells an attacker which usernames are real.
+        """
+        if not self._dummy_hash:
+            self._dummy_hash = self.hasher.hash(secrets.token_urlsafe(32))
+        return self._dummy_hash
+
+    @property
+    def user_admin(self) -> UserAdmin:
+        return UserAdmin(self.users, self.hasher, self.clock)
 
     @property
     def approve_session(self) -> ApproveSession:
@@ -292,19 +314,25 @@ async def build_container(settings: Settings) -> Container:
     else:
         objects = LocalObjectStore(settings.objects_dir)
 
+    hasher = Argon2PasswordHasher()
+    users: Any
     audit: Any
     setting_store: Any
     if pg_sessionmaker is not None:
         from ivaas.adapters.persistence.audit_postgres import PostgresAuditLog
         from ivaas.adapters.persistence.settings_postgres import PostgresSettingsStore
+        from ivaas.adapters.persistence.users_postgres import PostgresUserStore
 
         audit = PostgresAuditLog(pg_sessionmaker)
         setting_store = PostgresSettingsStore(pg_sessionmaker)
+        users = PostgresUserStore(pg_sessionmaker)
     else:
         from ivaas.adapters.persistence.settings_postgres import InMemorySettingsStore
+        from ivaas.adapters.persistence.users_postgres import InMemoryUserStore
 
         audit = InMemoryAuditLog()
         setting_store = InMemorySettingsStore()
+        users = InMemoryUserStore()
 
     jobs: Any
     if pg_sessionmaker is not None:
@@ -317,8 +345,27 @@ async def build_container(settings: Settings) -> Container:
         if restored:
             logging.getLogger(__name__).info("restored %d analysis job(s)", restored)
 
+    # Accounts live in the database. The configured ones are carried across on first
+    # run so an existing deployment keeps working, flagged as still holding the
+    # password they were seeded with so the portal can say so.
+    if settings.auth_mode == "local" and not await users.list_all():
+        for username, (password, role) in settings.local_users.items():
+            await users.save(
+                User(
+                    username=username,
+                    display_name=username,
+                    password_hash=hasher.hash(password),
+                    roles={UserRole(role)},
+                    password_is_default=True,
+                    created_at=SystemClock().now(),
+                    password_changed_at=SystemClock().now(),
+                )
+            )
+
     return Container(
         settings=settings,
+        users=users,
+        hasher=hasher,
         audit=audit,
         setting_store=setting_store,
         sites=sites,

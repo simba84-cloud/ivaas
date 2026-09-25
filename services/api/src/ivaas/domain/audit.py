@@ -32,6 +32,12 @@ class AuditAction(StrEnum):
     SITE_CREATED = "site_created"
     BAY_CREATED = "bay_created"
     SETTING_CHANGED = "setting_changed"
+    USER_CREATED = "user_created"
+    USER_ROLES_CHANGED = "user_roles_changed"
+    USER_ENABLED = "user_enabled"
+    USER_DISABLED = "user_disabled"
+    PASSWORD_RESET = "password_reset"
+    PASSWORD_CHANGED = "password_changed"
 
 
 @dataclass(frozen=True)

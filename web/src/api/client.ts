@@ -4,6 +4,9 @@ import type {
   ApprovalReason,
   AuditEntry,
   PlatformSettings,
+  TemporaryPassword,
+  User,
+  UserRole,
   Bay,
   Camera,
   CameraRole,
@@ -41,6 +44,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   me: () => request<Me>("/api/v1/auth/me"),
   summary: () => request<Summary>("/api/v1/summary"),
+  users: () => request<User[]>("/api/v1/users"),
+  createUser: (username: string, display_name: string, roles: UserRole[]) =>
+    request<TemporaryPassword>("/api/v1/users", {
+      method: "POST",
+      body: JSON.stringify({ username, display_name, roles }),
+    }),
+  assignRoles: (username: string, roles: UserRole[]) =>
+    request<User>(`/api/v1/users/${username}/roles`, {
+      method: "PUT",
+      body: JSON.stringify({ roles }),
+    }),
+  setUserEnabled: (username: string, enabled: boolean) =>
+    request<User>(`/api/v1/users/${username}/enabled`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
+  resetPassword: (username: string) =>
+    request<TemporaryPassword>(`/api/v1/users/${username}/reset-password`, { method: "POST" }),
+  changePassword: (current_password: string, new_password: string) =>
+    request<{ access_token: string }>("/api/v1/auth/password", {
+      method: "POST",
+      body: JSON.stringify({ current_password, new_password }),
+    }),
   settings: () => request<PlatformSettings>("/api/v1/settings"),
   setSetting: (key: string, value: unknown) =>
     request<PlatformSettings>(`/api/v1/settings/${key}`, {

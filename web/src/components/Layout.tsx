@@ -3,6 +3,7 @@ import {
   ClipboardCheck,
   ScrollText,
   SlidersHorizontal,
+  Users,
   FileVideo,
   LayoutDashboard,
   LogOut,
@@ -78,6 +79,7 @@ const NAV = [
     group: "Configure",
     items: [
       { to: "/cameras", label: "Cameras", icon: Camera },
+      { to: "/users", label: "Users", icon: Users, adminOnly: true },
       { to: "/audit", label: "Audit Log", icon: ScrollText, adminOnly: true },
       { to: "/settings", label: "Settings", icon: SlidersHorizontal, adminOnly: true },
     ],
@@ -284,12 +286,16 @@ export function Layout({
               <span className="grid h-8 w-8 flex-none place-items-center rounded-full bg-brand text-xs font-bold text-white">
                 {initials(me?.name ?? "")}
               </span>
-              <div className="hidden min-w-0 sm:block">
+              <NavLink
+                to="/account/password"
+                title="Change your password"
+                className="hidden min-w-0 rounded-md px-1 py-0.5 transition hover:bg-ground sm:block"
+              >
                 <div className="truncate text-xs font-bold leading-tight text-ink">
                   {me?.name ?? ""}
                 </div>
                 <div className="truncate text-[11px] leading-tight text-muted">{level}</div>
-              </div>
+              </NavLink>
             </div>
           </div>
         </header>

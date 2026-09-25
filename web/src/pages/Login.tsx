@@ -15,6 +15,8 @@ export default function Login({ config }: { config: AuthConfig }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Entrances move, they do not fade in: content parked at opacity 0 is invisible
+  // if the animation never runs, and a sign-in card that does that is unusable.
   const still = useReducedMotion();
 
   const submit = async (e: React.FormEvent) => {
@@ -61,8 +63,8 @@ export default function Login({ config }: { config: AuthConfig }) {
 
         <motion.div
           className="relative"
-          initial={still ? false : { opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={still ? false : { y: 14 }}
+          animate={{ y: 0 }}
           transition={{ duration: 0.5, ease: [0.2, 0.7, 0.2, 1] }}
         >
           <div className="eyebrow text-white/70">Intelligent Video as a Service</div>
@@ -78,8 +80,8 @@ export default function Login({ config }: { config: AuthConfig }) {
             {FACTS.map((f, i) => (
               <motion.div
                 key={f.value}
-                initial={still ? false : { opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={still ? false : { y: 10 }}
+                animate={{ y: 0 }}
                 transition={{ duration: 0.4, delay: 0.15 + i * 0.08 }}
                 className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-md"
               >
@@ -112,8 +114,8 @@ export default function Login({ config }: { config: AuthConfig }) {
       <main className="flex items-center justify-center px-4 py-10 lg:py-12">
         <div className="w-full max-w-sm">
           <motion.div
-            initial={still ? false : { opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={still ? false : { y: 12 }}
+            animate={{ y: 0 }}
             transition={{ duration: 0.4, delay: 0.1 }}
             className="card-lift p-7"
           >
