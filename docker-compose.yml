@@ -2,6 +2,36 @@
 #   docker compose up -d --build        -> portal on http://localhost:8080
 name: ivaas
 
+# The API and the analysis worker are the same image with the same configuration;
+# one serves HTTP, the other drains the job queue. Anchored so they cannot drift.
+x-ivaas-env: &ivaas-env
+      IVAAS_STORAGE: postgres
+      IVAAS_DATABASE_URL: postgresql+asyncpg://ivaas:${POSTGRES_PASSWORD:-ivaas}@postgres:5432/ivaas
+      IVAAS_EVENTS: nats
+      IVAAS_SECRETS_KEYS: '["${IVAAS_SECRETS_KEY:?generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"}"]'
+      IVAAS_NATS_URL: nats://nats:4222
+      IVAAS_MEDIAMTX_API_URL: http://mediamtx:9997
+      IVAAS_LLM_URL: http://ollama:11434
+      IVAAS_OBJECTS: s3
+      IVAAS_S3_ENDPOINT: http://minio:9000
+      IVAAS_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-ivaas}
+      IVAAS_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-ivaas-secret}
+      # keep in step with client_max_body_size in web/nginx.conf
+      IVAAS_MAX_UPLOAD_MB: ${IVAAS_MAX_UPLOAD_MB:-5120}
+      IVAAS_STACK_MODEL: /models/stacks-v2.onnx
+      IVAAS_LAYERS_MODEL: /models/layers-v3.onnx
+      # "local": the portal's own branded page is the login, no redirect. Demo posture:
+      # the accounts below live in config. Switch to "oidc" for Keycloak (still wired up
+      # below) when this needs real identity management.
+      IVAAS_AUTH_MODE: ${IVAAS_AUTH_MODE:-local}
+      IVAAS_AUTH_LOCAL_SECRET: ${IVAAS_AUTH_LOCAL_SECRET:-dev-only-change-me-please-32chars}
+      # the browser and the API must agree on the issuer string, so use the host-visible URL
+      IVAAS_OIDC_ISSUER: http://localhost:8180/realms/ivaas
+      IVAAS_OIDC_AUDIENCE: ivaas-portal
+      IVAAS_SERVICE_API_KEYS: '{"${IVAAS_PIPELINE_KEY:-change-me-pipeline-key}": "pipeline"}'
+      IVAAS_LLM_MODEL: ${IVAAS_LLM_MODEL:-qwen3:8b}
+      IVAAS_CORS_ORIGINS: '["http://localhost:${IVAAS_PORTAL_PORT:-8080}"]'
+
 services:
   postgres:
     image: timescale/timescaledb:latest-pg16
@@ -49,32 +79,9 @@ services:
       context: ./services
       dockerfile: api/Dockerfile
     environment:
-      IVAAS_STORAGE: postgres
-      IVAAS_DATABASE_URL: postgresql+asyncpg://ivaas:${POSTGRES_PASSWORD:-ivaas}@postgres:5432/ivaas
-      IVAAS_EVENTS: nats
-      IVAAS_SECRETS_KEYS: '["${IVAAS_SECRETS_KEY:?generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"}"]'
-      IVAAS_NATS_URL: nats://nats:4222
-      IVAAS_MEDIAMTX_API_URL: http://mediamtx:9997
-      IVAAS_LLM_URL: http://ollama:11434
-      IVAAS_OBJECTS: s3
-      IVAAS_S3_ENDPOINT: http://minio:9000
-      IVAAS_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-ivaas}
-      IVAAS_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-ivaas-secret}
-      # keep in step with client_max_body_size in web/nginx.conf
-      IVAAS_MAX_UPLOAD_MB: ${IVAAS_MAX_UPLOAD_MB:-5120}
-      IVAAS_STACK_MODEL: /models/stacks-v2.onnx
-      IVAAS_LAYERS_MODEL: /models/layers-v3.onnx
-      # "local": the portal's own branded page is the login, no redirect. Demo posture:
-      # the accounts below live in config. Switch to "oidc" for Keycloak (still wired up
-      # below) when this needs real identity management.
-      IVAAS_AUTH_MODE: ${IVAAS_AUTH_MODE:-local}
-      IVAAS_AUTH_LOCAL_SECRET: ${IVAAS_AUTH_LOCAL_SECRET:-dev-only-change-me-please-32chars}
-      # the browser and the API must agree on the issuer string, so use the host-visible URL
-      IVAAS_OIDC_ISSUER: http://localhost:8180/realms/ivaas
-      IVAAS_OIDC_AUDIENCE: ivaas-portal
-      IVAAS_SERVICE_API_KEYS: '{"${IVAAS_PIPELINE_KEY:-change-me-pipeline-key}": "pipeline"}'
-      IVAAS_LLM_MODEL: ${IVAAS_LLM_MODEL:-qwen3:8b}
-      IVAAS_CORS_ORIGINS: '["http://localhost:${IVAAS_PORTAL_PORT:-8080}"]'
+      <<: *ivaas-env
+      # HTTP only: a long analysis here would starve the portal's requests
+      IVAAS_RUN_ANALYSIS_WORKER: "false"
     depends_on:
       postgres: { condition: service_healthy }
       nats: { condition: service_started }
@@ -83,6 +90,31 @@ services:
     volumes: [./models:/models:ro]
     ports: ["8000:8000"]
     extra_hosts: ["localhost:host-gateway"]  # so the API can reach the issuer at localhost:8180
+    healthcheck:
+      test: ["CMD-SHELL", "/app/.venv/bin/python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')\""]
+      interval: 10s
+      retries: 12
+    restart: unless-stopped
+
+  # Video analysis, out of the API process. Same image, no HTTP surface: a 36-minute
+  # clip pegs every core it is given, and that must not compete with the portal.
+  # Scale with: docker compose up -d --scale worker=3
+  worker:
+    build:
+      context: ./services
+      dockerfile: api/Dockerfile
+    command: ["/app/.venv/bin/python", "-m", "ivaas.worker"]
+    environment:
+      <<: *ivaas-env
+      IVAAS_RUN_ANALYSIS_WORKER: "true"
+      # the API owns schema migrations and the demo seed; the worker only consumes
+      IVAAS_SEED_DEMO_DATA: "false"
+    depends_on:
+      postgres: { condition: service_healthy }
+      nats: { condition: service_started }
+      minio: { condition: service_started }  # object store has no healthcheck
+      api: { condition: service_healthy }  # so migrations run once, in one place
+    volumes: [./models:/models:ro]
     restart: unless-stopped
 
   # Identity provider (Apache-2.0). Realm 'ivaas' with roles viewer/operator/admin and two

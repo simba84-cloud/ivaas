@@ -11,7 +11,10 @@ from ivaas.config.settings import Settings
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Migrations run inside the API and the worker at startup, and fileConfig's default
+    # would disable every logger created before it, silencing all of ivaas.* for the life
+    # of the process: no camera-offline warnings, no job errors, nothing.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 # The URL comes from the caller (run_migrations passes it) or, for the CLI, from settings.
 if not config.get_main_option("sqlalchemy.url"):
     config.set_main_option("sqlalchemy.url", Settings().database_url)

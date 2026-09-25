@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     stack_model: str = "../../models/stacks-v2.onnx"
     layers_model: str = "../../models/layers-v3.onnx"
     max_upload_mb: int = 5120
+    # Run the video-analysis worker inside this process. True keeps a single-process
+    # deployment working; docker-compose sets it False on the API and runs a separate
+    # worker, so a long CPU-bound analysis cannot starve the portal's requests.
+    run_analysis_worker: bool = True
     # Signs the short-lived links that let <img>/<video> load report objects without a token.
     object_link_secret: str = "dev-only-object-link-secret-change-me"
     cors_origins: list[str] = ["http://localhost:5173"]

@@ -32,12 +32,14 @@ from ivaas.domain.models import (
     LoadingSession,
     SessionDirection,
     SessionStatus,
+    Site,
     StreamSource,
 )
 
 pytestmark = pytest.mark.asyncio
 
-BAY = Bay(id=UUID("0bc39dce-7ea1-5331-b0dc-4ffcd94bbfd3"), site_id=uuid4(), name="Bay")
+SITE = Site(id=uuid4(), name="Test Site")
+BAY = Bay(id=UUID("0bc39dce-7ea1-5331-b0dc-4ffcd94bbfd3"), site_id=SITE.id, name="Bay")
 
 
 # --- backends ----------------------------------------------------------------
@@ -82,8 +84,8 @@ async def backend(request):
     from ivaas.adapters.persistence.postgres import build_postgres_repositories
 
     postgres_url = request.getfixturevalue("postgres_url")  # only started for postgres runs
-    bays, cameras, sessions, dispose, sm = await build_postgres_repositories(
-        postgres_url, seed=(BAY, []), box=SecretBox([SecretBox.generate_key()])
+    _sites, bays, cameras, sessions, dispose, sm = await build_postgres_repositories(
+        postgres_url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
     )
     async with sm.begin() as db:  # each test starts clean
         for table in ("analysis_jobs", "loading_sessions", "cameras"):
@@ -217,17 +219,116 @@ async def test_next_queued_is_oldest_first_and_skips_finished(backend):
 
 
 @both
-async def test_interrupted_job_is_requeued_on_reload(backend):
+async def test_interrupted_job_is_recovered(backend):
+    """A job whose worker died must be picked up again, without disturbing live ones.
+
+    The JSON store recovers on reload, because it only ever has one process. The
+    Postgres store cannot assume that: a RUNNING row usually means a worker is busy
+    with it right now, so it waits for the heartbeat to go quiet instead.
+    """
     _, _, _, jobs = backend
     j = job()
     j.start(datetime.now(UTC))
     j.progress = 0.6
     await jobs.save(j)
-    # simulate a fresh process: drop any in-memory cache the store keeps
-    if hasattr(jobs, "_live"):
-        jobs._live.clear()
-    if hasattr(jobs, "_jobs"):
+
+    if hasattr(jobs, "_jobs"):  # JSON store: a fresh process reloads from storage
         jobs._jobs.clear()
         await jobs.load_all()
-    got = await jobs.get(j.id)
-    assert got.status is JobStatus.QUEUED and got.progress == 0.0
+        got = await jobs.get(j.id)
+        assert got.status is JobStatus.QUEUED and got.progress == 0.0
+        return
+
+    # Postgres: still running, so it stays running and is not handed to another worker
+    assert (await jobs.get(j.id)).status is JobStatus.RUNNING
+    assert await jobs.next_queued() is None
+
+    jobs._stale_after = timedelta(seconds=0)  # the heartbeat has gone quiet
+    reclaimed = await jobs.next_queued()
+    assert reclaimed is not None and reclaimed.id == j.id
+    assert reclaimed.progress == 0.0
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_job_state_is_visible_across_processes(request):
+    """The API and the analysis worker are separate processes over one table.
+
+    The store used to cache queued and running jobs in a dict, which was correct
+    only while the worker ran inside the API. Two stores over the same database
+    stand in for the two processes here.
+    """
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.jobs_postgres import PostgresJobStore
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+
+    url = request.getfixturevalue("postgres_url")
+    _s, _b, _c, _se, dispose, sm = await build_postgres_repositories(
+        url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
+    )
+    async with sm.begin() as db:
+        await db.execute(text("DELETE FROM analysis_jobs"))
+
+    api_side = PostgresJobStore(sm)
+    worker_side = PostgresJobStore(sm)
+
+    job = AnalysisJob(
+        bay_id=BAY.id,
+        filename="a.mp4",
+        object_key="k",
+        created_by="admin",
+        created_at=datetime.now(UTC),
+    )
+    await api_side.save(job)  # the API queues it
+
+    claimed = await worker_side.next_queued()  # the worker takes it
+    assert claimed is not None
+    claimed.start(datetime.now(UTC))
+    claimed.progress = 0.5
+    await worker_side.save(claimed)
+
+    seen = await api_side.get(job.id)
+    assert seen is not None
+    assert seen.status is JobStatus.RUNNING, "the API must not serve its own stale copy"
+    assert seen.progress == 0.5
+
+    claimed.finish(datetime.now(UTC), loads=[], timeline=[], duration_s=1.0)
+    await worker_side.save(claimed)
+    done = await api_side.get(job.id)
+    assert done is not None and done.status is JobStatus.DONE
+
+    await dispose()
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_two_workers_never_claim_the_same_job(request):
+    """docker compose up --scale worker=3 must not analyse one video three times."""
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.jobs_postgres import PostgresJobStore
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+
+    url = request.getfixturevalue("postgres_url")
+    *_, dispose, sm = await build_postgres_repositories(
+        url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
+    )
+    async with sm.begin() as db:
+        await db.execute(text("DELETE FROM analysis_jobs"))
+
+    queued = [job(), job()]
+    store = PostgresJobStore(sm)
+    for j in queued:
+        await store.save(j)
+
+    # three workers race for two jobs
+    workers = [PostgresJobStore(sm) for _ in range(3)]
+    claimed = [await w.next_queued() for w in workers]
+
+    got = [c.id for c in claimed if c is not None]
+    assert len(got) == 2, "each queued job should be claimed exactly once"
+    assert len(set(got)) == 2, "the same job was handed to two workers"
+    assert sorted(got) == sorted(j.id for j in queued)
+
+    await dispose()

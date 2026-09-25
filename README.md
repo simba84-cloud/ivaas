@@ -38,7 +38,15 @@ Full stack (needs one secret for credential encryption):
 export IVAAS_SECRETS_KEY=$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
 docker compose up -d --build                  # portal http://localhost:8080 (IVAAS_PORTAL_PORT to change)
 docker compose --profile edge up pipeline     # on the GPU edge node; needs models/ + config
+docker compose up -d --scale worker=3         # more analysis throughput
 ```
+
+Uploaded-video analysis runs in its own `worker` container, not in the API: a
+36-minute clip saturates every core it is given for over an hour, and that must not
+compete with the portal's requests. The two are the same image with the same
+configuration; the API sets `IVAAS_RUN_ANALYSIS_WORKER=false` and serves HTTP, the
+worker drains the job queue. Workers claim jobs atomically, so scaling them out is
+safe. Leave the flag at its default to run both in one process.
 
 Assistant (dev): `docker run -d -p 11434:11434 -v ivaas_ollama:/root/.ollama ollama/ollama`, pull a model, then start
 the API with `IVAAS_LLM_URL=http://localhost:11434 IVAAS_LLM_MODEL=qwen3:8b`.

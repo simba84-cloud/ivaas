@@ -124,8 +124,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tasks = [
             asyncio.create_task(_sweep_idle_sessions(app.state.container)),
             asyncio.create_task(_refresh_camera_status(app.state.container)),
-            asyncio.create_task(job_worker(lambda: app.state.container.run_next_job)),
         ]
+        if settings.run_analysis_worker:
+            tasks.append(asyncio.create_task(job_worker(lambda: app.state.container.run_next_job)))
+        else:
+            log.info("analysis worker disabled here; a separate worker process runs the jobs")
+        app.state.background_tasks = tasks  # named so tests can assert what runs
         yield
         for t in tasks:
             t.cancel()

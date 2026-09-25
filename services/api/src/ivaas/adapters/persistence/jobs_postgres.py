@@ -4,10 +4,11 @@ never queried by field, and their shape is owned by the domain."""
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import UUID
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text, select
+from sqlalchemy import DateTime, Float, ForeignKey, String, Text, and_, or_, select
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -34,6 +35,8 @@ class AnalysisJobRow(Base):
     loads: Mapped[list] = mapped_column(JSONB, default=list)
     timeline: Mapped[list] = mapped_column(JSONB, default=list)
     summary: Mapped[str | None] = mapped_column(Text)
+    # touched on every save, including each progress tick: the worker's heartbeat
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 def _to_domain(r: AnalysisJobRow) -> AnalysisJob:
@@ -54,8 +57,6 @@ def _to_domain(r: AnalysisJobRow) -> AnalysisJob:
         timeline=[TimelineEvent(**e) for e in r.timeline],
         summary=r.summary,
     )
-    if job.status is JobStatus.RUNNING:  # the API stopped mid-run: run it again
-        job.status, job.progress = JobStatus.QUEUED, 0.0
     return job
 
 
@@ -76,17 +77,32 @@ def _values(j: AnalysisJob) -> dict:
         "loads": [asdict(ld) for ld in j.loads],
         "timeline": [asdict(e) for e in j.timeline],
         "summary": j.summary,
+        "updated_at": datetime.now(UTC),
     }
 
 
 class PostgresJobStore:
-    def __init__(self, sm: async_sessionmaker[AsyncSession]) -> None:
+    """The table is the only source of truth for job state.
+
+    This used to keep queued and running jobs in a dict, because the worker ran in
+    the API process and mutated the very object the API served. The worker is now a
+    separate process, so that cache made the API serve its own stale copy forever:
+    a job the worker had finished still read as queued. Progress is written on every
+    tick, so reading the row costs nothing and is always current.
+    """
+
+    # a worker that has not written progress for this long is presumed dead
+    DEFAULT_STALE_AFTER = timedelta(minutes=20)
+
+    def __init__(
+        self,
+        sm: async_sessionmaker[AsyncSession],
+        stale_after: timedelta | None = None,
+    ) -> None:
         self._sm = sm
-        self._live: dict[UUID, AnalysisJob] = {}  # the worker mutates the object it holds
+        self._stale_after = stale_after or self.DEFAULT_STALE_AFTER
 
     async def get(self, job_id: UUID) -> AnalysisJob | None:
-        if job_id in self._live:
-            return self._live[job_id]
         async with self._sm() as db:
             r = await db.get(AnalysisJobRow, job_id)
             return _to_domain(r) if r else None
@@ -95,13 +111,9 @@ class PostgresJobStore:
         stmt = select(AnalysisJobRow).order_by(AnalysisJobRow.created_at.desc()).limit(limit)
         async with self._sm() as db:
             rows = (await db.scalars(stmt)).all()
-        return [self._live.get(r.id) or _to_domain(r) for r in rows]
+        return [_to_domain(r) for r in rows]
 
     async def save(self, job: AnalysisJob) -> None:
-        if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
-            self._live[job.id] = job
-        else:
-            self._live.pop(job.id, None)
         values = _values(job)
         stmt = insert(AnalysisJobRow).values(**values)
         stmt = stmt.on_conflict_do_update(index_elements=[AnalysisJobRow.id], set_=values)
@@ -109,17 +121,44 @@ class PostgresJobStore:
             await db.execute(stmt)
 
     async def next_queued(self) -> AnalysisJob | None:
-        stmt = (
-            select(AnalysisJobRow)
-            .where(AnalysisJobRow.status.in_([JobStatus.QUEUED.value, JobStatus.RUNNING.value]))
-            .order_by(AnalysisJobRow.created_at)
-            .limit(1)
+        """Claim one job, atomically.
+
+        Several workers poll this table, so choosing a row and then marking it in a
+        second statement would hand the same video to two of them. One UPDATE picks
+        and claims in a single step; SKIP LOCKED lets the others move straight on to
+        the next row instead of queueing behind this one.
+
+        A job whose heartbeat has gone quiet for longer than `stale_after` is taken
+        to belong to a worker that died, and is picked up again. Every progress tick
+        touches the heartbeat, so a long analysis is never mistaken for a dead one.
+        """
+        now = datetime.now(UTC)
+        stale_before = now - self._stale_after
+        claim = (
+            AnalysisJobRow.__table__.update()
+            .where(
+                AnalysisJobRow.id.in_(
+                    select(AnalysisJobRow.id)
+                    .where(
+                        or_(
+                            AnalysisJobRow.status == JobStatus.QUEUED.value,
+                            and_(
+                                AnalysisJobRow.status == JobStatus.RUNNING.value,
+                                AnalysisJobRow.updated_at < stale_before,
+                            ),
+                        )
+                    )
+                    .order_by(AnalysisJobRow.created_at)
+                    .limit(1)
+                    .with_for_update(skip_locked=True)
+                    .scalar_subquery()
+                )
+            )
+            .values(status=JobStatus.RUNNING.value, started_at=now, updated_at=now, progress=0.0)
+            .returning(AnalysisJobRow)
         )
-        async with self._sm() as db:
-            r = (await db.scalars(stmt)).first()
+        async with self._sm.begin() as db:
+            r = (await db.execute(claim)).mappings().first()
         if r is None:
             return None
-        job = self._live.get(r.id) or _to_domain(r)
-        if job.status is JobStatus.RUNNING:
-            return None  # already being worked on in this process
-        return job
+        return _to_domain(SimpleNamespace(**r))
