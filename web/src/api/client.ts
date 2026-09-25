@@ -2,6 +2,8 @@ import { getToken, type Me } from "../auth/session";
 import type {
   AnalysisJob,
   ApprovalReason,
+  AuditEntry,
+  PlatformSettings,
   Bay,
   Camera,
   CameraRole,
@@ -39,6 +41,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   me: () => request<Me>("/api/v1/auth/me"),
   summary: () => request<Summary>("/api/v1/summary"),
+  settings: () => request<PlatformSettings>("/api/v1/settings"),
+  setSetting: (key: string, value: unknown) =>
+    request<PlatformSettings>(`/api/v1/settings/${key}`, {
+      method: "PUT",
+      body: JSON.stringify({ value }),
+    }),
+  audit: (params: { days?: number; actor?: string; action?: string } = {}) => {
+    const q = new URLSearchParams({ days: String(params.days ?? 7), limit: "200" });
+    if (params.actor) q.set("actor", params.actor);
+    if (params.action) q.set("action", params.action);
+    return request<AuditEntry[]>(`/api/v1/audit?${q}`);
+  },
   platformConfig: () => request<{ max_upload_mb: number }>("/api/v1/config"),
   overview: (days = 14, bayId?: string) =>
     request<Overview>(

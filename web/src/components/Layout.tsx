@@ -1,6 +1,8 @@
 import {
   Camera,
   ClipboardCheck,
+  ScrollText,
+  SlidersHorizontal,
   FileVideo,
   LayoutDashboard,
   LogOut,
@@ -72,9 +74,21 @@ const NAV = [
       { to: "/assistant", label: "Assistant", icon: Sparkles },
     ],
   },
-  { group: "Configure", items: [{ to: "/cameras", label: "Cameras", icon: Camera }] },
+  {
+    group: "Configure",
+    items: [
+      { to: "/cameras", label: "Cameras", icon: Camera },
+      { to: "/audit", label: "Audit Log", icon: ScrollText, adminOnly: true },
+      { to: "/settings", label: "Settings", icon: SlidersHorizontal, adminOnly: true },
+    ],
+  },
 ];
-const FLAT = NAV.flatMap((g) => g.items);
+/** The audit trail is a security surface, so it is not advertised to non-admins. */
+const visible = (me: Me | undefined) =>
+  NAV.map((g) => ({
+    ...g,
+    items: g.items.filter((i) => !("adminOnly" in i && i.adminOnly) || !!me?.roles.includes("admin")),
+  })).filter((g) => g.items.length);
 
 type Theme = "light" | "dark" | null;
 
@@ -135,6 +149,7 @@ export function Layout({
 }) {
   const [isDark, toggleTheme] = useTheme();
   const level = accessLevel(me);
+  const nav = visible(me);
   const { bay, site } = useScope();
   const where = bay ? `${site?.name ?? "Site"} · ${bay.name}` : "No bay configured";
 
@@ -177,7 +192,7 @@ export function Layout({
         </div>
 
         <nav className="relative mt-5 flex-1 space-y-5 overflow-y-auto px-3">
-          {NAV.map(({ group, items }) => (
+          {nav.map(({ group, items }) => (
             <div key={group}>
               <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-white/40">
                 {group}
@@ -280,7 +295,7 @@ export function Layout({
         </header>
 
         <nav className="flex gap-1 overflow-x-auto border-b border-line bg-surface px-2 lg:hidden">
-          {FLAT.map(({ to, label }) => (
+          {nav.flatMap((g) => g.items).map(({ to, label }) => (
             <NavLink
               key={to}
               to={to}

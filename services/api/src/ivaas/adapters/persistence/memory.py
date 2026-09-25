@@ -7,7 +7,33 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
+from ivaas.domain.audit import AuditAction, AuditEntry
 from ivaas.domain.models import Bay, Camera, LoadingSession, SessionStatus, Site
+
+
+class InMemoryAuditLog:
+    def __init__(self) -> None:
+        self._entries: list[AuditEntry] = []
+
+    async def record(self, entry: AuditEntry) -> None:
+        self._entries.append(entry)
+
+    async def list_recent(
+        self,
+        *,
+        since: datetime | None = None,
+        actor: str | None = None,
+        action: AuditAction | None = None,
+        limit: int = 100,
+    ) -> list[AuditEntry]:
+        rows = sorted(self._entries, key=lambda e: e.at, reverse=True)
+        if since is not None:
+            rows = [e for e in rows if e.at >= since]
+        if actor:
+            rows = [e for e in rows if e.actor == actor]
+        if action is not None:
+            rows = [e for e in rows if e.action is action]
+        return rows[: max(1, min(limit, 1000))]
 
 
 class InMemorySiteRepository:

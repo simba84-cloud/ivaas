@@ -6,8 +6,8 @@ change here and nowhere else (dependency inversion).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from datetime import timedelta
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
@@ -21,6 +21,7 @@ from ivaas.adapters.http.signed import ObjectLinkSigner
 from ivaas.adapters.messaging.fanout import FanoutEventPublisher, WebSocketHub
 from ivaas.adapters.persistence.jobs import PersistentJobStore
 from ivaas.adapters.persistence.memory import (
+    InMemoryAuditLog,
     InMemoryBayRepository,
     InMemoryCameraRepository,
     InMemoryEventPublisher,
@@ -48,6 +49,11 @@ from ivaas.application.sessions import (
 from ivaas.application.summarise import SummariseReport
 from ivaas.config.settings import Settings
 from ivaas.domain.models import Bay, Camera, CameraRole, SessionDirection, Site
+from ivaas.domain.platform_settings import (
+    AUTO_CLOSE_IDLE_MINUTES,
+    AUTO_OPEN_DIRECTION,
+    RECONCILE_TOLERANCE,
+)
 from ivaas.ports.assistant import ChatModel
 from ivaas.ports.auth import TokenVerifier
 from ivaas.ports.repositories import Clock, EventPublisher
@@ -88,6 +94,8 @@ def demo_topology() -> tuple[Site, Bay, list[Camera]]:
 @dataclass
 class Container:
     settings: Settings
+    audit: Any
+    setting_store: Any
     sites: Any
     bays: Any
     cameras: Any
@@ -106,6 +114,27 @@ class Container:
     signer: ObjectLinkSigner
     _closers: list[Any]
 
+    #: overrides cached for this long; a change is live everywhere within it
+    OVERRIDE_TTL = timedelta(seconds=10)
+    _overrides: dict[str, Any] = field(default_factory=dict)
+    _overrides_at: datetime | None = None
+
+    async def effective(self, key: str, default: Any) -> Any:
+        """The value in force: a stored override if there is one, else the environment."""
+        now = self.clock.now()
+        if self._overrides_at is None or now - self._overrides_at > self.OVERRIDE_TTL:
+            try:
+                self._overrides = await self.setting_store.all()
+            except Exception:
+                logging.getLogger(__name__).exception("could not read setting overrides")
+                self._overrides = {}
+            self._overrides_at = now
+        return self._overrides.get(key, default)
+
+    def forget_overrides(self) -> None:
+        """Drop the cache so a just-saved change is visible immediately."""
+        self._overrides_at = None
+
     # use cases -----------------------------------------------------------
     @property
     def open_session(self) -> OpenSession:
@@ -115,17 +144,16 @@ class Container:
     def close_session(self) -> CloseSession:
         return CloseSession(self.sessions, self.events, self.clock)
 
-    @property
-    def reconcile_session(self) -> ReconcileSession:
-        return ReconcileSession(self.sessions, self.events, self.settings.reconcile_tolerance)
+    async def reconcile_session_uc(self) -> ReconcileSession:
+        tolerance = await self.effective(RECONCILE_TOLERANCE, self.settings.reconcile_tolerance)
+        return ReconcileSession(self.sessions, self.events, float(tolerance))
 
     @property
     def record_crossing(self) -> RecordCrateCrossing:
         return RecordCrateCrossing(self.sessions, self.events)
 
-    @property
-    def record_plate(self) -> RecordPlateRead:
-        direction = self.settings.auto_open_direction
+    async def record_plate_uc(self) -> RecordPlateRead:
+        direction = await self.effective(AUTO_OPEN_DIRECTION, self.settings.auto_open_direction)
         return RecordPlateRead(
             self.sessions,
             self.events,
@@ -133,9 +161,10 @@ class Container:
             auto_open_direction=SessionDirection(direction or "loading"),
         )
 
-    @property
-    def close_idle_sessions(self) -> CloseIdleSessions | None:
-        minutes = self.settings.auto_close_idle_minutes
+    async def close_idle_sessions_uc(self) -> CloseIdleSessions | None:
+        minutes = float(
+            await self.effective(AUTO_CLOSE_IDLE_MINUTES, self.settings.auto_close_idle_minutes)
+        )
         if minutes <= 0:
             return None
         return CloseIdleSessions(
@@ -263,6 +292,20 @@ async def build_container(settings: Settings) -> Container:
     else:
         objects = LocalObjectStore(settings.objects_dir)
 
+    audit: Any
+    setting_store: Any
+    if pg_sessionmaker is not None:
+        from ivaas.adapters.persistence.audit_postgres import PostgresAuditLog
+        from ivaas.adapters.persistence.settings_postgres import PostgresSettingsStore
+
+        audit = PostgresAuditLog(pg_sessionmaker)
+        setting_store = PostgresSettingsStore(pg_sessionmaker)
+    else:
+        from ivaas.adapters.persistence.settings_postgres import InMemorySettingsStore
+
+        audit = InMemoryAuditLog()
+        setting_store = InMemorySettingsStore()
+
     jobs: Any
     if pg_sessionmaker is not None:
         from ivaas.adapters.persistence.jobs_postgres import PostgresJobStore
@@ -276,6 +319,8 @@ async def build_container(settings: Settings) -> Container:
 
     return Container(
         settings=settings,
+        audit=audit,
+        setting_store=setting_store,
         sites=sites,
         bays=bays,
         cameras=cameras,

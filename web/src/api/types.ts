@@ -129,6 +129,52 @@ export interface Overview {
   insights: Insight[];
 }
 
+export type AuditAction =
+  | "signed_in"
+  | "session_opened"
+  | "session_closed"
+  | "session_reconciled"
+  | "session_approved"
+  | "camera_registered"
+  | "camera_removed"
+  | "video_uploaded"
+  | "site_created"
+  | "bay_created"
+  | "setting_changed";
+
+export interface AuditEntry {
+  id: string;
+  at: string;
+  actor: string;
+  action: AuditAction;
+  subject: string;
+  detail: Record<string, string | number | boolean>;
+}
+
+export interface EditableSetting {
+  key: string;
+  label: string;
+  help: string;
+  kind: "percent" | "minutes" | "choice";
+  choices: string[];
+  minimum: number | null;
+  maximum: number | null;
+  value: string | number;
+  overridden: boolean;
+}
+
+export interface ConfigFact {
+  label: string;
+  value: string;
+  detail: string | null;
+}
+
+export interface PlatformSettings {
+  editable: EditableSetting[];
+  security: ConfigFact[];
+  platform: ConfigFact[];
+}
+
 export interface ChatTurn {
   role: "user" | "assistant";
   content: string;

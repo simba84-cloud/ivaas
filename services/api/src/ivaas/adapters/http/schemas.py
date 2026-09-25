@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from ivaas.application.overview import Overview, Severity, Trend
+from ivaas.domain.audit import AuditAction, AuditEntry
 from ivaas.domain.models import (
     ApprovalReason,
     Bay,
@@ -191,6 +192,57 @@ class SummaryOut(BaseModel):
     mean_accuracy: float | None
     cameras_online: int
     cameras_total: int
+
+
+class EditableSettingOut(BaseModel):
+    key: str
+    label: str
+    help: str
+    kind: str
+    choices: list[str]
+    minimum: float | None
+    maximum: float | None
+    value: object
+    #: true when a stored override is in force rather than the deployed default
+    overridden: bool
+
+
+class ConfigFactOut(BaseModel):
+    """One deployment fact, stated without its secret."""
+
+    label: str
+    value: str
+    detail: str | None = None
+
+
+class SettingsOut(BaseModel):
+    editable: list[EditableSettingOut]
+    security: list[ConfigFactOut]
+    platform: list[ConfigFactOut]
+
+
+class SettingIn(BaseModel):
+    value: object
+
+
+class AuditEntryOut(BaseModel):
+    id: UUID
+    at: datetime
+    actor: str
+    action: AuditAction
+    subject: str
+    detail: dict
+
+    @staticmethod
+    def of(e: AuditEntry) -> AuditEntryOut:
+        return AuditEntryOut(
+            id=e.id,
+            at=e.at,
+            actor=e.actor,
+            action=e.action,
+            subject=e.subject,
+            detail=e.detail,
+        )
 
 
 class TrendOut(BaseModel):

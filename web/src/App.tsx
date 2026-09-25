@@ -12,6 +12,8 @@ import {
   resumeOidc,
 } from "./auth/session";
 import { ScopeProvider } from "./api/scope";
+import Audit from "./pages/Audit";
+import Settings from "./pages/Settings";
 import { Layout } from "./components/Layout";
 import { useLiveEvents } from "./hooks/useLiveEvents";
 import Analysis from "./pages/Analysis";
@@ -68,6 +70,8 @@ export default function App() {
           <Route path="/live" element={<LiveView />} />
           <Route path="/sessions" element={<Sessions me={me.data} />} />
           <Route path="/cameras" element={<Cameras me={me.data} />} />
+          <Route path="/audit" element={<Audit />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/analysis" element={<Analysis me={me.data} />} />
           <Route path="/analysis/:id" element={<AnalysisReport />} />
           <Route path="/assistant" element={<Assistant />} />

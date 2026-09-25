@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from uuid import UUID, uuid4
 
 from fastapi import (
@@ -25,6 +25,7 @@ from ivaas.adapters.http.auth import current_principal, require, websocket_princ
 from ivaas.adapters.http.schemas import (
     AnalysisJobOut,
     ApproveIn,
+    AuditEntryOut,
     AuthConfigOut,
     BayIn,
     BayOut,
@@ -32,10 +33,12 @@ from ivaas.adapters.http.schemas import (
     CameraOut,
     ChatIn,
     ChatOut,
+    ConfigFactOut,
     CrossingIn,
     DiscoveredDeviceOut,
     DiscoveredStreamOut,
     DiscoverStreamsIn,
+    EditableSettingOut,
     LoginIn,
     MeOut,
     OpenSessionIn,
@@ -44,6 +47,8 @@ from ivaas.adapters.http.schemas import (
     PlatformConfigOut,
     ReconcileIn,
     SessionOut,
+    SettingIn,
+    SettingsOut,
     SiteIn,
     SiteOut,
     SummaryOut,
@@ -56,6 +61,7 @@ from ivaas.adapters.streaming.onvif import is_lan_device_url
 from ivaas.application.analysis import job_worker
 from ivaas.config.container import Container, build_container
 from ivaas.config.settings import Settings
+from ivaas.domain.audit import AuditAction, AuditEntry
 from ivaas.domain.models import (
     Bay,
     CameraStatus,
@@ -66,6 +72,14 @@ from ivaas.domain.models import (
     PlateRead,
     SessionStatus,
     Site,
+)
+from ivaas.domain.platform_settings import (
+    AUTO_CLOSE_IDLE_MINUTES,
+    AUTO_OPEN_DIRECTION,
+    EDITABLE,
+    RECONCILE_TOLERANCE,
+    InvalidSettingError,
+    validate,
 )
 from ivaas.ports.assistant import ChatMessage, ChatModelUnavailableError
 from ivaas.ports.auth import Principal, Role
@@ -79,7 +93,7 @@ PLATES = Counter("ivaas_plate_reads_total", "LPR plate reads ingested")
 async def _sweep_idle_sessions(container: Container, every_s: float = 60.0) -> None:
     while True:
         await asyncio.sleep(every_s)
-        use_case = container.close_idle_sessions
+        use_case = await container.close_idle_sessions_uc()
         if use_case is None:
             continue
         try:
@@ -143,6 +157,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    async def audit(
+        c: Container,
+        actor: str,
+        action: AuditAction,
+        subject: str,
+        **detail: object,
+    ) -> None:
+        """Record who did what. The actor is an HTTP concern, so this lives here
+        rather than threading authentication down into the use cases.
+
+        The action has already succeeded by the time this runs. A failure to write
+        the trail must therefore never surface as a failed request: telling an
+        operator their approval failed when it did not is the worse outcome. It is
+        logged loudly instead, and this is the boundary that guarantees it for every
+        audit backend rather than trusting each one to remember.
+        """
+        try:
+            await c.audit.record(
+                AuditEntry(
+                    at=c.clock.now(),
+                    actor=actor,
+                    action=action,
+                    subject=subject,
+                    detail={k: v for k, v in detail.items() if v is not None},
+                )
+            )
+        except Exception:
+            log.exception("could not record audit entry: %s by %s", action, actor)
+
     @app.exception_handler(NotFoundError)
     async def _not_found(_: Request, exc: NotFoundError) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
@@ -180,9 +223,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         status_code=201,
         dependencies=[Depends(require(Role.ADMIN))],
     )
-    async def create_site(body: SiteIn, c: Container = Depends(get_container)) -> SiteOut:
+    async def create_site(
+        body: SiteIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> SiteOut:
         site = Site(id=uuid4(), name=body.name, timezone=body.timezone)
         await c.sites.save(site)
+        await audit(c, principal.name, AuditAction.SITE_CREATED, site.name, site_id=str(site.id))
         return SiteOut.of(site)
 
     @app.get(
@@ -202,7 +250,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[Depends(require(Role.ADMIN))],
     )
     async def create_bay(
-        site_id: UUID, body: BayIn, c: Container = Depends(get_container)
+        site_id: UUID,
+        body: BayIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
     ) -> BayOut:
         if await c.sites.get(site_id) is None:
             raise NotFoundError(f"site {site_id} not found")
@@ -214,6 +265,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             width_m=body.width_m,
         )
         await c.bays.save(bay)
+        await audit(c, principal.name, AuditAction.BAY_CREATED, bay.name, bay_id=str(bay.id))
         return BayOut.of(bay)
 
     @app.get(
@@ -237,16 +289,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[Depends(require(Role.ADMIN))],
     )
     async def register_camera(
-        bay_id: UUID, body: CameraIn, c: Container = Depends(get_container)
+        bay_id: UUID,
+        body: CameraIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
     ) -> CameraOut:
         camera = await c.register_camera(bay_id, body.name, body.role, body.source_url)
+        await audit(
+            c,
+            principal.name,
+            AuditAction.CAMERA_REGISTERED,
+            camera.name,
+            position=camera.role.value,
+            protocol=camera.source.protocol,
+            camera_id=str(camera.id),
+        )
         return CameraOut.of(camera)
 
     @app.delete(
         "/api/v1/cameras/{camera_id}", status_code=204, dependencies=[Depends(require(Role.ADMIN))]
     )
-    async def remove_camera(camera_id: UUID, c: Container = Depends(get_container)) -> Response:
+    async def remove_camera(
+        camera_id: UUID,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> Response:
+        existing = await c.cameras.get(camera_id)
         await c.remove_camera(camera_id)
+        await audit(
+            c,
+            principal.name,
+            AuditAction.CAMERA_REMOVED,
+            existing.name if existing else str(camera_id),
+            camera_id=str(camera_id),
+        )
         return Response(status_code=204)
 
     @app.post(
@@ -308,17 +384,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[Depends(require(Role.OPERATOR))],
     )
     async def open_session(
-        body: OpenSessionIn, c: Container = Depends(get_container)
+        body: OpenSessionIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
     ) -> SessionOut:
-        return SessionOut.of(await c.open_session(body.bay_id, body.direction))
+        session = await c.open_session(body.bay_id, body.direction)
+        await audit(
+            c,
+            principal.name,
+            AuditAction.SESSION_OPENED,
+            session.plate or "no plate yet",
+            direction=session.direction.value,
+            session_id=str(session.id),
+        )
+        return SessionOut.of(session)
 
     @app.post(
         "/api/v1/sessions/{session_id}/close",
         response_model=SessionOut,
         dependencies=[Depends(require(Role.OPERATOR))],
     )
-    async def close_session(session_id: UUID, c: Container = Depends(get_container)) -> SessionOut:
-        return SessionOut.of(await c.close_session(session_id))
+    async def close_session(
+        session_id: UUID,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> SessionOut:
+        session = await c.close_session(session_id)
+        await audit(
+            c,
+            principal.name,
+            AuditAction.SESSION_CLOSED,
+            session.plate or "no plate",
+            ai_count=session.ai_count,
+            session_id=str(session.id),
+        )
+        return SessionOut.of(session)
 
     @app.post(
         "/api/v1/sessions/{session_id}/reconcile",
@@ -326,9 +426,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[Depends(require(Role.OPERATOR))],
     )
     async def reconcile(
-        session_id: UUID, body: ReconcileIn, c: Container = Depends(get_container)
+        session_id: UUID,
+        body: ReconcileIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
     ) -> SessionOut:
-        return SessionOut.of(await c.reconcile_session(session_id, body.manual_count))
+        reconcile_uc = await c.reconcile_session_uc()
+        session = await reconcile_uc(session_id, body.manual_count)
+        await audit(
+            c,
+            principal.name,
+            AuditAction.SESSION_RECONCILED,
+            session.plate or "no plate",
+            ai_count=session.ai_count,
+            manual_count=session.manual_count,
+            variance=session.variance,
+            outcome=session.status.value,
+            session_id=str(session.id),
+        )
+        return SessionOut.of(session)
 
     @app.post(
         "/api/v1/sessions/{session_id}/approve",
@@ -343,6 +459,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> SessionOut:
         session = await c.approve_session(
             session_id, by=principal.name, reason=body.reason, note=body.note
+        )
+        await audit(
+            c,
+            principal.name,
+            AuditAction.SESSION_APPROVED,
+            session.plate or "no plate",
+            reason=body.reason.value,
+            note=body.note,
+            variance=session.variance,
+            session_id=str(session.id),
         )
         return SessionOut.of(session)
 
@@ -377,7 +503,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> SessionOut | None:
         PLATES.inc()
         read = PlateRead(body.plate.upper(), body.confidence, body.camera_id, body.read_at)
-        session = await c.record_plate(body.bay_id, read)
+        record = await c.record_plate_uc()
+        session = await record(body.bay_id, read)
         return SessionOut.of(session) if session else None
 
     # dashboard -----------------------------------------------------------
@@ -408,6 +535,151 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     async def platform_config(c: Container = Depends(get_container)) -> PlatformConfigOut:
         return PlatformConfigOut(max_upload_mb=c.settings.max_upload_mb)
+
+    def _yes_no(ok: bool) -> str:
+        return "Configured" if ok else "Not configured"
+
+    @app.get(
+        "/api/v1/settings",
+        response_model=SettingsOut,
+        dependencies=[Depends(require(Role.ADMIN))],
+    )
+    async def read_settings(c: Container = Depends(get_container)) -> SettingsOut:
+        st = c.settings
+        defaults = {
+            RECONCILE_TOLERANCE: st.reconcile_tolerance,
+            AUTO_CLOSE_IDLE_MINUTES: st.auto_close_idle_minutes,
+            AUTO_OPEN_DIRECTION: st.auto_open_direction,
+        }
+        stored = await c.setting_store.all()
+        editable = [
+            EditableSettingOut(
+                key=spec.key,
+                label=spec.label,
+                help=spec.help,
+                kind=spec.kind,
+                choices=list(spec.choices),
+                minimum=spec.minimum,
+                maximum=spec.maximum,
+                value=stored.get(spec.key, defaults[spec.key]),
+                overridden=spec.key in stored,
+            )
+            for spec in EDITABLE
+        ]
+
+        oidc = st.auth_mode == "oidc"
+        # Never the values: this endpoint says whether a secret is set, not what it is.
+        security = [
+            ConfigFactOut(
+                label="Sign-in",
+                value="Identity provider (OIDC)" if oidc else "Local accounts",
+                detail=st.oidc_issuer
+                if oidc
+                else "Accounts are defined in configuration. Use OIDC for real user management.",
+            ),
+            ConfigFactOut(
+                label="Roles",
+                value="viewer · operator · admin",
+                detail="Viewers read. Operators run the bay and verify counts. "
+                "Admins configure cameras and sign off disputes.",
+            ),
+            ConfigFactOut(
+                label="Camera credentials at rest",
+                value=_yes_no(bool(st.secrets_keys)),
+                detail="Encrypted with Fernet keys from IVAAS_SECRETS_KEYS."
+                if st.secrets_keys
+                else "IVAAS_SECRETS_KEYS is empty, so camera passwords cannot be stored.",
+            ),
+            ConfigFactOut(
+                label="Report links",
+                value="Signed and expiring",
+                detail="Frames and videos load over short-lived signed links, "
+                "because an image tag cannot carry a bearer token.",
+            ),
+            ConfigFactOut(
+                label="Machine callers",
+                value=f"{len(st.service_api_keys)} service key(s)",
+                detail="The pipeline posts counts with X-IVaaS-Key. Keys are never shown here.",
+            ),
+            ConfigFactOut(
+                label="Audit trail",
+                value="Append-only",
+                detail="Every action that changes a count or the setup is recorded "
+                "with the user who took it.",
+            ),
+        ]
+
+        platform = [
+            ConfigFactOut(label="Storage", value=st.storage, detail="IVAAS_STORAGE"),
+            ConfigFactOut(label="Events", value=st.events, detail="IVAAS_EVENTS"),
+            ConfigFactOut(
+                label="Object storage",
+                value=st.objects,
+                detail=st.s3_endpoint if st.objects == "s3" else st.objects_dir,
+            ),
+            ConfigFactOut(
+                label="Upload limit",
+                value=f"{st.max_upload_mb} MB",
+                detail="IVAAS_MAX_UPLOAD_MB; keep nginx client_max_body_size in step",
+            ),
+            ConfigFactOut(
+                label="Analysis worker",
+                value="In this process" if st.run_analysis_worker else "Separate container",
+                detail="IVAAS_RUN_ANALYSIS_WORKER",
+            ),
+            ConfigFactOut(
+                label="Media server",
+                value=st.mediamtx_api_url or "Not configured",
+                detail="IVAAS_MEDIAMTX_API_URL",
+            ),
+            ConfigFactOut(
+                label="Assistant model",
+                value=st.llm_model if st.llm_url else "Disabled",
+                detail=st.llm_url or "IVAAS_LLM_URL is empty",
+            ),
+            ConfigFactOut(
+                label="Crate detector",
+                value=st.stack_model.rsplit("/", 1)[-1],
+                detail="IVAAS_STACK_MODEL",
+            ),
+        ]
+        return SettingsOut(editable=editable, security=security, platform=platform)
+
+    @app.put(
+        "/api/v1/settings/{key}",
+        response_model=SettingsOut,
+        dependencies=[Depends(require(Role.ADMIN))],
+    )
+    async def write_setting(
+        key: str,
+        body: SettingIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> SettingsOut:
+        try:
+            value = validate(key, body.value)
+        except InvalidSettingError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        await c.setting_store.set(key, value, by=principal.name, at=c.clock.now())
+        c.forget_overrides()  # the next request sees it, not the next cache window
+        await audit(c, principal.name, AuditAction.SETTING_CHANGED, key, value=value)
+        return await read_settings(c)
+
+    @app.get(
+        "/api/v1/audit",
+        response_model=list[AuditEntryOut],
+        dependencies=[Depends(require(Role.ADMIN))],
+    )
+    async def audit_log(
+        days: int = 7,
+        actor: str | None = None,
+        action: AuditAction | None = None,
+        limit: int = 200,
+        c: Container = Depends(get_container),
+    ) -> list[AuditEntryOut]:
+        since = c.clock.now() - timedelta(days=max(1, min(days, 365)))
+        entries = await c.audit.list_recent(since=since, actor=actor, action=action, limit=limit)
+        return [AuditEntryOut.of(e) for e in entries]
 
     @app.get(
         "/api/v1/analytics/overview",
@@ -486,6 +758,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(415, str(exc)) from exc
+        await audit(
+            c,
+            principal.name,
+            AuditAction.VIDEO_UPLOADED,
+            job.filename,
+            job_id=str(job.id),
+            bay_id=str(bay_id),
+        )
         return await _job_out(c, job)
 
     @app.get(
@@ -579,6 +859,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if user is None or not hmac.compare_digest(user[0], body.password):
             raise HTTPException(401, "invalid username or password")
         token = c.local_auth.mint(body.username, body.username, [Role(user[1])])
+        await audit(c, body.username, AuditAction.SIGNED_IN, body.username, role=user[1])
         return TokenOut(access_token=token)
 
     @app.get("/api/v1/auth/me", response_model=MeOut)
