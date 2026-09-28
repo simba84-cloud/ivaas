@@ -23,6 +23,7 @@ import Analysis from "./pages/Analysis";
 import AnalysisReport from "./pages/AnalysisReport";
 import Assistant from "./pages/Assistant";
 import Cameras from "./pages/Cameras";
+import Command from "./pages/Command";
 import Dashboard from "./pages/Dashboard";
 import LiveView from "./pages/LiveView";
 import Login from "./pages/Login";
@@ -100,6 +101,7 @@ export default function App() {
       <Layout connected={connected} me={me.data} onLogout={() => logout(config.data)}>
         <Routes>
           <Route path="/" element={<Dashboard me={me.data} />} />
+          <Route path="/command" element={<Command />} />
           <Route path="/live" element={<LiveView />} />
           <Route path="/sessions" element={<Sessions me={me.data} />} />
           <Route path="/cameras" element={<Cameras me={me.data} />} />

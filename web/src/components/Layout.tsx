@@ -9,6 +9,7 @@ import {
   LogOut,
   MonitorPlay,
   Moon,
+  Radar,
   ShieldCheck,
   Sparkles,
   Sun,
@@ -64,6 +65,7 @@ const NAV = [
     group: "Operations",
     items: [
       { to: "/", label: "Dashboard", icon: LayoutDashboard },
+      { to: "/command", label: "Command", icon: Radar },
       { to: "/live", label: "Live View", icon: MonitorPlay },
       { to: "/sessions", label: "Reconciliation", icon: ClipboardCheck },
     ],

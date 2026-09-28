@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { emitLive } from "../api/live";
 import { getToken, onAuthChange } from "../auth/session";
 
 /** Subscribes to the API event stream and refreshes cached queries on change. */
@@ -25,7 +26,9 @@ export function useLiveEvents(): boolean {
       ws.onmessage = (e) => {
         let subject = "";
         try {
-          subject = JSON.parse(e.data).subject ?? "";
+          const message = JSON.parse(e.data);
+          subject = message.subject ?? "";
+          if (subject) emitLive({ subject, data: message.data ?? {}, at: Date.now() });
         } catch {
           /* ignore */
         }
