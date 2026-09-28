@@ -65,6 +65,22 @@
   color-scheme: dark;
 }
 
+@keyframes hud-sweep {
+  to {
+    transform: translateY(400%);
+  }
+}
+@keyframes no-signal {
+  0% { transform: translate(0, 0); }
+  33% { transform: translate(-6%, 4%); }
+  66% { transform: translate(5%, -3%); }
+  100% { transform: translate(-3%, -5%); }
+}
+@keyframes ping-ring {
+  from { transform: scale(1); opacity: 0.8; }
+  to { transform: scale(2.8); opacity: 0; }
+}
+
 @layer base {
   html,
   body,
@@ -150,6 +166,31 @@
   /* a dark well for footage; its chrome is always light, in both themes */
   .video-well {
     @apply relative overflow-hidden bg-video;
+  }
+  /* Command view effects. They sit on video wells, which are dark in both themes, so
+     they use literals on purpose. Every one moves by transform, never by opacity from
+     0, and the reduced-motion rule above stops them all. */
+  .scanlines::after {
+    content: "";
+    @apply pointer-events-none absolute inset-0 z-[2];
+    background: repeating-linear-gradient(180deg, rgb(255 255 255 / 0.025) 0 1px, transparent 1px 3px);
+  }
+  .hud-sweep {
+    @apply pointer-events-none absolute inset-x-0 top-0 z-[2] h-1/3;
+    background: linear-gradient(180deg, transparent, rgb(120 142 220 / 0.07) 60%, rgb(120 142 220 / 0.1) 80%, transparent);
+    transform: translateY(-100%);
+    animation: hud-sweep 7s linear infinite;
+    will-change: transform;
+  }
+  .no-signal {
+    @apply pointer-events-none absolute -inset-1/4;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
+    animation: no-signal 0.6s steps(3) infinite;
+  }
+  .ping::after {
+    content: "";
+    @apply absolute inset-0 rounded-full border border-current;
+    animation: ping-ring 1.8s cubic-bezier(0.2, 0.7, 0.2, 1) infinite;
   }
   /* segmented control for view density / mode switches */
   .segment {
