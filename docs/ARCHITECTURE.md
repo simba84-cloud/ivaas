@@ -131,9 +131,9 @@ at the bay at 04:48?"). Needs evidence-clip capture first (gap 8).
  pipeline ──X-IVaaS-Key──────────────────────────────────▶ API ── ApiKeyVerifier
 ```
 
-- **Roles**: `viewer` (read, assistant) < `operator` (+ sessions) < `admin` (+ cameras,
-  discovery). `service` is separate: the pipeline can only ingest and heartbeat; it cannot
-  browse, and a human admin cannot ingest. Every route declares its role; anonymous gets 401.
+- **Roles** are scoped bindings (proposal §4, see §2e below). Every route declares the
+  permission it needs; anonymous gets 401. The pipeline's key holds `integration`: it can
+  ingest and read counts, not run the bay, and a human admin cannot ingest.
 - **Two verifiers behind one port.** `OidcTokenVerifier` validates RS256/ES256 against the
   issuer's JWKS (cached, refetched once on an unknown key id for rotation), checking
   issuer and audience. `LocalTokenVerifier` (HS256, demo users) is for development; it is
@@ -157,6 +157,43 @@ without an email (realm users now have one).
 
 Not done: rate limiting, audit log of who reconciled what, HTTPS termination (put Caddy or Traefik
 in front for the POC network).
+
+## 2e. Tenancy and scoped roles (M1)
+
+IVaaS is multi-tenant from the POC on: Bakers Inn is tenant #1, under the partner
+LITZIM, under the Cassava platform. `Platform → Partner → Tenant → Site → Bay → Camera`.
+Decision record: [adr/0001-pooled-tenancy-rls.md](adr/0001-pooled-tenancy-rls.md).
+
+- **Which tenant.** Only the verified identity says: the account's tenant, or the tenant
+  a service key is bound to (`IVAAS_SERVICE_API_KEYS`, value `name@tenant-slug`; a bare
+  name is Bakers Inn). No header, query or body can choose it. The auth dependency sets
+  it in a context variable (`ivaas/tenancy.py`) for the rest of the request.
+- **Row-level security does the isolating.** Every tenant table has `tenant_id`,
+  defaulted from the transaction's `app.tenant_id`, and one forced policy. Each
+  transaction runs as `ivaas_app` (no superuser, no BYPASSRLS) with the tenant set
+  locally (`TenantScopedSessions`), so repository code has no tenant filters to forget.
+  In-memory mode gets the same guarantee from one store per tenant (`PerTenant`).
+- **Crossing tenants** takes `system_context()`: signing in (the account is found before
+  its tenant is known), claiming the next analysis job, and platform provisioning.
+  Background sweeps and the worker run inside each tenant in turn.
+- **Everything else is per tenant too**: live WebSocket events, NATS subjects
+  (`ivaas.t.<tenant>.session.opened`), object keys (`tenants/<id>/…`; keys from before
+  tenancy are Bakers Inn's), setting overrides.
+- **Roles** are bindings `(account, role, scope)`, stored in `role_bindings` and read on
+  every request, so a change takes effect at once. The §4.2 matrix is data in
+  `domain/rbac.py`. A binding at site or bay scope counts only on endpoints that check
+  that scope (sessions, bays, cameras, zones, uploads); totals, the audit log and
+  settings need the role tenant-wide. Platform and partner staff hold no standing
+  access to tenant data.
+- **Not found, not forbidden.** Another tenant's id, or a site outside the caller's
+  scope, answers 404 with the same body as an id that exists nowhere.
+- **Provisioning** is `POST /api/v1/platform/tenants` with an `Idempotency-Key`; the
+  owner's temporary password is shown once. Steps that belong to later milestones (IdP
+  organisation, storage key, plan, edge enrollment) are recorded as pending.
+
+The old roles became: `admin` → `tenant_admin` + `site_manager`, `operator` →
+`bay_operator`, `viewer` → `auditor` (migration 0012). Auditors lose camera snapshots,
+which §4.2 does not grant them.
 
 ## 2d. Testing
 
@@ -258,3 +295,10 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
 10. **A wrong camera URL is accepted silently**: the camera just never goes online. A
    registration-time probe would catch typos earlier.
 9. **MinIO is provisioned but unused** — evidence-clip capture per session is not built.
+11. **Tenancy gaps (M1).** Stream paths are unique platform-wide (the media server is
+   shared), so two tenants cannot register the same path. Foreign keys do not carry
+   `tenant_id`, so cross-tenant references are prevented by the API's lookups rather
+   than by the schema. The app switches to `ivaas_app` per transaction from the owner's
+   login; a separate login role with its own credential is the GA step. Provisioning is
+   idempotent for retries, not for two simultaneous first calls with one key. There is
+   no break-glass, SSO federation, platform console or partner console yet (M8).
