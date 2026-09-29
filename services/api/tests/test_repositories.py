@@ -88,7 +88,14 @@ async def backend(request):
         postgres_url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
     )
     async with sm.begin() as db:  # each test starts clean
-        for table in ("analysis_jobs", "loading_sessions", "cameras"):
+        # tally sheets reference sessions, so they go first
+        for table in (
+            "tally_lines",
+            "tally_sheets",
+            "analysis_jobs",
+            "loading_sessions",
+            "cameras",
+        ):
             await db.execute(text(f"DELETE FROM {table}"))
     yield bays, cameras, sessions, PostgresJobStore(sm)
     await dispose()
@@ -502,3 +509,109 @@ async def test_zones_incidents_badges_and_people_round_trip(security):
         assert stored_text.startswith("enc:")  # sealed: the table alone recognises nobody
     assert (await people.delete(person.id)).name == "Tendai Moyo"
     assert await people.list() == []
+
+
+# --- tally sheets --------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def tally(request):
+    """-> (tally store, session repository) for the requested backend, both empty."""
+    from ivaas.adapters.persistence.tally_postgres import (
+        InMemoryTallySheetStore,
+        PostgresTallySheetStore,
+    )
+
+    if request.param == "memory":
+        yield InMemoryTallySheetStore(), InMemorySessionRepository()
+        return
+
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+
+    postgres_url = request.getfixturevalue("postgres_url")
+    *_, sessions, dispose, sm = await build_postgres_repositories(
+        postgres_url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
+    )
+    async with sm.begin() as db:
+        for table in ("tally_lines", "tally_sheets"):
+            await db.execute(text(f"DELETE FROM {table}"))
+    yield PostgresTallySheetStore(sm), sessions
+    await dispose()
+
+
+both_tally = pytest.mark.parametrize(
+    "tally", ["memory", pytest.param("postgres", marks=pytest.mark.postgres)], indirect=True
+)
+
+
+def tally_sheet(sheet_id="BI-20261012-B1-001", **over):
+    from datetime import date, time
+
+    from ivaas.domain.tally import TallyLine, TallySheet
+
+    fields = {
+        "sheet_id": sheet_id,
+        "bay_id": BAY.id,
+        "date": date(2026, 10, 12),
+        "plate": "AGA 5372",
+        "direction": SessionDirection.LOADING,
+        "start_time": time(6, 40),
+        "end_time": time(7, 5),
+        "lines": [TallyLine(2, 30), TallyLine(1, 32, "P")],
+        "total_on_paper": 62,
+        "counted_by": "R. Ncube",
+        "entered_by_user": "operator",
+        "entered_at": datetime(2026, 10, 13, 7, 0, tzinfo=UTC),
+    }
+    return TallySheet(**{**fields, **over})
+
+
+@both_tally
+async def test_tally_sheet_round_trip_with_its_lines(tally):
+    from ivaas.domain.tally import TallyStatus
+
+    store, sessions = tally
+    s = session()
+    await sessions.save(s)
+    sheet = tally_sheet(session_id=s.id, status=TallyStatus.MATCHED)
+    await store.save(sheet)
+    got = await store.get_by_sheet_id(sheet.sheet_id)
+    assert got.id == sheet.id and got.session_id == s.id and got.status is TallyStatus.MATCHED
+    assert [(ln.line_no, ln.crates, ln.note) for ln in got.lines] == [(1, 32, "P"), (2, 30, None)]
+    assert (got.date, got.start_time, got.total_on_paper) == (sheet.date, sheet.start_time, 62)
+    assert got.direction is SessionDirection.LOADING and got.counted_by == "R. Ncube"
+    assert await store.session_ids_taken() == {s.id}
+    assert await store.get_by_sheet_id("BI-nope") is None
+
+
+@both_tally
+async def test_tally_save_is_an_upsert_by_sheet_id_that_replaces_lines(tally):
+    from ivaas.domain.tally import TallyLine
+
+    store, _ = tally
+    first = tally_sheet()
+    await store.save(first)
+    again = tally_sheet(lines=[TallyLine(1, 40)], total_on_paper=40)  # a fresh object, new id
+    await store.save(again)
+    assert again.id == first.id  # the stored row keeps its first id
+    (only,) = await store.list_recent()
+    assert only.id == first.id and [ln.crates for ln in only.lines] == [40]
+
+
+@both_tally
+async def test_tally_lists_newest_first_and_unresolved_oldest_first(tally):
+    from ivaas.domain.tally import TallyStatus
+
+    store, _ = tally
+    t0 = datetime(2026, 10, 13, 7, 0, tzinfo=UTC)
+    for i, status in enumerate(
+        [TallyStatus.RECONCILED, TallyStatus.UNMATCHED, TallyStatus.CONFLICT, TallyStatus.PENDING]
+    ):
+        await store.save(
+            tally_sheet(f"BI-{i}", status=status, entered_at=t0 + timedelta(minutes=i))
+        )
+    assert [s.sheet_id for s in await store.list_recent()] == ["BI-3", "BI-2", "BI-1", "BI-0"]
+    assert [s.sheet_id for s in await store.list_recent(limit=2)] == ["BI-3", "BI-2"]
+    assert [s.sheet_id for s in await store.list_unresolved()] == ["BI-1", "BI-3"]

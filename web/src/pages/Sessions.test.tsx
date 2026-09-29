@@ -106,3 +106,27 @@ describe("reconciliation sign-off", () => {
     expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
   });
 });
+
+describe("manual count entry", () => {
+  const awaiting = session({ id: "c1", plate: "NEW 0001", status: "closed" });
+
+  it("sends an operator to the blind tally-sheet page instead of a box beside the AI count", async () => {
+    api([awaiting]);
+    renderPage(<Sessions me={me(["operator"])} />, { path: "/sessions", route: "/sessions" });
+
+    const link = await within(await findRow("NEW 0001")).findByRole("link", { name: "Awaiting tally sheet" });
+    expect(link).toHaveAttribute("href", "/tally");
+    expect(screen.queryByLabelText("Manual count")).not.toBeInTheDocument();
+  });
+
+  it("keeps the inline box for an admin, as a correction path", async () => {
+    api([awaiting]);
+    renderPage(<Sessions me={me(["admin"])} />, { path: "/sessions", route: "/sessions" });
+
+    expect(await screen.findByLabelText("Manual count")).toBeInTheDocument();
+  });
+});
+
+async function findRow(plate: string) {
+  return (await screen.findByText(plate)).closest("tr") as HTMLElement;
+}

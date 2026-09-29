@@ -27,6 +27,10 @@ import type {
   Site,
   Overview,
   Summary,
+  TallyImport,
+  TallyReport,
+  TallySheet,
+  TallySheetInput,
   ToolUse,
 } from "./types";
 
@@ -35,7 +39,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      // a FormData body sets its own multipart content type, boundary included
+      ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init?.headers,
     },
@@ -52,6 +57,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   me: () => request<Me>("/api/v1/auth/me"),
+  tallySheets: () => request<TallySheet[]>("/api/v1/tally/sheets"),
+  tallyReport: () => request<TallyReport>("/api/v1/tally/report"),
+  enterTallySheet: (body: TallySheetInput) =>
+    request<TallySheet>("/api/v1/tally/sheets", { method: "POST", body: JSON.stringify(body) }),
+  rematchTally: () =>
+    request<{ changed: TallySheet[] }>("/api/v1/tally/rematch", { method: "POST" }),
+  importTally: (bayId: string, sheets: File, stacks?: File | null) => {
+    const form = new FormData();
+    form.append("sheets", sheets);
+    if (stacks) form.append("stacks", stacks);
+    return request<TallyImport>(`/api/v1/tally/import?bay_id=${bayId}`, {
+      method: "POST",
+      body: form,
+    });
+  },
   summary: () => request<Summary>("/api/v1/summary"),
   users: () => request<User[]>("/api/v1/users"),
   createUser: (username: string, display_name: string, roles: UserRole[]) =>

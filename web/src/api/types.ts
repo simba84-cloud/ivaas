@@ -153,7 +153,9 @@ export type AuditAction =
   | "incident_acknowledged"
   | "incident_resolved"
   | "person_enrolled"
-  | "person_removed";
+  | "person_removed"
+  | "tally_sheet_saved"
+  | "tally_conflict";
 
 export interface AuditEntry {
   id: string;
@@ -329,4 +331,78 @@ export interface BadgeEvent {
   at: string;
   granted: boolean;
   holder: string | null;
+}
+
+// tally sheets: the paper counts the AI is judged against -------------------------
+
+export type TallyStatus = "pending" | "matched" | "reconciled" | "conflict" | "unmatched";
+export type TallyDirection = "LOAD" | "RETURN";
+
+/** Blind by design: what was entered and where it stands, never the AI count. */
+export interface TallySheet {
+  id: string;
+  sheet_id: string;
+  bay_id: string;
+  date: string;
+  plate: string;
+  direction: TallyDirection;
+  start_time: string | null;
+  end_time: string | null;
+  lines: number;
+  line_total: number | null;
+  total_on_paper: number | null;
+  truth: number | null;
+  transcription_mismatch: boolean;
+  counted_by: string | null;
+  verified_by: string | null;
+  status: TallyStatus;
+  entered_by_user: string;
+  entered_at: string;
+}
+
+export interface TallyLineInput {
+  line_no: number;
+  crates: number;
+  note?: string | null;
+}
+
+export interface TallySheetInput {
+  sheet_id: string;
+  bay_id: string;
+  date: string;
+  plate: string;
+  direction: TallyDirection;
+  start_time?: string | null;
+  end_time?: string | null;
+  lines: TallyLineInput[];
+  total_on_paper?: number | null;
+  counted_by?: string | null;
+  verified_by?: string | null;
+  entered_by?: string | null;
+  notes?: string | null;
+}
+
+export interface TallyImport {
+  saved: TallySheet[];
+  skipped: string[];
+}
+
+export interface TallyReportRow {
+  sheet: TallySheet;
+  session_id: string | null;
+  session_status: SessionStatus | null;
+  ai_count: number | null;
+  variance: number | null;
+  accuracy: number | null;
+  passed: boolean | null;
+}
+
+export interface TallyReport {
+  target: number;
+  sheets: number;
+  reconciled: number;
+  passing: number;
+  mean_accuracy: number | null;
+  aggregate_error: number | null;
+  rows: TallyReportRow[];
 }

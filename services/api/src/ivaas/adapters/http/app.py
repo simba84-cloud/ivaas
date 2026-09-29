@@ -69,6 +69,7 @@ from ivaas.adapters.http.schemas import (
     UserOut,
 )
 from ivaas.adapters.http.security_routes import add_security_routes
+from ivaas.adapters.http.tally_routes import add_tally_routes
 from ivaas.adapters.storage.objects import LocalObjectStore
 from ivaas.adapters.streaming.mediamtx import StreamGatewayError
 from ivaas.adapters.streaming.onvif import is_lan_device_url
@@ -113,13 +114,18 @@ async def _sweep_idle_sessions(container: Container, every_s: float = 60.0) -> N
     while True:
         await asyncio.sleep(every_s)
         use_case = await container.close_idle_sessions_uc()
-        if use_case is None:
-            continue
+        if use_case is not None:
+            try:
+                for session in await use_case():
+                    log.info("auto-closed session %s (%s): truck left", session.id, session.plate)
+            except Exception:  # a failing sweep must not kill the API
+                log.exception("idle-session sweep failed")
         try:
-            for session in await use_case():
-                log.info("auto-closed session %s (%s): truck left", session.id, session.plate)
-        except Exception:  # a failing sweep must not kill the API
-            log.exception("idle-session sweep failed")
+            # a sheet entered while its truck was still loading reconciles once it has left
+            for sheet in await (await container.rematch_tally_sheets_uc())():
+                log.info("tally sheet %s is now %s", sheet.sheet_id, sheet.status.value)
+        except Exception:
+            log.exception("tally rematch failed")
 
 
 async def _refresh_camera_status(container: Container, every_s: float = 10.0) -> None:
@@ -450,7 +456,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/sessions/{session_id}/reconcile",
         response_model=SessionOut,
-        dependencies=[Depends(require(Role.OPERATOR))],
+        # operators enter counts blind, from tally sheets; typing one in beside the AI
+        # count is an admin's correction path
+        dependencies=[Depends(require(Role.ADMIN))],
     )
     async def reconcile(
         session_id: UUID,
@@ -998,6 +1006,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return await _job_out(c, job)
 
     add_security_routes(app, get_container, audit)
+    add_tally_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}")
     async def get_object(

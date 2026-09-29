@@ -8,7 +8,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, createContext, useContext, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { onLive } from "../api/live";
 import { useScope } from "../api/scope";
@@ -32,11 +32,21 @@ const TOAST: Record<Severity, ToastSeverity> = {
 /** Worth interrupting for: outcomes, not every crate that crosses the line. */
 const NOTABLE = /-(closed|reconciled|approved)-|^live-job-|^live-incident-/;
 
+/**
+ * Pages where the AI's count must not be put in front of the person: tally-sheet
+ * entry is blind, and a "44 crates counted" toast mid-entry would undo that. The
+ * feed still updates; it just does not interrupt.
+ */
+export const BLIND_PATHS = new Set(["/tally"]);
+
 export function LiveActivityProvider({ children }: { children: ReactNode }) {
   const { bay } = useScope();
   const bayId = bay?.id;
   const toast = useToast();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const blind = useRef(false);
+  blind.current = BLIND_PATHS.has(pathname);
   const sessions = useQuery({
     queryKey: ["sessions", bayId],
     queryFn: () => api.sessions(bayId),
@@ -60,6 +70,7 @@ export function LiveActivityProvider({ children }: { children: ReactNode }) {
         items: [...r.items, ...p.items].slice(0, 80),
         marks: [...p.marks, ...r.marks].slice(-400),
       }));
+      if (blind.current) return;
       for (const item of r.items.filter((i) => NOTABLE.test(i.key))) {
         const job = item.key.startsWith("live-job-");
         const incident = item.key.startsWith("live-incident-");

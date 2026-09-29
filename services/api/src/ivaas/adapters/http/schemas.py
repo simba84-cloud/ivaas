@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal
 from uuid import UUID
 
@@ -29,6 +29,7 @@ from ivaas.domain.security import (
     Zone,
     ZoneRule,
 )
+from ivaas.domain.tally import TallySheet, TallyStatus
 from ivaas.domain.users import User, UserRole
 
 
@@ -681,3 +682,110 @@ class PipelineSecurityOut(BaseModel):
     zones: list[PipelineZone]
     #: only while face recognition is switched on
     gallery: list[GalleryEntry]
+
+
+# tally sheets --------------------------------------------------------------------
+
+
+class TallyLineIn(BaseModel):
+    line_no: int = Field(ge=1, le=999)
+    #: negative for a stack carried back off the truck
+    crates: int = Field(ge=-500, le=500)
+    note: str | None = Field(default=None, max_length=40)
+
+
+class TallySheetIn(BaseModel):
+    """One paper sheet typed in by hand, the form twin of the CSV import."""
+
+    sheet_id: str = Field(min_length=3, max_length=80)
+    bay_id: UUID
+    date: date
+    plate: str = Field(min_length=2, max_length=32)
+    direction: Literal["LOAD", "RETURN"]
+    start_time: time | None = None
+    end_time: time | None = None
+    lines: list[TallyLineIn] = Field(default_factory=list, max_length=999)
+    total_on_paper: int | None = Field(default=None, ge=0)
+    pages: int | None = Field(default=None, ge=1)
+    counted_by: str | None = Field(default=None, max_length=120)
+    verified_by: str | None = Field(default=None, max_length=120)
+    entered_by: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class TallySheetOut(BaseModel):
+    """Blind by design: what was entered and where it stands, never the AI count."""
+
+    id: UUID
+    sheet_id: str
+    bay_id: UUID
+    date: date
+    plate: str
+    direction: Literal["LOAD", "RETURN"]
+    start_time: time | None
+    end_time: time | None
+    lines: int
+    line_total: int | None
+    total_on_paper: int | None
+    truth: int | None
+    transcription_mismatch: bool
+    counted_by: str | None
+    verified_by: str | None
+    status: TallyStatus
+    entered_by_user: str
+    entered_at: datetime
+
+    @classmethod
+    def of(cls, s: TallySheet) -> TallySheetOut:
+        return cls(
+            id=s.id,
+            sheet_id=s.sheet_id,
+            bay_id=s.bay_id,
+            date=s.date,
+            plate=s.plate,
+            direction="LOAD" if s.direction is SessionDirection.LOADING else "RETURN",
+            start_time=s.start_time,
+            end_time=s.end_time,
+            lines=len(s.lines),
+            line_total=s.line_total,
+            total_on_paper=s.total_on_paper,
+            truth=s.truth,
+            transcription_mismatch=s.transcription_mismatch,
+            counted_by=s.counted_by,
+            verified_by=s.verified_by,
+            status=s.status,
+            entered_by_user=s.entered_by_user,
+            entered_at=s.entered_at,
+        )
+
+
+class TallyImportOut(BaseModel):
+    saved: list[TallySheetOut]
+    #: example rows and the like, left out on purpose
+    skipped: list[str]
+
+
+class TallyRematchOut(BaseModel):
+    changed: list[TallySheetOut]
+
+
+class TallyReportRow(BaseModel):
+    sheet: TallySheetOut
+    session_id: UUID | None
+    session_status: SessionStatus | None
+    ai_count: int | None
+    variance: int | None
+    #: None when the sheet has not reconciled a session: never shown as 0%
+    accuracy: float | None
+    passed: bool | None
+
+
+class TallyReportOut(BaseModel):
+    target: float
+    sheets: int
+    reconciled: int
+    passing: int
+    mean_accuracy: float | None
+    #: |sum(AI) - sum(sheets)| / sum(sheets) over reconciled sheets
+    aggregate_error: float | None
+    rows: list[TallyReportRow]
