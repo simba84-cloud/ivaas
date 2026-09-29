@@ -4,6 +4,19 @@ import json
 
 from nats.aio.client import Client as NATS
 
+from ivaas.tenancy import require_tenant
+
+
+def tenant_subject(subject: str) -> str:
+    """`ivaas.session.opened` -> `ivaas.t.<tenant>.session.opened` (proposal §3.2).
+
+    The tenant is part of the subject, so a consumer subscribes to one tenant's
+    events and a broker ACL can confine it there. Events are never published
+    without a tenant: one would belong to nobody.
+    """
+    head, _, rest = subject.partition(".")
+    return f"{head}.t.{require_tenant()}.{rest}"
+
 
 class NatsEventPublisher:
     """EventPublisher port backed by NATS JetStream."""
@@ -27,4 +40,4 @@ class NatsEventPublisher:
     async def publish(self, subject: str, payload: dict) -> None:
         if self._nc is None:
             raise RuntimeError("NatsEventPublisher.connect() was not called")
-        await self._nc.jetstream().publish(subject, json.dumps(payload).encode())
+        await self._nc.jetstream().publish(tenant_subject(subject), json.dumps(payload).encode())

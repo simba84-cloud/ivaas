@@ -47,6 +47,8 @@ class AuditAction(StrEnum):
     PERSON_REMOVED = "person_removed"
     TALLY_SHEET_SAVED = "tally_sheet_saved"
     TALLY_CONFLICT = "tally_conflict"
+    TENANT_PROVISIONED = "tenant_provisioned"
+    ROLE_BOUND = "role_bound"
 
 
 @dataclass(frozen=True)

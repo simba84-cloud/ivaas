@@ -5,6 +5,7 @@ import time
 from conftest import login, make_client
 
 from ivaas.domain.analysis import DetectedLoad, TimelineEvent
+from ivaas.domain.tenancy import BAKERS_INN_ID
 
 
 class FakeAnalyser:
@@ -45,7 +46,9 @@ def test_upload_then_report(tmp_path):
         assert job["total_crates"] == 27 and job["loads"][0]["plate"] == "ABC 1234"
         assert job["duration_s"] == 60.0
         frame = next(e for e in job["timeline"] if e["kind"] == "stack_counted")
-        assert frame["frame_url"].startswith("/api/v1/objects/frames/")
+        # every object a tenant stores sits under its own prefix
+        prefix = f"/api/v1/objects/tenants/{BAKERS_INN_ID}/frames/"
+        assert frame["frame_url"].startswith(prefix)
         assert c.get(frame["frame_url"]).content.startswith(b"\xff\xd8")
         assert c.get(job["video_url"]).status_code == 200
         assert len(c.get("/api/v1/analysis").json()) == 1

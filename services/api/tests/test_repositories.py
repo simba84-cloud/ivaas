@@ -10,7 +10,6 @@ Run with `-m "not postgres"` to skip the container (no Docker available).
 
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -35,6 +34,8 @@ from ivaas.domain.models import (
     Site,
     StreamSource,
 )
+from ivaas.domain.tenancy import BAKERS_INN_ID
+from ivaas.tenancy import tenant_context
 
 pytestmark = pytest.mark.asyncio
 
@@ -45,19 +46,11 @@ BAY = Bay(id=UUID("0bc39dce-7ea1-5331-b0dc-4ffcd94bbfd3"), site_id=SITE.id, name
 # --- backends ----------------------------------------------------------------
 
 
-@pytest.fixture(scope="session")
-def postgres_url():
-    if os.environ.get("IVAAS_TEST_DATABASE_URL"):
-        yield os.environ["IVAAS_TEST_DATABASE_URL"]
-        return
-    from testcontainers.community.postgres import PostgresContainer
-
-    # Colima/rootless Docker cannot run the ryuk reaper sidecar; the context manager
-    # removes the container itself anyway.
-    os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
-    with PostgresContainer("timescale/timescaledb:latest-pg16") as pg:
-        host, port = pg.get_container_host_ip(), pg.get_exposed_port(5432)
-        yield f"postgresql+asyncpg://{pg.username}:{pg.password}@{host}:{port}/{pg.dbname}"
+@pytest.fixture(autouse=True)
+def in_a_tenant():
+    """Repositories hold one tenant's rows; the contract is exercised inside Bakers Inn."""
+    with tenant_context(BAKERS_INN_ID):
+        yield
 
 
 @pytest_asyncio.fixture

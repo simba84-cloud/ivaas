@@ -22,7 +22,7 @@ UNRESOLVED = (TallyStatus.PENDING, TallyStatus.MATCHED, TallyStatus.UNMATCHED)
 class TallySheetRow(Base):
     __tablename__ = "tally_sheets"
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
-    sheet_id: Mapped[str] = mapped_column(String(80), unique=True)
+    sheet_id: Mapped[str] = mapped_column(String(80))  # unique per tenant
     bay_id: Mapped[UUID] = mapped_column(ForeignKey("bays.id"))
     date: Mapped[dt.date] = mapped_column(Date)
     plate: Mapped[str] = mapped_column(String(32))
@@ -100,7 +100,7 @@ class PostgresTallySheetStore:
             stmt = (
                 insert(TallySheetRow)
                 .values(**values)
-                .on_conflict_do_update(index_elements=[TallySheetRow.sheet_id], set_=update)
+                .on_conflict_do_update(index_elements=["tenant_id", "sheet_id"], set_=update)
                 .returning(TallySheetRow.id)
             )
             pk = (await db.execute(stmt)).scalar_one()

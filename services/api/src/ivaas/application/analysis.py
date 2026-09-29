@@ -14,6 +14,7 @@ from ivaas.domain.analysis import AnalysisJob, DetectedLoad, JobStatus, Timeline
 from ivaas.domain.models import NotFoundError
 from ivaas.ports.analysis import AnalysisJobStore, ObjectStore, VideoAnalyser
 from ivaas.ports.repositories import BayReader, Clock, EventPublisher
+from ivaas.tenancy import object_key, require_tenant, system_context, tenant_context
 
 log = logging.getLogger(__name__)
 SUBJECT_ANALYSIS = "ivaas.analysis.updated"
@@ -60,7 +61,7 @@ class SubmitVideo:
             raise ValueError(f"unsupported content type {content_type}")
         job_id = uuid4()
         safe_name = Path(filename).name[:120] or "upload.mp4"
-        key = f"uploads/{job_id}/{safe_name}"
+        key = object_key(f"uploads/{job_id}/{safe_name}")
         await self.objects.put(key, data, content_type)
         job = AnalysisJob(
             bay_id=bay_id,
@@ -69,6 +70,7 @@ class SubmitVideo:
             created_by=created_by,
             created_at=self.clock.now(),
             id=job_id,
+            tenant_id=require_tenant(),
         )
         await self.jobs.save(job)
         await self.events.publish(SUBJECT_ANALYSIS, job_payload(job))
@@ -87,15 +89,24 @@ class RunNextJob:
     summarise: Callable[[AnalysisJob], Awaitable[str | None]] | None = None
 
     async def __call__(self) -> AnalysisJob | None:
-        job = await self.jobs.next_queued()
+        # The queue is shared by every tenant; claiming from it is the one step that
+        # must see across them. The job then runs entirely inside its own tenant.
+        with system_context():
+            job = await self.jobs.next_queued()
         if job is None:
             return None
+        if job.tenant_id is None:
+            raise RuntimeError(f"analysis job {job.id} has no tenant")
+        with tenant_context(job.tenant_id):
+            return await self._run(job)
+
+    async def _run(self, job: AnalysisJob) -> AnalysisJob:
         job.start(self.clock.now())
         await self.jobs.save(job)
         await self.events.publish(SUBJECT_ANALYSIS, job_payload(job))
 
         async def save_frame(name: str, jpeg: bytes) -> str:
-            key = f"frames/{job.id}/{name}"
+            key = object_key(f"frames/{job.id}/{name}")
             await self.objects.put(key, jpeg, "image/jpeg")
             return key
 

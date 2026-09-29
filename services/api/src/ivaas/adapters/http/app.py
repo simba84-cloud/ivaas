@@ -23,10 +23,12 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 
 from ivaas.adapters.http.auth import (
     current_principal,
+    holds,
     password_epoch,
     require,
     websocket_principal,
 )
+from ivaas.adapters.http.platform_routes import add_platform_routes
 from ivaas.adapters.http.schemas import (
     AcknowledgeIn,
     AcknowledgementOut,
@@ -37,6 +39,8 @@ from ivaas.adapters.http.schemas import (
     AuthConfigOut,
     BayIn,
     BayOut,
+    BindingOut,
+    BindingsIn,
     CameraIn,
     CameraOut,
     ChangePasswordIn,
@@ -64,9 +68,17 @@ from ivaas.adapters.http.schemas import (
     SiteOut,
     SummaryOut,
     TemporaryPasswordOut,
+    TenantRefOut,
     TokenOut,
     ToolUseOut,
     UserOut,
+)
+from ivaas.adapters.http.scope import (
+    require_bay,
+    require_camera,
+    require_session,
+    require_site,
+    visible_bays,
 )
 from ivaas.adapters.http.security_routes import add_security_routes
 from ivaas.adapters.http.tally_routes import add_tally_routes
@@ -100,9 +112,13 @@ from ivaas.domain.platform_settings import (
     validate,
 )
 from ivaas.domain.platform_settings import DEFAULTS as SETTING_DEFAULTS
+from ivaas.domain.rbac import BindingError, RoleBinding, Scope
+from ivaas.domain.rbac import Permission as P
+from ivaas.domain.tenancy import BAKERS_INN_ID, ScopeType, TenancyError
 from ivaas.domain.users import UserError, WeakPasswordError
 from ivaas.ports.assistant import ChatMessage, ChatModelUnavailableError
-from ivaas.ports.auth import Principal, Role
+from ivaas.ports.auth import Principal
+from ivaas.tenancy import current_tenant, system_context, tenant_context, tenant_of_object
 
 log = logging.getLogger(__name__)
 
@@ -110,32 +126,53 @@ CROSSINGS = Counter("ivaas_crate_crossings_total", "Crate crossings ingested", [
 PLATES = Counter("ivaas_plate_reads_total", "LPR plate reads ingested")
 
 
+async def _each_tenant(container: Container) -> list:
+    """The sweeps run tenant by tenant: each sees only that tenant's rows."""
+    try:
+        return await container.operating_tenants()
+    except Exception:
+        log.exception("could not list tenants")
+        return []
+
+
 async def _sweep_idle_sessions(container: Container, every_s: float = 60.0) -> None:
     while True:
         await asyncio.sleep(every_s)
-        use_case = await container.close_idle_sessions_uc()
-        if use_case is not None:
-            try:
-                for session in await use_case():
-                    log.info("auto-closed session %s (%s): truck left", session.id, session.plate)
-            except Exception:  # a failing sweep must not kill the API
-                log.exception("idle-session sweep failed")
+        for tenant in await _each_tenant(container):
+            with tenant_context(tenant.id):
+                await _sweep_tenant(container, tenant.slug)
+
+
+async def _sweep_tenant(container: Container, slug: str) -> None:
+    use_case = await container.close_idle_sessions_uc()
+    if use_case is not None:
         try:
-            # a sheet entered while its truck was still loading reconciles once it has left
-            for sheet in await (await container.rematch_tally_sheets_uc())():
-                log.info("tally sheet %s is now %s", sheet.sheet_id, sheet.status.value)
-        except Exception:
-            log.exception("tally rematch failed")
+            for session in await use_case():
+                log.info(
+                    "%s: auto-closed session %s (%s): truck left", slug, session.id, session.plate
+                )
+        except Exception:  # a failing sweep must not kill the API
+            log.exception("%s: idle-session sweep failed", slug)
+    try:
+        # a sheet entered while its truck was still loading reconciles once it has left
+        for sheet in await (await container.rematch_tally_sheets_uc())():
+            log.info("%s: tally sheet %s is now %s", slug, sheet.sheet_id, sheet.status.value)
+    except Exception:
+        log.exception("%s: tally rematch failed", slug)
 
 
 async def _refresh_camera_status(container: Container, every_s: float = 10.0) -> None:
     while True:
-        try:
-            changed = await container.refresh_camera_status()
-            if changed["offline"]:
-                log.warning("%d camera(s) stopped streaming", changed["offline"])
-        except Exception:
-            log.exception("camera status refresh failed")
+        for tenant in await _each_tenant(container):
+            with tenant_context(tenant.id):
+                try:
+                    changed = await container.refresh_camera_status()
+                    if changed["offline"]:
+                        log.warning(
+                            "%s: %d camera(s) stopped streaming", tenant.slug, changed["offline"]
+                        )
+                except Exception:
+                    log.exception("%s: camera status refresh failed", tenant.slug)
         await asyncio.sleep(every_s)
 
 
@@ -223,6 +260,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def _weak_password(_: Request, exc: WeakPasswordError) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": str(exc)})
 
+    @app.exception_handler(BindingError)
+    async def _bad_binding(_: Request, exc: BindingError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(TenancyError)
+    async def _tenancy_error(_: Request, exc: TenancyError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
     @app.exception_handler(UserError)
     async def _user_error(_: Request, exc: UserError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
@@ -245,16 +290,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # topology ------------------------------------------------------------
     @app.get(
-        "/api/v1/sites", response_model=list[SiteOut], dependencies=[Depends(require(Role.VIEWER))]
+        "/api/v1/sites",
+        response_model=list[SiteOut],
+        dependencies=[Depends(require(P.TOPOLOGY_READ, scoped=True))],
     )
-    async def list_sites(c: Container = Depends(get_container)) -> list[SiteOut]:
-        return [SiteOut.of(s) for s in await c.sites.list_all()]
+    async def list_sites(
+        principal: Principal = Depends(current_principal), c: Container = Depends(get_container)
+    ) -> list[SiteOut]:
+        seen = {b.site_id for b in await visible_bays(c, principal, P.TOPOLOGY_READ)}
+        tenant = current_tenant()
+        return [
+            SiteOut.of(s)
+            for s in await c.sites.list_all()
+            if s.id in seen or principal.can(P.TOPOLOGY_READ, Scope(tenant_id=tenant, site_id=s.id))
+        ]
 
     @app.post(
         "/api/v1/sites",
         response_model=SiteOut,
         status_code=201,
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.SITE_MANAGE))],
     )
     async def create_site(
         body: SiteIn,
@@ -269,18 +324,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(
         "/api/v1/sites/{site_id}/bays",
         response_model=list[BayOut],
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(require(P.TOPOLOGY_READ, scoped=True))],
     )
-    async def list_site_bays(site_id: UUID, c: Container = Depends(get_container)) -> list[BayOut]:
+    async def list_site_bays(
+        site_id: UUID,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> list[BayOut]:
         if await c.sites.get(site_id) is None:
             raise NotFoundError(f"site {site_id} not found")
-        return [BayOut.of(b) for b in await c.bays.list_for_site(site_id)]
+        mine = [
+            b for b in await visible_bays(c, principal, P.TOPOLOGY_READ) if b.site_id == site_id
+        ]
+        if not mine:
+            raise NotFoundError(f"site {site_id} not found")
+        return [BayOut.of(b) for b in mine]
 
     @app.post(
         "/api/v1/sites/{site_id}/bays",
         response_model=BayOut,
         status_code=201,
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.SITE_MANAGE))],
     )
     async def create_bay(
         site_id: UUID,
@@ -288,8 +352,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         principal: Principal = Depends(current_principal),
         c: Container = Depends(get_container),
     ) -> BayOut:
-        if await c.sites.get(site_id) is None:
-            raise NotFoundError(f"site {site_id} not found")
+        await require_site(c, principal, P.SITE_MANAGE, site_id)
         bay = Bay(
             id=uuid4(),
             site_id=site_id,
@@ -302,24 +365,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return BayOut.of(bay)
 
     @app.get(
-        "/api/v1/bays", response_model=list[BayOut], dependencies=[Depends(require(Role.VIEWER))]
+        "/api/v1/bays",
+        response_model=list[BayOut],
+        dependencies=[Depends(require(P.TOPOLOGY_READ, scoped=True))],
     )
-    async def list_bays(c: Container = Depends(get_container)) -> list[BayOut]:
-        return [BayOut.of(b) for b in await c.bays.list_all()]
+    async def list_bays(
+        principal: Principal = Depends(current_principal), c: Container = Depends(get_container)
+    ) -> list[BayOut]:
+        return [BayOut.of(b) for b in await visible_bays(c, principal, P.TOPOLOGY_READ)]
 
     @app.get(
         "/api/v1/bays/{bay_id}/cameras",
         response_model=list[CameraOut],
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(require(P.TOPOLOGY_READ, scoped=True))],
     )
-    async def list_cameras(bay_id: UUID, c: Container = Depends(get_container)) -> list[CameraOut]:
+    async def list_cameras(
+        bay_id: UUID,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> list[CameraOut]:
+        await require_bay(c, principal, P.TOPOLOGY_READ, bay_id)
         return [CameraOut.of(cam) for cam in await c.cameras.list_for_bay(bay_id)]
 
     @app.post(
         "/api/v1/bays/{bay_id}/cameras",
         response_model=CameraOut,
         status_code=201,
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.DEVICE_REGISTER))],
     )
     async def register_camera(
         bay_id: UUID,
@@ -327,6 +399,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         principal: Principal = Depends(current_principal),
         c: Container = Depends(get_container),
     ) -> CameraOut:
+        await require_bay(c, principal, P.DEVICE_REGISTER, bay_id)
         camera = await c.register_camera(bay_id, body.name, body.role, body.source_url)
         await audit(
             c,
@@ -340,14 +413,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return CameraOut.of(camera)
 
     @app.delete(
-        "/api/v1/cameras/{camera_id}", status_code=204, dependencies=[Depends(require(Role.ADMIN))]
+        "/api/v1/cameras/{camera_id}",
+        status_code=204,
+        dependencies=[Depends(require(P.DEVICE_REGISTER))],
     )
     async def remove_camera(
         camera_id: UUID,
         principal: Principal = Depends(current_principal),
         c: Container = Depends(get_container),
     ) -> Response:
-        existing = await c.cameras.get(camera_id)
+        existing = await require_camera(c, principal, P.DEVICE_REGISTER, camera_id)
         await c.remove_camera(camera_id)
         await audit(
             c,
@@ -361,7 +436,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/discovery/onvif",
         response_model=list[DiscoveredDeviceOut],
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.DEVICE_REGISTER))],
     )
     async def discover(c: Container = Depends(get_container)) -> list[DiscoveredDeviceOut]:
         return [DiscoveredDeviceOut(**vars(d)) for d in await c.discovery.discover()]
@@ -369,7 +444,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/discovery/onvif/streams",
         response_model=list[DiscoveredStreamOut],
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.DEVICE_REGISTER))],
     )
     async def discover_streams(
         body: DiscoverStreamsIn, c: Container = Depends(get_container)
@@ -385,7 +460,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/cameras/{camera_id}/heartbeat",
         status_code=204,
-        dependencies=[Depends(require(Role.SERVICE))],
+        dependencies=[Depends(require(P.INGEST_WRITE))],
     )
     async def heartbeat(camera_id: UUID, c: Container = Depends(get_container)) -> Response:
         camera = await c.cameras.get(camera_id)
@@ -399,28 +474,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(
         "/api/v1/sessions",
         response_model=list[SessionOut],
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(require(P.COUNT_READ, scoped=True))],
     )
     async def list_sessions(
         bay_id: UUID | None = None,
         status: SessionStatus | None = None,
         limit: int = 50,
+        principal: Principal = Depends(current_principal),
         c: Container = Depends(get_container),
     ) -> list[SessionOut]:
+        if bay_id is not None:
+            await require_bay(c, principal, P.COUNT_READ, bay_id)
+        mine = {b.id for b in await visible_bays(c, principal, P.COUNT_READ)}
         rows = await c.sessions.list_recent(bay_id=bay_id, status=status, limit=min(limit, 500))
-        return [SessionOut.of(s) for s in rows]
+        return [SessionOut.of(s) for s in rows if s.bay_id in mine]
 
     @app.post(
         "/api/v1/sessions",
         response_model=SessionOut,
         status_code=201,
-        dependencies=[Depends(require(Role.OPERATOR))],
+        dependencies=[Depends(require(P.SESSION_OPERATE, scoped=True))],
     )
     async def open_session(
         body: OpenSessionIn,
         principal: Principal = Depends(current_principal),
         c: Container = Depends(get_container),
     ) -> SessionOut:
+        await require_bay(c, principal, P.SESSION_OPERATE, body.bay_id)
         session = await c.open_session(body.bay_id, body.direction)
         await audit(
             c,
@@ -435,13 +515,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/sessions/{session_id}/close",
         response_model=SessionOut,
-        dependencies=[Depends(require(Role.OPERATOR))],
+        dependencies=[Depends(require(P.SESSION_OPERATE, scoped=True))],
     )
     async def close_session(
         session_id: UUID,
         principal: Principal = Depends(current_principal),
         c: Container = Depends(get_container),
     ) -> SessionOut:
+        await require_session(c, principal, P.SESSION_OPERATE, session_id)
         session = await c.close_session(session_id)
         await audit(
             c,
@@ -458,7 +539,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response_model=SessionOut,
         # operators enter counts blind, from tally sheets; typing one in beside the AI
         # count is an admin's correction path
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.RECONCILIATION_RESOLVE, scoped=True))],
     )
     async def reconcile(
         session_id: UUID,
@@ -466,6 +547,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         principal: Principal = Depends(current_principal),
         c: Container = Depends(get_container),
     ) -> SessionOut:
+        await require_session(c, principal, P.RECONCILIATION_RESOLVE, session_id)
         reconcile_uc = await c.reconcile_session_uc()
         session = await reconcile_uc(session_id, body.manual_count)
         await audit(
@@ -484,7 +566,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/sessions/{session_id}/approve",
         response_model=SessionOut,
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.RECONCILIATION_RESOLVE, scoped=True))],
     )
     async def approve(
         session_id: UUID,
@@ -492,6 +574,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         principal: Principal = Depends(current_principal),
         c: Container = Depends(get_container),
     ) -> SessionOut:
+        await require_session(c, principal, P.RECONCILIATION_RESOLVE, session_id)
         session = await c.approve_session(
             session_id, by=principal.name, reason=body.reason, note=body.note
         )
@@ -511,7 +594,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/ingest/crossings",
         response_model=SessionOut | None,
-        dependencies=[Depends(require(Role.SERVICE))],
+        dependencies=[Depends(require(P.INGEST_WRITE))],
     )
     async def ingest_crossing(
         body: CrossingIn, c: Container = Depends(get_container)
@@ -531,7 +614,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/ingest/plates",
         response_model=SessionOut | None,
-        dependencies=[Depends(require(Role.SERVICE))],
+        dependencies=[Depends(require(P.INGEST_WRITE))],
     )
     async def ingest_plate(
         body: PlateReadIn, c: Container = Depends(get_container)
@@ -544,7 +627,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # dashboard -----------------------------------------------------------
     @app.get(
-        "/api/v1/summary", response_model=SummaryOut, dependencies=[Depends(require(Role.VIEWER))]
+        "/api/v1/summary", response_model=SummaryOut, dependencies=[Depends(require(P.COUNT_READ))]
     )
     async def summary(c: Container = Depends(get_container)) -> SummaryOut:
         midnight = datetime.combine(c.clock.now().date(), time.min, tzinfo=c.clock.now().tzinfo)
@@ -566,10 +649,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(
         "/api/v1/config",
         response_model=PlatformConfigOut,
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(require(P.TOPOLOGY_READ, scoped=True))],
     )
     async def platform_config(c: Container = Depends(get_container)) -> PlatformConfigOut:
         return PlatformConfigOut(max_upload_mb=c.settings.max_upload_mb)
+
+    def _describe(bindings: list[RoleBinding]) -> list[str]:
+        return sorted(
+            b.role.value
+            + ("" if b.scope_type is ScopeType.TENANT else f"@{b.scope_type.value}:{b.scope_id}")
+            for b in bindings
+        )
+
+    async def _bindings_of(c: Container, username: str) -> list[str] | None:
+        user = await c.users.get(username)
+        return _describe(user.bindings) if user else None
 
     def _yes_no(ok: bool) -> str:
         return "Configured" if ok else "Not configured"
@@ -585,7 +679,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(
         "/api/v1/users",
         response_model=list[UserOut],
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.USER_MANAGE))],
     )
     async def list_users(c: Container = Depends(get_container)) -> list[UserOut]:
         return [UserOut.of(u) for u in await c.user_admin.list_users()]
@@ -594,7 +688,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/v1/users",
         response_model=TemporaryPasswordOut,
         status_code=201,
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.USER_INVITE))],
     )
     async def create_user(
         body: CreateUserIn,
@@ -615,9 +709,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return TemporaryPasswordOut(user=UserOut.of(user), temporary_password=temporary)
 
     @app.put(
+        "/api/v1/users/{username}/bindings",
+        response_model=UserOut,
+        dependencies=[Depends(require(P.USER_MANAGE))],
+    )
+    async def set_bindings(
+        username: str,
+        body: BindingsIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> UserOut:
+        """Grant roles at a narrower scope: a site manager for one site, an operator
+        for one bay. Every site or bay named must be one of this tenant's."""
+        _require_local_accounts(c)
+        tenant = current_tenant()
+        bindings = []
+        for b in body.bindings:
+            if b.scope_type is ScopeType.TENANT:
+                scope_id = tenant
+            elif b.scope_type is ScopeType.SITE:
+                if b.scope_id is None or await c.sites.get(b.scope_id) is None:
+                    raise NotFoundError(f"site {b.scope_id} not found")
+                scope_id = b.scope_id
+            elif b.scope_type is ScopeType.BAY:
+                if b.scope_id is None or await c.bays.get(b.scope_id) is None:
+                    raise NotFoundError(f"bay {b.scope_id} not found")
+                scope_id = b.scope_id
+            else:
+                raise HTTPException(422, "a tenant grants roles at tenant, site or bay scope")
+            bindings.append(RoleBinding(b.role, b.scope_type, scope_id))
+        before = await _bindings_of(c, username)  # described now, before it changes
+        user = await c.user_admin.set_bindings(username, bindings, by=principal.subject)
+        await audit(
+            c,
+            principal.name,
+            AuditAction.ROLE_BOUND,
+            username,
+            before=before,
+            after=_describe(user.bindings),
+        )
+        return UserOut.of(user)
+
+    @app.put(
         "/api/v1/users/{username}/roles",
         response_model=UserOut,
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.USER_MANAGE))],
     )
     async def assign_roles(
         username: str,
@@ -626,6 +762,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         c: Container = Depends(get_container),
     ) -> UserOut:
         _require_local_accounts(c)
+        before = await _bindings_of(c, username)  # described now, before it changes
         user = await c.user_admin.assign_roles(username, set(body.roles), by=principal.subject)
         await audit(
             c,
@@ -633,13 +770,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             AuditAction.USER_ROLES_CHANGED,
             username,
             roles=",".join(sorted(r.value for r in user.roles)),
+            before=before,
+            after=_describe(user.bindings),
         )
         return UserOut.of(user)
 
     @app.put(
         "/api/v1/users/{username}/enabled",
         response_model=UserOut,
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.USER_MANAGE))],
     )
     async def set_user_enabled(
         username: str,
@@ -660,7 +799,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/users/{username}/reset-password",
         response_model=TemporaryPasswordOut,
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.USER_MANAGE))],
     )
     async def reset_password(
         username: str,
@@ -682,7 +821,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/auth/password",
         response_model=TokenOut,
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(current_principal)],
     )
     async def change_own_password(
         body: ChangePasswordIn,
@@ -707,15 +846,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             access_token=c.local_auth.mint(
                 user.username,
                 user.display_name,
-                [Role(r.value) for r in user.roles],
+                [r.value for r in user.roles],
                 password_epoch=password_epoch(user),
+                tenant=str(user.tenant_id) if user.tenant_id else None,
             )
         )
 
     @app.get(
         "/api/v1/settings",
         response_model=SettingsOut,
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.SETTINGS_MANAGE))],
     )
     async def read_settings(c: Container = Depends(get_container)) -> SettingsOut:
         st = c.settings
@@ -753,9 +893,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             ConfigFactOut(
                 label="Roles",
-                value="viewer · operator · admin",
-                detail="Viewers read. Operators run the bay and verify counts. "
-                "Admins configure cameras and sign off disputes.",
+                value="Scoped: tenant, site or bay",
+                detail="Owners and admins run the tenant. Site managers resolve disputes. "
+                "Operators run the bay and enter tally sheets blind. Auditors read.",
+            ),
+            ConfigFactOut(
+                label="Tenant isolation",
+                value="Row-level security" if st.storage == "postgres" else "Per-tenant stores",
+                detail="Every query runs for the signed-in tenant; other tenants' rows "
+                "are invisible to it, not merely filtered out.",
             ),
             ConfigFactOut(
                 label="Camera credentials at rest",
@@ -822,7 +968,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.put(
         "/api/v1/settings/{key}",
         response_model=SettingsOut,
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.SETTINGS_MANAGE))],
     )
     async def write_setting(
         key: str,
@@ -848,7 +994,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(
         "/api/v1/audit",
         response_model=list[AuditEntryOut],
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.AUDIT_READ))],
     )
     async def audit_log(
         days: int = 7,
@@ -867,7 +1013,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(
         "/api/v1/alerts/acknowledgements",
         response_model=list[AcknowledgementOut],
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(require(P.COUNT_READ))],
     )
     async def list_acknowledgements(
         c: Container = Depends(get_container),
@@ -877,7 +1023,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/alerts/acknowledgements",
         response_model=AcknowledgementOut,
-        dependencies=[Depends(require(Role.OPERATOR))],
+        dependencies=[Depends(require(P.SESSION_OPERATE))],
     )
     async def acknowledge_alert(
         body: AcknowledgeIn,
@@ -902,7 +1048,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(
         "/api/v1/analytics/overview",
         response_model=OverviewOut,
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(require(P.COUNT_READ))],
     )
     async def overview(
         days: int = 14,
@@ -948,7 +1094,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/v1/analysis",
         response_model=AnalysisJobOut,
         status_code=202,
-        dependencies=[Depends(require(Role.OPERATOR))],
+        dependencies=[Depends(require(P.SESSION_OPERATE, scoped=True))],
     )
     async def submit_video(
         bay_id: UUID,
@@ -956,6 +1102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         c: Container = Depends(get_container),
         principal: Principal = Depends(current_principal),
     ) -> AnalysisJobOut:
+        await require_bay(c, principal, P.SESSION_OPERATE, bay_id)
         limit = c.settings.max_upload_mb * 1024 * 1024
 
         async def chunks():
@@ -989,7 +1136,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(
         "/api/v1/analysis",
         response_model=list[AnalysisJobOut],
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(require(P.COUNT_READ))],
     )
     async def list_analyses(c: Container = Depends(get_container)) -> list[AnalysisJobOut]:
         return [await _job_out(c, j) for j in await c.jobs.list_recent()]
@@ -997,7 +1144,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(
         "/api/v1/analysis/{job_id}",
         response_model=AnalysisJobOut,
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(require(P.COUNT_READ))],
     )
     async def get_analysis(job_id: UUID, c: Container = Depends(get_container)) -> AnalysisJobOut:
         job = await c.jobs.get(job_id)
@@ -1007,6 +1154,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     add_security_routes(app, get_container, audit)
     add_tally_routes(app, get_container, audit)
+    add_platform_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}")
     async def get_object(
@@ -1022,8 +1170,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(400, "bad key")
         if not c.signer.verify(key, exp, sig):
             principal = await current_principal(request)  # raises 401 without a token
-            if not principal.allows(Role.VIEWER):
-                raise HTTPException(403, "requires role 'viewer'")
+            if not holds(principal, P.COUNT_READ):
+                raise HTTPException(403, "requires permission 'count.read'")
+            # keys from before tenancy are all Bakers Inn's, the only tenant there was
+            owner = tenant_of_object(key) or BAKERS_INN_ID
+            if owner != principal.tenant_id:
+                raise HTTPException(404)
         if isinstance(c.objects, LocalObjectStore):
             path = c.objects.path_of(key)
             if not path.is_file():
@@ -1036,7 +1188,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Response(body, media_type=content_type)
 
     # assistant -----------------------------------------------------------
-    @app.get("/api/v1/assistant/status", dependencies=[Depends(require(Role.VIEWER))])
+    @app.get("/api/v1/assistant/status", dependencies=[Depends(require(P.ASSISTANT_QUERY))])
     async def assistant_status(c: Container = Depends(get_container)) -> dict:
         enabled = c.chat_model is not None
         return {"enabled": enabled, "model": c.settings.llm_model if enabled else None}
@@ -1044,7 +1196,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/assistant/chat",
         response_model=ChatOut,
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(require(P.ASSISTANT_QUERY))],
     )
     async def assistant_chat(body: ChatIn, c: Container = Depends(get_container)) -> ChatOut:
         ask = c.ask_assistant
@@ -1076,7 +1228,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "password login is disabled; use the identity provider")
 
         username = body.username.strip().lower()
-        user = await c.users.get(username)
+        with system_context():  # usernames are global; the tenant is not known yet
+            user = await c.users.get(username)
         # One message and one cost for every failure: whether the account exists, is
         # disabled, or simply had the wrong password must not be distinguishable.
         ok = user is not None and not user.disabled
@@ -1090,22 +1243,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if c.hasher.needs_rehash(user.password_hash):
             user.password_hash = c.hasher.hash(body.password)  # upgrade quietly on sign-in
         user.last_login_at = c.clock.now()
-        await c.users.save(user)
-
         token = c.local_auth.mint(
             user.username,
             user.display_name,
-            [Role(r.value) for r in user.roles],
+            [r.value for r in user.roles],
             must_change_password=user.must_change_password,
             password_epoch=password_epoch(user),
+            tenant=str(user.tenant_id) if user.tenant_id else None,
         )
-        await audit(
-            c,
-            user.username,
-            AuditAction.SIGNED_IN,
-            user.username,
-            role=user.highest_role.value,
-        )
+        # Recorded in the account's own tenant; platform staff in the platform's log.
+        roles = ",".join(sorted(r.value for r in user.roles))
+        scope = tenant_context(user.tenant_id) if user.tenant_id else system_context()
+        with scope:
+            await c.users.save(user)
+            await audit(c, user.username, AuditAction.SIGNED_IN, user.username, roles=roles)
         return TokenOut(access_token=token, must_change_password=user.must_change_password)
 
     @app.get("/api/v1/auth/me", response_model=MeOut)
@@ -1113,22 +1264,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         principal: Principal = Depends(current_principal),
         c: Container = Depends(get_container),
     ) -> MeOut:
-        user = await c.users.get(principal.subject) if c.users else None
+        with system_context():
+            user = await c.users.get(principal.subject) if c.users else None
+            tenant = await c.tenants.get(principal.tenant_id) if principal.tenant_id else None
         return MeOut(
             subject=principal.subject,
             name=principal.name,
-            roles=sorted(principal.roles),
+            roles=sorted({b.role.value for b in principal.bindings}),
+            permissions=sorted(p.value for p in principal.permissions),
+            bindings=[BindingOut.of(b) for b in principal.bindings],
+            tenant=TenantRefOut.of(tenant) if tenant else None,
             must_change_password=bool(user.must_change_password) if user else False,
         )
 
     @app.websocket("/ws/events")
     async def events(ws: WebSocket) -> None:
         principal = await websocket_principal(ws)
-        if principal is None or not principal.allows(Role.VIEWER):
+        if principal is None or not holds(principal, P.COUNT_READ):
             await ws.close(code=4401)
             return
         hub = ws.app.state.container.hub
-        await hub.connect(ws)
+        # this socket hears its own tenant's events and no one else's
+        await hub.connect(ws, principal.tenant_id)
         try:
             while True:
                 await ws.receive_text()  # keepalive pings from the client

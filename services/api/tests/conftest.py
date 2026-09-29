@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -31,3 +33,19 @@ def client(anon):
     """Logged in as admin; ingest/heartbeat calls must add `SERVICE` headers themselves."""
     anon.headers.update(login(anon, "admin"))
     return anon
+
+
+@pytest.fixture(scope="session")
+def postgres_url():
+    """A real Postgres with the shipped migrations, shared by every postgres-marked test."""
+    if os.environ.get("IVAAS_TEST_DATABASE_URL"):
+        yield os.environ["IVAAS_TEST_DATABASE_URL"]
+        return
+    from testcontainers.community.postgres import PostgresContainer
+
+    # Colima/rootless Docker cannot run the ryuk reaper sidecar; the context manager
+    # removes the container itself anyway.
+    os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
+    with PostgresContainer("timescale/timescaledb:latest-pg16") as pg:
+        host, port = pg.get_container_host_ip(), pg.get_exposed_port(5432)
+        yield f"postgresql+asyncpg://{pg.username}:{pg.password}@{host}:{port}/{pg.dbname}"

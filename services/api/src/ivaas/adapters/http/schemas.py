@@ -4,7 +4,7 @@ from datetime import date, datetime, time
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ivaas.application.overview import Overview, Severity, Trend
 from ivaas.domain.alerts import AlertAcknowledgement
@@ -20,6 +20,7 @@ from ivaas.domain.models import (
     SessionStatus,
     Site,
 )
+from ivaas.domain.rbac import TENANT_ROLES, Role, RoleBinding
 from ivaas.domain.security import (
     BadgeEvent,
     EnrolledPerson,
@@ -30,7 +31,119 @@ from ivaas.domain.security import (
     ZoneRule,
 )
 from ivaas.domain.tally import TallySheet, TallyStatus
-from ivaas.domain.users import User, UserRole
+from ivaas.domain.tenancy import (
+    Partner,
+    ProvisioningRecord,
+    ProvisioningStep,
+    ScopeType,
+    Tenant,
+    TenantStatus,
+)
+from ivaas.domain.users import User
+
+
+class BindingOut(BaseModel):
+    role: Role
+    scope_type: ScopeType
+    scope_id: UUID | None
+
+    @staticmethod
+    def of(b: RoleBinding) -> BindingOut:
+        return BindingOut(role=b.role, scope_type=b.scope_type, scope_id=b.scope_id)
+
+
+class BindingIn(BaseModel):
+    role: Role
+    scope_type: ScopeType = ScopeType.TENANT
+    #: the site or bay; ignored at tenant scope, where it is always the caller's tenant
+    scope_id: UUID | None = None
+
+
+class BindingsIn(BaseModel):
+    bindings: list[BindingIn] = Field(min_length=1)
+
+
+def _tenant_role(role: Role) -> Role:
+    if role not in TENANT_ROLES:
+        raise ValueError(f"a tenant cannot grant {role.value}")
+    return role
+
+
+class TenantRefOut(BaseModel):
+    id: UUID
+    slug: str
+    name: str
+    status: TenantStatus
+
+    @staticmethod
+    def of(t: Tenant) -> TenantRefOut:
+        return TenantRefOut(id=t.id, slug=t.slug, name=t.name, status=t.status)
+
+
+class TenantOut(TenantRefOut):
+    partner_id: UUID | None
+    created_at: datetime | None
+
+    @staticmethod
+    def of(t: Tenant) -> TenantOut:  # type: ignore[override]
+        return TenantOut(
+            id=t.id,
+            slug=t.slug,
+            name=t.name,
+            status=t.status,
+            partner_id=t.partner_id,
+            created_at=t.created_at,
+        )
+
+
+class PartnerOut(BaseModel):
+    id: UUID
+    slug: str
+    name: str
+
+    @staticmethod
+    def of(p: Partner) -> PartnerOut:
+        return PartnerOut(id=p.id, slug=p.slug, name=p.name)
+
+
+class ProvisionIn(BaseModel):
+    slug: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=120)
+    #: required for partner admins (their own partner); optional for platform admins
+    partner_id: UUID | None = None
+    owner_username: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    owner_display_name: str = Field(default="", max_length=120)
+
+
+class ProvisioningStepOut(BaseModel):
+    name: str
+    done: bool
+    detail: str
+
+    @staticmethod
+    def of(s: ProvisioningStep) -> ProvisioningStepOut:
+        return ProvisioningStepOut(name=s.name, done=s.done, detail=s.detail)
+
+
+class ProvisionOut(BaseModel):
+    tenant: TenantOut
+    owner_username: str
+    #: shown once, on the call that created the tenant; null on a repeat
+    temporary_password: str | None
+    created: bool
+    steps: list[ProvisioningStepOut]
+
+    @staticmethod
+    def of(
+        record: ProvisioningRecord, tenant: Tenant, temporary: str | None, created: bool
+    ) -> ProvisionOut:
+        return ProvisionOut(
+            tenant=TenantOut.of(tenant),
+            owner_username=record.owner_username,
+            temporary_password=temporary,
+            created=created,
+            steps=[ProvisioningStepOut.of(s) for s in record.steps],
+        )
 
 
 class BayOut(BaseModel):
@@ -380,7 +493,9 @@ class UserOut(BaseModel):
 
     username: str
     display_name: str
-    roles: list[UserRole]
+    #: roles held across the whole tenant; narrower ones are in `bindings`
+    roles: list[Role]
+    bindings: list[BindingOut]
     disabled: bool
     must_change_password: bool
     password_is_default: bool
@@ -393,7 +508,8 @@ class UserOut(BaseModel):
         return UserOut(
             username=u.username,
             display_name=u.display_name,
-            roles=sorted(u.roles),
+            roles=sorted(b.role for b in u.bindings if b.scope_type is ScopeType.TENANT),
+            bindings=[BindingOut.of(b) for b in u.bindings],
             disabled=u.disabled,
             must_change_password=u.must_change_password,
             password_is_default=u.password_is_default,
@@ -406,11 +522,21 @@ class UserOut(BaseModel):
 class CreateUserIn(BaseModel):
     username: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
     display_name: str = Field(default="", max_length=120)
-    roles: list[UserRole] = Field(min_length=1)
+    roles: list[Role] = Field(min_length=1)
+
+    @field_validator("roles")
+    @classmethod
+    def _only_tenant_roles(cls, roles: list[Role]) -> list[Role]:
+        return [_tenant_role(r) for r in roles]
 
 
 class AssignRolesIn(BaseModel):
-    roles: list[UserRole] = Field(min_length=1)
+    roles: list[Role] = Field(min_length=1)
+
+    @field_validator("roles")
+    @classmethod
+    def _only_tenant_roles(cls, roles: list[Role]) -> list[Role]:
+        return [_tenant_role(r) for r in roles]
 
 
 class SetEnabledIn(BaseModel):
@@ -433,6 +559,11 @@ class MeOut(BaseModel):
     subject: str
     name: str
     roles: list[str]
+    #: what the portal may offer; the API checks every call regardless
+    permissions: list[str] = []
+    bindings: list[BindingOut] = []
+    #: null for platform and partner staff
+    tenant: TenantRefOut | None = None
     #: the portal must show the password screen and nothing else
     must_change_password: bool = False
 

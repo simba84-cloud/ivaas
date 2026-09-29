@@ -45,7 +45,7 @@ class PostgresAcknowledgementStore:
                 acknowledged_at=ack.acknowledged_at,
                 note=ack.note,
             )
-            .on_conflict_do_nothing(index_elements=[AcknowledgementRow.key])
+            .on_conflict_do_nothing(index_elements=["tenant_id", "key"])
         )
         async with self._sm.begin() as db:
             await db.execute(stmt)
