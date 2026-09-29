@@ -1,7 +1,7 @@
 import { http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
 import { server } from "../test/server";
-import { getToken, hasRole, loginLocal, logout, onAuthChange } from "./session";
+import { can, getToken, loginLocal, logout, onAuthChange } from "./session";
 
 describe("local login", () => {
   it("stores the token and notifies listeners", async () => {
@@ -38,17 +38,14 @@ describe("local login", () => {
   });
 });
 
-describe("role hierarchy", () => {
-  const me = (roles: string[]) => ({ subject: "u", name: "u", roles });
-  it("admin implies operator and viewer", () => {
-    expect(hasRole(me(["admin"]), "viewer")).toBe(true);
-    expect(hasRole(me(["admin"]), "operator")).toBe(true);
+describe("permissions", () => {
+  const me = (permissions: string[]) => ({ subject: "u", name: "u", roles: [], permissions });
+  it("offers only what the account's roles grant", () => {
+    expect(can(me(["count.read", "session.operate"]), "session.operate")).toBe(true);
+    expect(can(me(["count.read"]), "session.operate")).toBe(false);
   });
-  it("viewer does not imply operator", () => {
-    expect(hasRole(me(["viewer"]), "operator")).toBe(false);
-  });
-  it("service is not a portal role", () => {
-    expect(hasRole(me(["service"]), "viewer")).toBe(false);
-    expect(hasRole(undefined, "viewer")).toBe(false);
+  it("offers nothing when signed out or when the API sent no permissions", () => {
+    expect(can(undefined, "count.read")).toBe(false);
+    expect(can({ subject: "u", name: "u", roles: ["tenant_admin"] }, "count.read")).toBe(false);
   });
 });

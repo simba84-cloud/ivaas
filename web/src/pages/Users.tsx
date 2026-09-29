@@ -6,11 +6,22 @@ import type { TemporaryPassword, User, UserRole } from "../api/types";
 import { EmptyState, dateTime } from "../components/ui";
 import { MotionRow, SkeletonRows } from "../motion";
 
+/** Proposal §4.1, most senior first. Each is granted across the whole tenant here. */
 const ROLES: { value: UserRole; label: string; what: string }[] = [
-  { value: "viewer", label: "Viewer", what: "Reads dashboards and reports" },
-  { value: "operator", label: "Operator", what: "Runs the bay and verifies counts" },
-  { value: "admin", label: "Administrator", what: "Configures the platform and signs off disputes" },
+  { value: "tenant_owner", label: "Owner", what: "Everything, including billing and sign-off" },
+  { value: "tenant_admin", label: "Administrator", what: "Users, cameras, sites and settings" },
+  { value: "site_manager", label: "Site manager", what: "Runs the site and signs off disputes" },
+  { value: "bay_operator", label: "Bay operator", what: "Runs the bay and enters tally sheets" },
+  { value: "auditor", label: "Auditor", what: "Reads counts, reports and the audit log" },
 ];
+
+/** The role a single-choice picker shows: the most senior one held tenant-wide. */
+const seniorRole = (user: User): UserRole =>
+  ROLES.find((r) => user.roles.includes(r.value))?.value ?? "auditor";
+
+/** Roles held at one site or bay rather than the whole tenant. */
+const scopedCount = (user: User) =>
+  (user.bindings ?? []).filter((b) => b.scope_type === "site" || b.scope_type === "bay").length;
 
 /**
  * A temporary password, shown once.
@@ -66,7 +77,7 @@ function NewUser({ onDone }: { onDone: (r: TemporaryPassword) => void }) {
   const [open, setOpen] = useState(false);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [role, setRole] = useState<UserRole>("operator");
+  const [role, setRole] = useState<UserRole>("bay_operator");
 
   const create = useMutation({
     mutationFn: () => api.createUser(username.trim(), displayName.trim(), [role]),
@@ -201,7 +212,7 @@ function Row({
         <select
           aria-label={`Role for ${user.username}`}
           className="input h-8 w-40 py-0 text-xs"
-          value={user.roles[user.roles.length - 1] ?? "viewer"}
+          value={seniorRole(user)}
           onChange={(e) => roles.mutate(e.target.value as UserRole)}
           disabled={roles.isPending}
         >
@@ -211,6 +222,12 @@ function Row({
             </option>
           ))}
         </select>
+        {scopedCount(user) > 0 && (
+          <div className="mt-1 max-w-xs text-xs text-muted">
+            Also holds {scopedCount(user)} role{scopedCount(user) === 1 ? "" : "s"} at one site or bay.
+            Choosing a role here replaces {scopedCount(user) === 1 ? "it" : "them"}.
+          </div>
+        )}
       </td>
       <td className="td">
         {user.disabled ? (

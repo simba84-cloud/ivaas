@@ -9,7 +9,7 @@ import Users from "./Users";
 const user = (over = {}) => ({
   username: "operator",
   display_name: "Bay Operator",
-  roles: ["operator"],
+  roles: ["bay_operator"],
   disabled: false,
   must_change_password: false,
   password_is_default: false,
@@ -31,7 +31,7 @@ describe("user management", () => {
 
     await screen.findByText("Bay Operator");
     const r = row("Bay Operator");
-    expect(within(r).getByLabelText("Role for operator")).toHaveValue("operator");
+    expect(within(r).getByLabelText("Role for operator")).toHaveValue("bay_operator");
     // the exact format is the runtime locale's business; the date is ours
     expect(within(r).getByText(/2026/)).toBeInTheDocument();
   });
@@ -69,17 +69,17 @@ describe("user management", () => {
     server.use(
       http.put("/api/v1/users/operator/roles", async ({ request }) => {
         assigned(await request.json());
-        return HttpResponse.json(user({ roles: ["admin"] }));
+        return HttpResponse.json(user({ roles: ["tenant_admin"] }));
       }),
     );
     renderPage(<Users me="admin" />, { path: "/users", route: "/users" });
 
-    await userEvent.selectOptions(await screen.findByLabelText("Role for operator"), "admin");
-    expect(assigned).toHaveBeenCalledWith({ roles: ["admin"] });
+    await userEvent.selectOptions(await screen.findByLabelText("Role for operator"), "tenant_admin");
+    expect(assigned).toHaveBeenCalledWith({ roles: ["tenant_admin"] });
   });
 
   it("will not let you disable your own account", async () => {
-    api([user({ username: "admin", display_name: "Site Admin", roles: ["admin"] })]);
+    api([user({ username: "admin", display_name: "Site Admin", roles: ["tenant_admin"] })]);
     renderPage(<Users me="admin" />, { path: "/users", route: "/users" });
 
     await screen.findByText("Site Admin");
@@ -88,7 +88,7 @@ describe("user management", () => {
   });
 
   it("surfaces the reason the API refused a change", async () => {
-    api([user({ username: "admin", display_name: "Site Admin", roles: ["admin"] })]);
+    api([user({ username: "admin", display_name: "Site Admin", roles: ["tenant_admin"] })]);
     server.use(
       http.put("/api/v1/users/admin/roles", () =>
         HttpResponse.json(
@@ -99,7 +99,7 @@ describe("user management", () => {
     );
     renderPage(<Users me="admin" />, { path: "/users", route: "/users" });
 
-    await userEvent.selectOptions(await screen.findByLabelText("Role for admin"), "viewer");
+    await userEvent.selectOptions(await screen.findByLabelText("Role for admin"), "auditor");
     expect(await screen.findByRole("alert")).toHaveTextContent(/cannot remove your own/);
   });
 });

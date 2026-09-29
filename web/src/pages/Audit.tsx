@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   BadgeCheck,
+  Building2,
   BellRing,
   Eraser,
   PenTool,
@@ -89,6 +90,8 @@ const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon; tone: stri
     icon: ClipboardX,
     tone: "text-warn bg-warn/10",
   },
+  tenant_provisioned: { label: "Provisioned this tenant", icon: Building2, tone: "text-brand bg-brand-tint" },
+  role_bound: { label: "Scoped a role", icon: UserCog, tone: "text-warn bg-warn/10" },
 };
 
 const WINDOWS = [
@@ -110,11 +113,15 @@ function Detail({ entry }: { entry: AuditEntry }) {
   } else if (entry.action === "session_approved") {
     if (d.reason) parts.push(String(d.reason).replace(/_/g, " "));
     if (d.variance !== undefined) parts.push(`variance ${Number(d.variance) > 0 ? "+" : ""}${d.variance}`);
+  } else if (Array.isArray(d.before) || Array.isArray(d.after)) {
+    // a role change reads as what it was and what it became
+    const roles = (v: unknown) => (Array.isArray(v) && v.length ? v.join(", ") : "none");
+    parts.push(`${roles(d.before)} → ${roles(d.after)}`.replace(/_/g, " "));
   } else {
     for (const [k, v] of Object.entries(d)) {
       // ids and alert keys mean nothing to a person reading this; the note shows below
       if (k.endsWith("_id") || k === "key" || k === "note") continue;
-      parts.push(`${k.replace(/_/g, " ")} ${v}`);
+      parts.push(`${k.replace(/_/g, " ")} ${Array.isArray(v) ? v.join(", ") : v}`);
     }
   }
 

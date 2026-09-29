@@ -1,12 +1,12 @@
 import { screen, within } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
-import { bay, camera, overview, session } from "../test/fixtures";
+import { bay, camera, overview, session, meAs } from "../test/fixtures";
 import { renderPage } from "../test/render";
 import { server } from "../test/server";
 import Dashboard from "./Dashboard";
 
-const me = (roles: string[]) => ({ subject: "u", name: "u", roles });
+const me = meAs;
 
 function api({
   over = overview(),

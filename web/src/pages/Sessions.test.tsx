@@ -2,12 +2,12 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
-import { bay, session, site } from "../test/fixtures";
+import { bay, session, site, meAs } from "../test/fixtures";
 import { renderPage } from "../test/render";
 import { server } from "../test/server";
 import Sessions from "./Sessions";
 
-const me = (roles: string[]) => ({ subject: "u", name: "u", roles });
+const me = meAs;
 
 const disputed = session({
   id: "d1",

@@ -4,13 +4,13 @@ import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 import type { Incident, SecurityStatus, Zone } from "../api/types";
 import type { Me } from "../auth/session";
-import { bay, camera, site } from "../test/fixtures";
+import { bay, camera, site, meAs } from "../test/fixtures";
 import { renderPage } from "../test/render";
 import { server } from "../test/server";
 import Security from "./Security";
 
-const ADMIN: Me = { subject: "admin", name: "Admin", roles: ["admin", "operator", "viewer"] };
-const VIEWER: Me = { subject: "v", name: "Viewer", roles: ["viewer"] };
+const ADMIN: Me = meAs(["admin", "operator", "viewer"]);
+const VIEWER: Me = meAs(["viewer"]);
 const CAM = camera({ id: "cam-1", name: "Yard 1", role: "overhead", status: "online" });
 
 const QUIET: SecurityStatus = {

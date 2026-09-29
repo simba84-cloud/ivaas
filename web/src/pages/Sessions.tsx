@@ -6,7 +6,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useScope } from "../api/scope";
 import type { ApprovalReason, Session, SessionStatus } from "../api/types";
-import { type Me, hasRole } from "../auth/session";
+import { type Me, can } from "../auth/session";
 import {
   APPROVAL_REASONS,
   EmptyState,
@@ -194,7 +194,7 @@ function VerifyCell({ session, canCorrect }: { session: Session; canCorrect: boo
 }
 
 export default function Sessions({ me }: { me: Me | undefined }) {
-  const isAdmin = hasRole(me, "admin");
+  const isAdmin = can(me, "reconciliation.resolve");
   const [filter, setFilter] = useState<SessionStatus | "all">("all");
   const [expanded, setExpanded] = useState<string | null>(null);
   const { bay } = useScope();
