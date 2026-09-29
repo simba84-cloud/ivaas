@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bay, camera, session } from "../../test/fixtures";
+import { bay, camera, session } from "../test/fixtures";
 import { type Known, attention, history, interpret, mergeActivity } from "./activity";
 
 const msg = (subject: string, data: Record<string, unknown>, at = 1_000) => ({ subject, data, at });

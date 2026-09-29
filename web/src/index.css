@@ -76,6 +76,15 @@
   66% { transform: translate(5%, -3%); }
   100% { transform: translate(-3%, -5%); }
 }
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes typing {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
 @keyframes ping-ring {
   from { transform: scale(1); opacity: 0.8; }
   to { transform: scale(2.8); opacity: 0; }
@@ -117,8 +126,34 @@
   .card-lift {
     @apply rounded-xl bg-surface shadow-card;
   }
+  /* a card that responds to the pointer: it rises, it does not grow */
+  .card-hover {
+    @apply transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-lift;
+  }
+  /* loading placeholder: a highlight slides across by transform, never by layout */
+  .skeleton {
+    @apply relative overflow-hidden rounded bg-line/70;
+  }
+  /* the running part of a progress bar: the same travelling highlight */
+  .skeleton-bar {
+    @apply relative overflow-hidden;
+  }
+  .skeleton-bar::after {
+    content: "";
+    @apply absolute inset-0;
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+    transform: translateX(-100%);
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0;
+    background: linear-gradient(90deg, transparent, rgb(var(--surface) / 0.55), transparent);
+    transform: translateX(-100%);
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
   .btn {
-    @apply inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-semibold transition duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-40;
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-semibold transition duration-150 ease-out active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100;
   }
   .btn-primary {
     @apply btn bg-brand text-white hover:bg-brand-deep;

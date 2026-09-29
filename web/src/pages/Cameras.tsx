@@ -7,6 +7,7 @@ import type { Camera, CameraRole } from "../api/types";
 import { type Me, hasRole } from "../auth/session";
 import { AddCamera } from "../components/AddCamera";
 import { CameraDot, EmptyState, dateTime, roleLabel } from "../components/ui";
+import { MotionRow, SkeletonRows } from "../motion";
 
 const ROLE_ORDER: CameraRole[] = [
   "chokepoint",
@@ -124,7 +125,11 @@ export default function Cameras({ me }: { me: Me | undefined }) {
       {all.length > 0 && <FleetBar cameras={all} />}
 
       <div className="card overflow-hidden">
-        {groups.length ? (
+        {cameras.isPending && !!bayId ? (
+          <table className="w-full">
+            <SkeletonRows rows={5} cols={6} />
+          </table>
+        ) : groups.length ? (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -146,8 +151,8 @@ export default function Cameras({ me }: { me: Me | undefined }) {
                       <span className="num ml-2 text-faint">{rows.length}</span>
                     </td>
                   </tr>
-                  {rows.map((c) => (
-                    <tr key={c.id} className="border-t border-line transition hover:bg-ground/50">
+                  {rows.map((c, i) => (
+                    <MotionRow key={c.id} index={i} className="border-t border-line transition-colors hover:bg-ground/50">
                       <td className="td font-semibold text-ink">{c.name}</td>
                       <td className="td">
                         <span className="chip bg-brand-tint text-brand">
@@ -192,7 +197,7 @@ export default function Cameras({ me }: { me: Me | undefined }) {
                           </button>
                         )}
                       </td>
-                    </tr>
+                    </MotionRow>
                   ))}
                 </tbody>
               ))}

@@ -1,7 +1,9 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   BarChart3,
   Camera,
+  ChevronDown,
   Database,
   Gauge,
   SendHorizontal,
@@ -12,6 +14,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { ChatTurn, ToolUse } from "../api/types";
+import { staggerDelay, transition } from "../motion";
 
 const SUGGESTIONS = [
   "How accurate has the AI count been this week?",
@@ -35,6 +38,94 @@ const TOOL_LABEL: Record<string, string> = Object.fromEntries(
 
 interface Entry extends ChatTurn {
   tools?: ToolUse[];
+}
+
+/** Shown while the reply is being worked out. The seconds are real: it says how long, not how far. */
+function Thinking() {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setSecs((s) => s + 1), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  return (
+    <motion.div
+      initial={{ y: 8 }}
+      animate={{ y: 0 }}
+      transition={transition.normal}
+      role="status"
+      aria-label="The assistant is querying platform data"
+      className="flex items-center gap-3"
+    >
+      <span className="inline-flex items-center gap-1 rounded-2xl rounded-bl-sm bg-ground px-3.5 py-3">
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            aria-hidden
+            className="h-1.5 w-1.5 rounded-full bg-accent"
+            style={{ animation: `typing 1.1s ${i * 0.15}s ease-in-out infinite` }}
+          />
+        ))}
+      </span>
+      <span className="text-sm text-muted">
+        Querying platform data{secs >= 2 && <span className="num text-faint"> · {secs} s</span>}
+      </span>
+    </motion.div>
+  );
+}
+
+/** What a reply was computed from: the queries, and the exact parameters they ran with. */
+function Sources({ tools }: { tools: ToolUse[] }) {
+  const [open, setOpen] = useState(false);
+  const names = [...new Set(tools.map((t) => t.name))];
+  return (
+    <div className="mt-1.5">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex flex-wrap items-center gap-1.5 rounded-md text-xs text-muted transition hover:text-ink"
+      >
+        <Database size={12} />
+        {names.map((name, i) => (
+          <motion.span
+            key={name}
+            initial={{ scale: 0.8 }}
+            animate={{ scale: 1 }}
+            transition={{ ...transition.elastic, delay: 0.1 + i * 0.06 }}
+            className="chip bg-brand-tint text-brand"
+          >
+            {TOOL_LABEL[name] ?? name}
+          </motion.span>
+        ))}
+        <motion.span animate={{ rotate: open ? 180 : 0 }} transition={transition.fast} className="inline-flex">
+          <ChevronDown size={13} />
+        </motion.span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.ul
+            key="sources"
+            initial={{ y: -6 }}
+            animate={{ y: 0 }}
+            exit={{ y: -6, transition: transition.fast }}
+            className="mt-2 space-y-1.5 rounded-xl border border-line bg-surface p-2.5"
+          >
+            {tools.map((t, i) => (
+              <li key={i} className="text-xs">
+                <span className="font-semibold text-ink">{TOOL_LABEL[t.name] ?? t.name}</span>
+                <span className="num ml-2 text-muted">
+                  {Object.keys(t.arguments).length
+                    ? Object.entries(t.arguments)
+                        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+                        .join(" · ")
+                    : "no parameters"}
+                </span>
+              </li>
+            ))}
+          </motion.ul>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 export default function Assistant() {
@@ -105,14 +196,17 @@ export default function Assistant() {
                     Every reply lists the data it queried. If nothing was queried, you are told.
                   </p>
                   <div className="mt-5 flex flex-wrap justify-center gap-1.5">
-                    {SUGGESTIONS.map((s) => (
-                      <button
+                    {SUGGESTIONS.map((s, i) => (
+                      <motion.button
                         key={s}
+                        initial={{ y: 8 }}
+                        animate={{ y: 0 }}
+                        transition={{ ...transition.normal, delay: staggerDelay(i) }}
                         onClick={() => send(s)}
-                        className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink transition hover:border-brand hover:bg-brand-tint"
+                        className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-brand hover:bg-brand-tint active:scale-[0.97]"
                       >
                         {s}
-                      </button>
+                      </motion.button>
                     ))}
                   </div>
                 </div>
@@ -120,8 +214,11 @@ export default function Assistant() {
             )}
 
             {entries.map((m, i) => (
-              <div
+              <motion.div
                 key={i}
+                initial={{ y: 10, x: m.role === "user" ? 12 : -12 }}
+                animate={{ y: 0, x: 0 }}
+                transition={transition.spring}
                 className={m.role === "user" ? "flex justify-end" : "flex justify-start"}
               >
                 <div className="max-w-[85%]">
@@ -134,31 +231,17 @@ export default function Assistant() {
                   >
                     {m.content || "(no answer)"}
                   </div>
-                  {m.tools && m.tools.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
-                      <Database size={12} />
-                      {[...new Set(m.tools.map((t) => t.name))].map((name) => (
-                        <span key={name} className="chip bg-brand-tint text-brand">
-                          {TOOL_LABEL[name] ?? name}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  {m.tools && m.tools.length > 0 && <Sources tools={m.tools} />}
                   {m.role === "assistant" && (!m.tools || m.tools.length === 0) && (
                     <div className="mt-1.5 text-xs text-warn">
                       No platform data was queried for this reply. Treat any figures with caution.
                     </div>
                   )}
                 </div>
-              </div>
+              </motion.div>
             ))}
 
-            {ask.isPending && (
-              <div className="flex items-center gap-2 text-sm text-muted">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
-                Querying platform data…
-              </div>
-            )}
+            {ask.isPending && <Thinking />}
             {ask.isError && (
               <div className="rounded-lg bg-bad/10 px-4 py-2 text-sm text-bad">
                 {(ask.error as Error).message}
@@ -201,7 +284,14 @@ export default function Assistant() {
                 <Icon size={14} className="flex-none text-muted" />
                 <span className="flex-1 text-xs font-medium text-ink">{label}</span>
                 {used.has(name) && (
-                  <span className="chip bg-good/10 px-1.5 py-0 text-[10px] text-good">used</span>
+                  <motion.span
+                    initial={{ scale: 0.6 }}
+                    animate={{ scale: 1 }}
+                    transition={transition.elastic}
+                    className="chip bg-good/10 px-1.5 py-0 text-[10px] text-good"
+                  >
+                    used
+                  </motion.span>
                 )}
               </li>
             ))}

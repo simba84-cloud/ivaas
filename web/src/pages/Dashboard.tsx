@@ -221,7 +221,9 @@ export default function Dashboard({ me }: { me: Me | undefined }) {
         <KpiCard
           index={0}
           label="Crates today"
+          loading={!o}
           value={(o?.crates_today ?? 0).toLocaleString()}
+          amount={o?.crates_today}
           delta={o?.crates.delta_pct ?? null}
           series={o?.crates.series}
           tone="brand"
@@ -231,6 +233,7 @@ export default function Dashboard({ me }: { me: Me | undefined }) {
         <KpiCard
           index={1}
           label="Counting accuracy"
+          loading={!o}
           value={pct(accuracy)}
           delta={o?.accuracy.delta_pct ?? null}
           deltaUnit="points"
@@ -246,7 +249,9 @@ export default function Dashboard({ me }: { me: Me | undefined }) {
         <KpiCard
           index={2}
           label="Truck throughput"
+          loading={!o}
           value={(o?.throughput.value ?? 0).toLocaleString()}
+          amount={o?.throughput.value ?? undefined}
           unit={`in ${o?.days ?? 14}d`}
           delta={o?.throughput.delta_pct ?? null}
           series={o?.throughput.series}
@@ -257,6 +262,7 @@ export default function Dashboard({ me }: { me: Me | undefined }) {
         <KpiCard
           index={3}
           label="Camera health"
+          loading={!o}
           value={`${o?.cameras_online ?? 0}/${o?.cameras_total ?? 0}`}
           tone={onlineRatio === 1 ? "good" : onlineRatio > 0 ? "warn" : "bad"}
           icon={Camera}

@@ -118,7 +118,14 @@ def test_settings_expose_the_editable_rules_and_never_a_secret(client):
     body = client.get("/api/v1/settings").json()
 
     keys = {s["key"] for s in body["editable"]}
-    assert keys == {"reconcile_tolerance", "auto_close_idle_minutes", "auto_open_direction"}
+    assert keys == {
+        "reconcile_tolerance",
+        "auto_close_idle_minutes",
+        "auto_open_direction",
+        "badge_grace_minutes",
+        "face_recognition_basis",
+        "face_recognition",
+    }
     assert all(s["overridden"] is False for s in body["editable"])
 
     # the payload may say whether a secret is configured, never what it is

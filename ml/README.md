@@ -247,3 +247,62 @@ costs two wrong thresholds, so the loss is count-aware without regressing to the
 ```bash
 uv run pytest    # 26 tests: frame sampling, label round-trip, split, pre-label clean-up, AP metrics
 ```
+
+## Security models
+
+The security pipeline (`services/pipeline/.../security_runner.py`) uses up to four
+models. Only the person detector is needed to start; the others switch their rules on
+when installed, and the portal shows which the edge node is running.
+
+| Model | File | Where it comes from | Rules it enables |
+|---|---|---|---|
+| Person detector | `people-coco.onnx` | Pretrained COCO RT-DETR r18 (Apache-2.0), exported unchanged | intrusion, badge |
+| Fire and smoke | `fire-smoke.onnx` | RT-DETR fine-tuned on public fire/smoke data **plus this site's footage** | fire, smoke |
+| Uniform / PPE | `uniform.onnx` | MobileNetV2 (Apache-2.0) fine-tuned on crops of this site's staff | uniform |
+| Faces | `face_detection_yunet_2023mar.onnx`, `face_recognition_sface_2021dec.onnx` | OpenCV Zoo (MIT / Apache-2.0), `./deploy/fetch-models.sh --faces` | known faces only |
+
+### Person detector (ready now)
+
+```bash
+uv run --extra train python -m ivaas_ml.export PekingU/rtdetr_r18vd_coco_o365 ../models/people-coco.onnx
+```
+
+The same decoder reads it as the stack model; the pipeline keeps only `person`.
+
+### Fire and smoke (needs training before it can be trusted)
+
+A bakery is close to the worst case for camera fire detection: ovens, open flame,
+steam, flour dust and warm lighting all resemble fire or smoke. So:
+
+1. Start from a public set with `fire` and `smoke` boxes (D-Fire is a common one; check
+   the licence of whichever you use before shipping a model trained on it).
+2. Add this site's footage, and label the ovens, steam and lamps as **negatives**
+   (frames with no boxes). Without them the model will alarm on every bake.
+3. Train and export with the existing stack workflow, with labels `fire` and `smoke`:
+   `ivaas_ml.dataset` → `ivaas_ml.train` → `ivaas_ml.export ... ../models/fire-smoke.onnx`.
+4. In the portal, draw an *ignored area* over each oven, and only then add the fire rule
+   to the zones around it.
+
+Camera fire detection **supplements** the certified fire alarm. It never replaces it.
+
+### Uniform / PPE (needs this site's staff)
+
+What counts as uniform is particular to Bakers Inn, so no pretrained model applies.
+Crop people from site footage (the person detector's boxes are a good start) into
+`data/uniform/{train,val}/{ppe,no_ppe}/`, splitting by day or camera, then:
+
+```bash
+uv run --extra train python -m ivaas_ml.train_classifier train data/uniform runs/uniform
+uv run --extra train python -m ivaas_ml.train_classifier export runs/uniform/best ../models/uniform.onnx
+```
+
+Judge it by recall on `no_ppe`: a missed violation is invisible, a false one costs an
+operator a glance at the snapshot. The pipeline also needs three agreeing "no" reads
+before it raises anything.
+
+### Faces (only with a legal basis)
+
+Face recognition processes biometric data. It stays off until an admin records its
+legal basis under Settings and switches it on; each enrolment records where that
+person's consent is kept, and only an encrypted embedding is stored, never the photo.
+Fetch the models with `./deploy/fetch-models.sh --faces` on the API and edge hosts.

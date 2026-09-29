@@ -38,6 +38,13 @@ class AuditAction(StrEnum):
     USER_DISABLED = "user_disabled"
     PASSWORD_RESET = "password_reset"
     PASSWORD_CHANGED = "password_changed"
+    ALERT_ACKNOWLEDGED = "alert_acknowledged"
+    ZONE_SAVED = "zone_saved"
+    ZONE_DELETED = "zone_deleted"
+    INCIDENT_ACKNOWLEDGED = "incident_acknowledged"
+    INCIDENT_RESOLVED = "incident_resolved"
+    PERSON_ENROLLED = "person_enrolled"
+    PERSON_REMOVED = "person_removed"
 
 
 @dataclass(frozen=True)

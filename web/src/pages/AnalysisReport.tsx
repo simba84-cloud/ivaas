@@ -3,7 +3,8 @@ import { ArrowLeft, Boxes, Clock, Layers, Printer, Truck } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { TimelineEvent } from "../api/types";
-import { PageHeader, StatCard, dateTime } from "../components/ui";
+import { EmptyState, PageHeader, StatCard, dateTime } from "../components/ui";
+import { Progress, Skeleton } from "../motion";
 import { fmtSeconds } from "./Analysis";
 
 const KIND: Record<TimelineEvent["kind"], string> = {
@@ -24,7 +25,26 @@ export default function AnalysisReport() {
         : false,
   });
   const j = job.data;
-  if (!j) return null;
+  if (job.isError) {
+    return (
+      <div className="card">
+        <EmptyState title="This report could not be loaded" body={(job.error as Error).message} />
+      </div>
+    );
+  }
+  if (!j) {
+    return (
+      <div aria-busy="true" aria-label="Loading report">
+        <Skeleton className="mb-2 h-7 w-72" />
+        <Skeleton className="mb-6 h-4 w-96 max-w-full" />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-28 rounded-xl" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   const frames = j.timeline.filter((e) => e.frame_url);
   const lowConf = j.loads.reduce((n, ld) => n + ld.low_confidence, 0);
@@ -60,12 +80,7 @@ export default function AnalysisReport() {
                 <span className="font-semibold capitalize text-ink">{j.status}</span>
                 <span className="text-muted">{Math.round(j.progress * 100)}%</span>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-line">
-                <div
-                  className="h-full bg-accent transition-all"
-                  style={{ width: `${j.progress * 100}%` }}
-                />
-              </div>
+              <Progress value={j.progress} label="Analysis progress" />
             </>
           )}
         </div>

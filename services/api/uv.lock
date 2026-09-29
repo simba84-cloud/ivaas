@@ -1102,6 +1102,7 @@ dependencies = [
     { name = "numpy" },
     { name = "onnxruntime" },
     { name = "opencv-python-headless" },
+    { name = "prometheus-client" },
 ]
 
 [package.optional-dependencies]
@@ -1116,6 +1117,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0" },
     { name = "onnxruntime", specifier = ">=1.20" },
     { name = "opencv-python-headless", specifier = ">=4.10" },
+    { name = "prometheus-client", specifier = ">=0.21" },
 ]
 provides-extras = ["lpr"]
 

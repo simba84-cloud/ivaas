@@ -20,6 +20,11 @@ x-ivaas-env: &ivaas-env
       IVAAS_MAX_UPLOAD_MB: ${IVAAS_MAX_UPLOAD_MB:-5120}
       IVAAS_STACK_MODEL: /models/stacks-v2.onnx
       IVAAS_LAYERS_MODEL: /models/layers-v3.onnx
+      # security: stills for drawing zones, and the face models (only used once face
+      # recognition is switched on; fetch with ./deploy/fetch-models.sh --faces)
+      IVAAS_MEDIA_RTSP_URL: rtsp://mediamtx:8554
+      IVAAS_FACE_DETECTOR_MODEL: /models/face_detection_yunet_2023mar.onnx
+      IVAAS_FACE_RECOGNIZER_MODEL: /models/face_recognition_sface_2021dec.onnx
       # "local": the portal's own branded page is the login, no redirect. Demo posture:
       # the accounts below live in config. Switch to "oidc" for Keycloak (still wired up
       # below) when this needs real identity management.

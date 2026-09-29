@@ -57,3 +57,32 @@ class PlateReader(Protocol):
 
 class PlateSink(Protocol):
     def emit(self, event: PlateEvent) -> None: ...
+
+
+class PipelineMetrics(Protocol):
+    """What the pipeline reports about keeping up with its cameras.
+
+    `lag` is how long after a frame arrived its result was ready: the number that
+    says whether a count is live. `dropped` counts frames skipped because the
+    previous one was still being processed; they are the frames the tracker never
+    saw, so a rising drop rate is a risk to the count, not just to latency.
+    """
+
+    def processed(self, camera_id: str, seconds: float, lag: float) -> None: ...
+
+    def dropped(self, camera_id: str, frames: int) -> None: ...
+
+    def connected(self, camera_id: str, up: bool) -> None: ...
+
+
+class NullMetrics:
+    """For tests and file analysis, where nobody is watching the clock."""
+
+    def processed(self, camera_id: str, seconds: float, lag: float) -> None:
+        pass
+
+    def dropped(self, camera_id: str, frames: int) -> None:
+        pass
+
+    def connected(self, camera_id: str, up: bool) -> None:
+        pass

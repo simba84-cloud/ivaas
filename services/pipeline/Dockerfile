@@ -7,6 +7,12 @@ COPY pyproject.toml uv.lock* ./
 RUN uv sync --no-dev --no-install-project --extra lpr
 COPY src ./src
 RUN uv sync --no-dev --extra lpr
-RUN useradd -r ivaas
+# -m: fast-alpr caches its ONNX weights under $HOME, and a user without one cannot
+# start (the pipeline crash-looped on it). Same fix as the API image.
+RUN useradd -r -m -d /home/ivaas ivaas
 USER ivaas
+# Fetch the plate-reader weights at build time: an edge node on site may have no
+# outbound internet when it starts.
+RUN /app/.venv/bin/python -c \
+    "from ivaas_pipeline.adapters.fast_alpr_reader import FastAlprPlateReader; FastAlprPlateReader()"
 CMD ["/app/.venv/bin/python", "-m", "ivaas_pipeline"]

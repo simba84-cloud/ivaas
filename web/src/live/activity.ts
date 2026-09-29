@@ -9,8 +9,8 @@
  *
  * Nothing here estimates or fills in a figure the platform did not send.
  */
-import type { LiveMessage } from "../../api/live";
-import type { Camera, Insight, Session } from "../../api/types";
+import type { LiveMessage } from "../api/live";
+import type { Camera, Insight, Session } from "../api/types";
 
 /** The accuracy target the dashboard reports against. */
 export const ACCURACY_TARGET = 0.95;
@@ -40,6 +40,25 @@ export interface Mark {
 }
 
 const RANK: Record<Severity, number> = { bad: 0, warn: 1, info: 2, good: 3 };
+
+/** How each security incident kind is named to people. */
+export const INCIDENT_TITLE: Record<string, string> = {
+  intrusion: "Person in a restricted zone",
+  no_ppe: "Person without uniform or PPE",
+  unknown_face: "Unrecognised person",
+  unbadged: "Person inside without a badge-in",
+  fire: "Possible fire",
+  smoke: "Possible smoke",
+};
+
+/**
+ * An alert's key names one occurrence of a condition, so an acknowledgement answers
+ * that occurrence only: a camera that recovers and fails again gets a new key. The
+ * API accepts letters, digits and : . _ @ + - only.
+ */
+export const alertKey = (...parts: (string | number)[]) =>
+  parts.join("-").replace(/[^A-Za-z0-9:._@+-]/g, "_").slice(0, 200);
+const today = () => new Date().toISOString().slice(0, 10);
 const fmt = (n: number) => n.toLocaleString();
 const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 const clock = (ms: number) =>
@@ -61,7 +80,7 @@ export function attention({
 
   if (cameras && !cameras.length) {
     items.push({
-      key: "no-cameras",
+      key: alertKey("no-cameras", today()),
       severity: "warn",
       title: "No cameras registered",
       detail: "Nothing at this bay is being counted. Add cameras under Cameras.",
@@ -70,7 +89,7 @@ export function attention({
   }
   if (mediaUp === false && cameras?.some((c) => c.status === "online")) {
     items.push({
-      key: "media-down",
+      key: alertKey("media-down", today()),
       severity: "bad",
       title: "Media server unreachable",
       detail: "Feeds cannot play in the portal until the media server answers.",
@@ -80,7 +99,8 @@ export function attention({
   for (const c of cameras ?? []) {
     if (c.status === "offline") {
       items.push({
-        key: `cam-${c.id}`,
+        // offline: the last frame is fixed for as long as the outage lasts
+        key: alertKey("cam", c.id, "offline@" + (c.last_seen_at ?? "never")),
         severity: "bad",
         title: `${c.name} has no signal`,
         detail: c.last_seen_at
@@ -91,7 +111,8 @@ export function attention({
       });
     } else if (c.status === "degraded") {
       items.push({
-        key: `cam-${c.id}`,
+        // degraded cameras still send frames, so the day marks the occurrence
+        key: alertKey("cam", c.id, "degraded@" + today()),
         severity: "warn",
         title: `${c.name} is degraded`,
         detail: "Frames are arriving late or being dropped.",
@@ -104,7 +125,7 @@ export function attention({
   const open = sessions?.find((s) => s.status === "open");
   if (open) {
     items.push({
-      key: `open-${open.id}`,
+      key: alertKey("open", open.id),
       severity: "info",
       title: "Truck at the bay",
       detail: `${open.plate ?? "Plate not read yet"} · ${plural(open.ai_count, "crate")} counted so far.`,
@@ -113,7 +134,7 @@ export function attention({
   }
   for (const s of (sessions ?? []).filter((x) => x.status === "disputed").slice(0, 3)) {
     items.push({
-      key: `disputed-${s.id}`,
+      key: alertKey("disputed", s.id),
       severity: "warn",
       title: `Load ${s.plate ?? "without a plate"} disputed`,
       detail:
@@ -126,7 +147,7 @@ export function attention({
   const waiting = (sessions ?? []).filter((x) => x.status === "closed").length;
   if (waiting) {
     items.push({
-      key: "awaiting-count",
+      key: alertKey("awaiting", waiting),
       severity: "info",
       title: `${plural(waiting, "load")} waiting for a manual count`,
       detail: "Enter the sheet figures on Reconciliation to measure accuracy.",
@@ -137,7 +158,7 @@ export function attention({
   for (const i of insights ?? []) {
     if (i.key.includes("camera")) continue;
     items.push({
-      key: `insight-${i.key}`,
+      key: alertKey("insight", i.key + "@" + today()),
       severity: i.severity === "critical" ? "bad" : i.severity,
       title: i.title,
       detail: i.detail,
@@ -297,6 +318,17 @@ export function interpret(
       });
     }
     known.set(id, { plate: plate ?? prev?.plate ?? null, ai_count: ai });
+  } else if (m.subject === "ivaas.incident.created") {
+    const kind = str("kind") ?? "incident";
+    if (bayId && str("bay_id") && str("bay_id") !== bayId) return { items, marks };
+    items.push({
+      key: `live-incident-${str("id")}`,
+      severity: kind === "fire" || kind === "smoke" || kind === "intrusion" ? "bad" : "warn",
+      title: INCIDENT_TITLE[kind] ?? "Security incident",
+      detail: `${str("zone_name") ?? "A zone"} · confidence ${Math.round((num("confidence") ?? 0) * 100)}%. Open Security to see the snapshot.`,
+      at: m.at,
+      cameraId: str("camera_id") ?? undefined,
+    });
   } else if (m.subject === "ivaas.camera.registered") {
     items.push({
       key: `live-cam-${m.at}`,

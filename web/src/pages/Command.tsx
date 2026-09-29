@@ -12,55 +12,21 @@ import { Boxes, Camera as CameraIcon, Gauge, MonitorPlay, Repeat, Truck } from "
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import { onLive } from "../api/live";
 import { useMediaServerUp } from "../api/media";
 import { useScope } from "../api/scope";
-import type { Camera, Session } from "../api/types";
+import type { Camera } from "../api/types";
 import { ThroughputChart } from "../components/charts";
 import { AccuracyDots } from "../components/command/accuracy";
-import {
-  ACCURACY_TARGET,
-  type FeedItem,
-  type Known,
-  type Mark,
-  type Severity,
-  attention,
-  history,
-  interpret,
-  mergeActivity,
-} from "../components/command/activity";
+import { ACCURACY_TARGET, type FeedItem, type Severity, history, mergeActivity } from "../live/activity";
+import { useAlerts } from "../live/alerts";
+import { useLiveFeed } from "../live/provider";
+import { Segmented } from "../motion";
 import { BayPlan, BayPlanLegend } from "../components/command/bayplan";
 import { Clock, LIVE_CHIP, Reticle, StreamView, isStreaming } from "../components/command/feed";
 import { Timeline, WINDOWS, type WindowKey } from "../components/command/timeline";
 import { EmptyState, SessionBadge, pct, roleLabel, time } from "../components/ui";
 
 const TOUR_MS = 12_000;
-
-/** Live events for this bay, kept for as long as the page is open. */
-function useLiveActivity(sessions: Session[] | undefined, bayId: string | undefined) {
-  const known = useRef(new Map<string, Known>());
-  const [live, setLive] = useState<{ items: FeedItem[]; marks: Mark[] }>({ items: [], marks: [] });
-
-  useEffect(() => {
-    for (const s of sessions ?? []) {
-      if (!known.current.has(s.id)) known.current.set(s.id, { plate: s.plate, ai_count: s.ai_count });
-    }
-  }, [sessions]);
-
-  useEffect(() => {
-    setLive({ items: [], marks: [] }); // a different bay starts a different story
-    return onLive((m) => {
-      const r = interpret(m, known.current, bayId);
-      if (!r.items.length && !r.marks.length) return;
-      setLive((p) => ({
-        items: [...r.items, ...p.items].slice(0, 60),
-        marks: [...p.marks, ...r.marks].slice(-400),
-      }));
-    });
-  }, [bayId]);
-
-  return live;
-}
 
 const SEV_DOT: Record<Severity, string> = {
   bad: "text-bad",
@@ -191,7 +157,8 @@ export default function Command() {
   const list = useMemo(() => sessions.data ?? [], [sessions.data]);
   const o = overview.data;
   const open = list.find((s) => s.status === "open");
-  const live = useLiveActivity(sessions.data, bay?.id);
+  const live = useLiveFeed();
+  const alerts = useAlerts();
 
   // ---- which camera fills the main view
   const [chosen, setChosen] = useState<string | null>(null);
@@ -251,7 +218,8 @@ export default function Command() {
   };
 
   // ---- what the rail says
-  const needs = attention({ cameras: cameras.data, mediaUp, sessions: sessions.data, insights: o?.insights });
+  // acknowledged alerts leave this panel; the alerts page keeps them
+  const needs = alerts.active;
   const activity = mergeActivity(live.items, history(sessions.data));
 
   const [windowKey, setWindowKey] = useState<WindowKey>("4h");
@@ -429,15 +397,25 @@ export default function Command() {
             <section className="card flex max-h-[45%] min-h-0 flex-col max-xl:max-h-none">
               <div className="panel-head">
                 <h2 className="panel-title">Needs attention</h2>
-                <span className={`chip ${needs.some((n) => n.severity === "bad") ? "bg-bad/10 text-bad" : "bg-ground text-muted"}`}>
-                  {needs.filter((n) => n.severity === "bad" || n.severity === "warn").length}
-                </span>
+                <Link
+                  to="/alerts"
+                  className={`chip transition hover:brightness-110 ${alerts.critical ? "bg-bad/10 text-bad" : "bg-ground text-muted"}`}
+                  title="Open alerts to acknowledge"
+                >
+                  {alerts.urgent} · Alerts →
+                </Link>
               </div>
               <div className="min-h-0 overflow-y-auto">
                 <FeedList
                   items={needs}
                   onPick={pick}
-                  empty={cameras.isSuccess ? "Nothing needs attention at this bay." : "Checking the bay…"}
+                  empty={
+                    alerts.loading
+                      ? "Checking the bay…"
+                      : alerts.acknowledged.length
+                        ? "Everything current has been acknowledged."
+                        : "Nothing needs attention at this bay."
+                  }
                 />
               </div>
             </section>
@@ -537,18 +515,12 @@ export default function Command() {
       <section className="card mt-3 min-w-0">
         <div className="panel-head">
           <h2 className="panel-title">Timeline</h2>
-          <div className="segment" role="group" aria-label="Timeline window">
-            {(Object.keys(WINDOWS) as WindowKey[]).map((k) => (
-              <button
-                key={k}
-                aria-pressed={windowKey === k}
-                className={`segment-item ${windowKey === k ? "segment-item-on" : ""}`}
-                onClick={() => setWindowKey(k)}
-              >
-                {k}
-              </button>
-            ))}
-          </div>
+          <Segmented<WindowKey>
+            label="Timeline window"
+            value={windowKey}
+            onChange={setWindowKey}
+            options={(Object.keys(WINDOWS) as WindowKey[]).map((k) => ({ value: k, label: k }))}
+          />
         </div>
         <Timeline sessions={list} marks={live.marks} windowKey={windowKey} />
       </section>

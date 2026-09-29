@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ShieldCheck, X } from "lucide-react";
-import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Check, ChevronRight, ShieldCheck, X } from "lucide-react";
+import { Fragment, useState } from "react";
 import { api } from "../api/client";
 import { useScope } from "../api/scope";
 import type { ApprovalReason, Session, SessionStatus } from "../api/types";
@@ -14,7 +15,10 @@ import {
   dateTime,
   pct,
   reasonLabel,
+  time,
 } from "../components/ui";
+import { useToast } from "../components/toast";
+import { MotionRow, Segmented, SkeletonRows, transition } from "../motion";
 
 const FILTERS: { key: SessionStatus | "all"; label: string }[] = [
   { key: "all", label: "All" },
@@ -32,6 +36,7 @@ const FILTERS: { key: SessionStatus | "all"; label: string }[] = [
  */
 function ApproveCell({ session, isAdmin }: { session: Session; isAdmin: boolean }) {
   const qc = useQueryClient();
+  const toast = useToast();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState<ApprovalReason>("damaged_removed");
   const [note, setNote] = useState("");
@@ -40,6 +45,11 @@ function ApproveCell({ session, isAdmin }: { session: Session; isAdmin: boolean 
     mutationFn: () => api.approve(session.id, reason, note),
     onSuccess: () => {
       setOpen(false);
+      toast({
+        severity: "success",
+        title: `Signed off · ${session.plate ?? "no plate"}`,
+        detail: "The discrepancy is accepted; the counts are unchanged.",
+      });
       qc.invalidateQueries({ queryKey: ["sessions"] });
       qc.invalidateQueries({ queryKey: ["overview"] });
       qc.invalidateQueries({ queryKey: ["summary"] });
@@ -119,10 +129,16 @@ function ApproveCell({ session, isAdmin }: { session: Session; isAdmin: boolean 
 
 function VerifyCell({ session, canOperate }: { session: Session; canOperate: boolean }) {
   const qc = useQueryClient();
+  const toast = useToast();
   const [value, setValue] = useState("");
   const reconcile = useMutation({
     mutationFn: (n: number) => api.reconcile(session.id, n),
-    onSuccess: () => {
+    onSuccess: (s) => {
+      toast({
+        severity: s.status === "disputed" ? "warning" : "success",
+        title: s.status === "disputed" ? `Disputed · ${s.plate ?? "no plate"}` : `Verified · ${s.plate ?? "no plate"}`,
+        detail: `AI ${s.ai_count.toLocaleString()}, sheet ${s.manual_count?.toLocaleString()} · accuracy ${pct(s.accuracy)}`,
+      });
       qc.invalidateQueries({ queryKey: ["sessions"] });
       qc.invalidateQueries({ queryKey: ["summary"] });
     },
@@ -171,6 +187,7 @@ export default function Sessions({ me }: { me: Me | undefined }) {
   const canOperate = hasRole(me, "operator");
   const isAdmin = hasRole(me, "admin");
   const [filter, setFilter] = useState<SessionStatus | "all">("all");
+  const [expanded, setExpanded] = useState<string | null>(null);
   const { bay } = useScope();
   const sessions = useQuery({
     queryKey: ["sessions", bay?.id],
@@ -199,27 +216,31 @@ export default function Sessions({ me }: { me: Me | undefined }) {
         }
       />
 
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setFilter(f.key)}
-            className={`chip h-8 px-3 transition ${
-              filter === f.key ? "bg-ink text-surface" : "bg-surface text-muted hover:text-ink"
-            }`}
-          >
-            {f.label}
-            <span className={`num ${filter === f.key ? "text-surface/70" : "text-faint"}`}>{counts[f.key]}</span>
-          </button>
-        ))}
+      <div className="mb-4 overflow-x-auto">
+        <Segmented<SessionStatus | "all">
+          label="Filter by status"
+          size="md"
+          value={filter}
+          onChange={setFilter}
+          options={FILTERS.map((f) => ({ value: f.key, label: f.label, count: counts[f.key] }))}
+        />
       </div>
 
       <div className="card overflow-hidden">
-        {rows.length ? (
+        {sessions.isPending ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <SkeletonRows rows={6} cols={9} />
+            </table>
+          </div>
+        ) : rows.length ? (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-ground">
                 <tr>
+                  <th className="th w-8">
+                    <span className="sr-only">Details</span>
+                  </th>
                   <th className="th">Plate</th>
                   <th className="th">Direction</th>
                   <th className="th">Opened</th>
@@ -228,12 +249,25 @@ export default function Sessions({ me }: { me: Me | undefined }) {
                   <th className="th">Variance</th>
                   <th className="th text-right">Accuracy</th>
                   <th className="th">Status</th>
-                  <th className="th">Sign-off</th>
+                  <th className="th min-w-[14rem]">Sign-off</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {rows.map((s) => (
-                  <tr key={s.id} className="transition hover:bg-ground/60">
+                {rows.map((s, i) => (
+                  <Fragment key={s.id}>
+                  <MotionRow index={i} className="transition-colors hover:bg-ground/60">
+                    <td className="td pr-0">
+                      <button
+                        className="grid h-6 w-6 place-items-center rounded-md text-faint transition hover:bg-ground hover:text-ink"
+                        aria-expanded={expanded === s.id}
+                        aria-label={`Details for ${s.plate ?? "this load"}`}
+                        onClick={() => setExpanded((e) => (e === s.id ? null : s.id))}
+                      >
+                        <motion.span animate={{ rotate: expanded === s.id ? 90 : 0 }} transition={transition.fast} className="inline-flex">
+                          <ChevronRight size={14} />
+                        </motion.span>
+                      </button>
+                    </td>
                     <td className="td num font-semibold text-ink">{s.plate ?? "—"}</td>
                     <td className="td capitalize text-muted">{s.direction}</td>
                     <td className="td text-muted">{dateTime(s.opened_at)}</td>
@@ -250,10 +284,59 @@ export default function Sessions({ me }: { me: Me | undefined }) {
                     <td className="td">
                       <SessionBadge status={s.status} />
                     </td>
-                    <td className="td whitespace-normal">
+                    <td className="td min-w-[14rem] whitespace-normal">
                       <ApproveCell session={s} isAdmin={isAdmin} />
                     </td>
-                  </tr>
+                  </MotionRow>
+                  <AnimatePresence initial={false}>
+                    {expanded === s.id && (
+                      <motion.tr
+                        key="detail"
+                        initial={{ y: -6 }}
+                        animate={{ y: 0 }}
+                        exit={{ y: -6, transition: transition.fast }}
+                        className="bg-ground/50"
+                      >
+                        <td />
+                        <td colSpan={9} className="px-3 py-3">
+                          <dl className="grid gap-x-8 gap-y-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                            <div>
+                              <dt className="eyebrow">Opened · closed</dt>
+                              <dd className="num mt-0.5 text-ink">
+                                {time(s.opened_at)} · {s.closed_at ? time(s.closed_at) : "still open"}
+                                {s.closed_at && (
+                                  <span className="text-muted">
+                                    {" "}
+                                    ({Math.max(1, Math.round((Date.parse(s.closed_at) - Date.parse(s.opened_at)) / 60000))} min)
+                                  </span>
+                                )}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="eyebrow">Counts</dt>
+                              <dd className="num mt-0.5 text-ink">
+                                AI {s.ai_count.toLocaleString()} ·{" "}
+                                {s.manual_count === null ? "no manual count yet" : `sheet ${s.manual_count.toLocaleString()}`}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="eyebrow">Sign-off</dt>
+                              <dd className="mt-0.5 text-ink">
+                                {s.approved_by ? `${reasonLabel(s.approval_reason)} by ${s.approved_by}` : "None"}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="eyebrow">Session</dt>
+                              <dd className="num mt-0.5 truncate text-faint" title={s.id}>
+                                {s.id}
+                              </dd>
+                            </div>
+                          </dl>
+                        </td>
+                      </motion.tr>
+                    )}
+                  </AnimatePresence>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

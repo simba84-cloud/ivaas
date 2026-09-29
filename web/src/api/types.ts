@@ -146,7 +146,14 @@ export type AuditAction =
   | "user_enabled"
   | "user_disabled"
   | "password_reset"
-  | "password_changed";
+  | "password_changed"
+  | "alert_acknowledged"
+  | "zone_saved"
+  | "zone_deleted"
+  | "incident_acknowledged"
+  | "incident_resolved"
+  | "person_enrolled"
+  | "person_removed";
 
 export interface AuditEntry {
   id: string;
@@ -180,7 +187,7 @@ export interface EditableSetting {
   key: string;
   label: string;
   help: string;
-  kind: "percent" | "minutes" | "choice";
+  kind: "percent" | "minutes" | "choice" | "text";
   choices: string[];
   minimum: number | null;
   maximum: number | null;
@@ -243,4 +250,83 @@ export interface AnalysisJob {
   timeline: TimelineEvent[];
   summary: string | null;
   video_url: string | null;
+}
+
+export interface Acknowledgement {
+  key: string;
+  acknowledged_by: string;
+  acknowledged_at: string;
+  note: string | null;
+}
+
+export type ZoneRule = "intrusion" | "ppe" | "face" | "badge" | "fire";
+export type IncidentKind = "intrusion" | "no_ppe" | "unknown_face" | "unbadged" | "fire" | "smoke";
+export type IncidentStatus = "open" | "acknowledged" | "resolved";
+
+export interface ScheduleWindow {
+  days: number[]; // 0 = Monday
+  start: string; // HH:MM
+  end: string;
+}
+
+export interface ZoneInput {
+  name: string;
+  polygon: [number, number][]; // fractions of the frame
+  rules: ZoneRule[];
+  schedule: ScheduleWindow[];
+  min_dwell_s: number;
+  exclude: boolean;
+  badge_door: string | null;
+}
+
+export interface Zone extends ZoneInput {
+  id: string;
+  camera_id: string;
+  armed: boolean;
+}
+
+export interface Incident {
+  id: string;
+  bay_id: string;
+  camera_id: string;
+  kind: IncidentKind;
+  zone_id: string | null;
+  zone_name: string | null;
+  detected_at: string;
+  confidence: number;
+  snapshot_url: string | null;
+  detail: Record<string, unknown>;
+  status: IncidentStatus;
+  acknowledged_by: string | null;
+  acknowledged_at: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
+}
+
+export interface SecurityStatus {
+  face_recognition: boolean;
+  face_models_installed: boolean;
+  enrolled_people: number;
+  badge_events_24h: number;
+  last_badge_at: string | null;
+  edge: { reported_at: string; detectors: string[] } | null;
+}
+
+export interface EnrolledPerson {
+  id: string;
+  name: string;
+  employee_ref: string;
+  consent_reference: string;
+  enrolled_by: string;
+  enrolled_at: string;
+}
+
+export interface BadgeEvent {
+  id: string;
+  badge_id: string;
+  door: string;
+  at: string;
+  granted: boolean;
+  holder: string | null;
 }

@@ -9,6 +9,7 @@ import logging
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
@@ -34,11 +35,19 @@ from ivaas.adapters.persistence.memory import (
 from ivaas.adapters.storage.objects import LocalObjectStore, S3ObjectStore
 from ivaas.adapters.streaming.mediamtx import MediaMtxGateway, NullStreamGateway
 from ivaas.adapters.streaming.onvif import OnvifDiscovery
+from ivaas.application.alerts import AcknowledgeAlert, ListAcknowledgements
 from ivaas.application.analysis import RunNextJob, SubmitVideo
 from ivaas.application.analytics import AnalyticsTools
 from ivaas.application.assistant import AskAssistant
 from ivaas.application.cameras import RefreshCameraStatus, RegisterCamera, RemoveCamera
 from ivaas.application.overview import OperationsOverview, Overview
+from ivaas.application.security import (
+    EnrolPerson,
+    RecordBadge,
+    ReportIncident,
+    SaveZone,
+    UpdateIncident,
+)
 from ivaas.application.sessions import (
     ApproveSession,
     CloseIdleSessions,
@@ -55,6 +64,8 @@ from ivaas.domain.models import Bay, Camera, CameraRole, SessionDirection, Site
 from ivaas.domain.platform_settings import (
     AUTO_CLOSE_IDLE_MINUTES,
     AUTO_OPEN_DIRECTION,
+    BADGE_GRACE_MINUTES,
+    FACE_RECOGNITION,
     RECONCILE_TOLERANCE,
 )
 from ivaas.domain.users import User, UserRole
@@ -102,6 +113,11 @@ class Container:
     hasher: Any
     audit: Any
     setting_store: Any
+    acknowledgements: Any
+    zones: Any
+    incidents: Any
+    badges: Any
+    people: Any
     sites: Any
     bays: Any
     cameras: Any
@@ -125,6 +141,10 @@ class Container:
     _overrides: dict[str, Any] = field(default_factory=dict)
     _overrides_at: datetime | None = None
     _dummy_hash: str = ""
+    #: what the edge node last said it can detect (set when it fetches its zones)
+    edge_security: Any = None
+    _face_encoder: Any = None
+    _face_encoder_missing: bool = False
 
     async def effective(self, key: str, default: Any) -> Any:
         """The value in force: a stored override if there is one, else the environment."""
@@ -224,6 +244,60 @@ class Container:
     def user_admin(self) -> UserAdmin:
         return UserAdmin(self.users, self.hasher, self.clock)
 
+    # security --------------------------------------------------------------
+    async def face_recognition_on(self) -> bool:
+        return await self.effective(FACE_RECOGNITION, "off") == "on"
+
+    @property
+    def face_encoder(self) -> Any:
+        """OpenCV's face models, if installed. None means enrolment cannot run here."""
+        if self._face_encoder is None and not self._face_encoder_missing:
+            paths = (self.settings.face_detector_model, self.settings.face_recognizer_model)
+            if all(Path(p).is_file() for p in paths):
+                from ivaas_pipeline.adapters.opencv_faces import OpenCvFaces
+
+                self._face_encoder = OpenCvFaces(*paths)
+            else:
+                self._face_encoder_missing = True
+        return self._face_encoder
+
+    @property
+    def save_zone(self) -> SaveZone:
+        return SaveZone(self.zones, self.cameras)
+
+    async def report_incident_uc(self) -> ReportIncident:
+        grace = float(await self.effective(BADGE_GRACE_MINUTES, 10))
+        return ReportIncident(
+            self.zones,
+            self.incidents,
+            self.badges,
+            self.objects,
+            self.events,
+            face_recognition_on=await self.face_recognition_on(),
+            badge_grace=timedelta(minutes=grace),
+        )
+
+    @property
+    def update_incident(self) -> UpdateIncident:
+        return UpdateIncident(self.incidents, self.events, self.clock)
+
+    @property
+    def record_badge(self) -> RecordBadge:
+        return RecordBadge(self.badges)
+
+    async def enrol_person_uc(self) -> EnrolPerson:
+        return EnrolPerson(
+            self.people, self.face_encoder, self.clock, await self.face_recognition_on()
+        )
+
+    @property
+    def acknowledge_alert(self) -> AcknowledgeAlert:
+        return AcknowledgeAlert(self.acknowledgements, self.events, self.clock)
+
+    @property
+    def list_acknowledgements(self) -> ListAcknowledgements:
+        return ListAcknowledgements(self.acknowledgements, self.clock)
+
     @property
     def approve_session(self) -> ApproveSession:
         return ApproveSession(self.sessions, self.events, self.clock)
@@ -265,10 +339,11 @@ async def build_container(settings: Settings) -> Container:
                 "IVAAS_SECRETS_KEYS is required with postgres storage: camera credentials "
                 "are encrypted at rest (see Settings.secrets_keys for how to generate one)"
             )
+        box = SecretBox(settings.secrets_keys)
         sites, bays, cameras, sessions, dispose, sm = await build_postgres_repositories(
             settings.database_url,
             seed=(site, bay, cams) if settings.seed_demo_data else None,
-            box=SecretBox(settings.secrets_keys),
+            box=box,
         )
         closers.append(dispose)
         pg_sessionmaker: Any = sm
@@ -318,21 +393,48 @@ async def build_container(settings: Settings) -> Container:
     users: Any
     audit: Any
     setting_store: Any
+    acknowledgements: Any
     if pg_sessionmaker is not None:
+        from ivaas.adapters.persistence.alerts_postgres import PostgresAcknowledgementStore
         from ivaas.adapters.persistence.audit_postgres import PostgresAuditLog
         from ivaas.adapters.persistence.settings_postgres import PostgresSettingsStore
         from ivaas.adapters.persistence.users_postgres import PostgresUserStore
 
         audit = PostgresAuditLog(pg_sessionmaker)
         setting_store = PostgresSettingsStore(pg_sessionmaker)
+        acknowledgements = PostgresAcknowledgementStore(pg_sessionmaker)
         users = PostgresUserStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.security_postgres import (
+            PostgresBadgeLog,
+            PostgresIncidentStore,
+            PostgresPeopleStore,
+            PostgresZoneStore,
+        )
+
+        zones: Any = PostgresZoneStore(pg_sessionmaker)
+        incidents: Any = PostgresIncidentStore(pg_sessionmaker)
+        badges: Any = PostgresBadgeLog(pg_sessionmaker)
+        people: Any = PostgresPeopleStore(pg_sessionmaker, box)
     else:
+        from ivaas.adapters.persistence.alerts_postgres import InMemoryAcknowledgementStore
         from ivaas.adapters.persistence.settings_postgres import InMemorySettingsStore
         from ivaas.adapters.persistence.users_postgres import InMemoryUserStore
 
         audit = InMemoryAuditLog()
         setting_store = InMemorySettingsStore()
+        acknowledgements = InMemoryAcknowledgementStore()
         users = InMemoryUserStore()
+        from ivaas.adapters.persistence.security_postgres import (
+            InMemoryBadgeLog,
+            InMemoryIncidentStore,
+            InMemoryPeopleStore,
+            InMemoryZoneStore,
+        )
+
+        zones = InMemoryZoneStore()
+        incidents = InMemoryIncidentStore()
+        badges = InMemoryBadgeLog()
+        people = InMemoryPeopleStore()
 
     jobs: Any
     if pg_sessionmaker is not None:
@@ -368,6 +470,11 @@ async def build_container(settings: Settings) -> Container:
         hasher=hasher,
         audit=audit,
         setting_store=setting_store,
+        acknowledgements=acknowledgements,
+        zones=zones,
+        incidents=incidents,
+        badges=badges,
+        people=people,
         sites=sites,
         bays=bays,
         cameras=cameras,

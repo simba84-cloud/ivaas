@@ -3,7 +3,7 @@ import { Check, Info, Server, ShieldCheck, SlidersHorizontal } from "lucide-reac
 import { useState } from "react";
 import { api } from "../api/client";
 import type { ConfigFact, EditableSetting } from "../api/types";
-import { EmptyState } from "../components/ui";
+import { SkeletonList } from "../motion";
 
 /** One rule an admin can change, shown with the units it is actually measured in. */
 function Rule({ setting }: { setting: EditableSetting }) {
@@ -46,7 +46,17 @@ function Rule({ setting }: { setting: EditableSetting }) {
           save.mutate();
         }}
       >
-        {setting.kind === "choice" ? (
+        {setting.kind === "text" ? (
+          <input
+            id={setting.key}
+            aria-label={setting.label}
+            className="input h-8 w-72 text-sm"
+            maxLength={setting.maximum ?? 500}
+            value={draft}
+            placeholder="Not recorded"
+            onChange={(e) => setDraft(e.target.value)}
+          />
+        ) : setting.kind === "choice" ? (
           <select
             id={setting.key}
             aria-label={setting.label}
@@ -112,7 +122,7 @@ export default function Settings() {
 
       {!s ? (
         <div className="card">
-          <EmptyState title="Loading settings" body="Reading the platform configuration." />
+          <SkeletonList rows={4} />
         </div>
       ) : (
         <div className="space-y-4">
