@@ -8,6 +8,7 @@
 import { motion, useReducedMotion } from "framer-motion";
 import { ArrowDownRight, ArrowRight, ArrowUpRight, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { AnimatedNumber, SkeletonFigure } from "../motion";
 import { Sparkline, useChartTheme } from "./charts";
 
 export type Tone = "brand" | "accent" | "good" | "warn" | "bad";
@@ -71,6 +72,9 @@ export function KpiCard({
   icon: Icon,
   footer,
   index = 0,
+  amount,
+  format,
+  loading = false,
 }: {
   label: string;
   value: string;
@@ -83,6 +87,11 @@ export function KpiCard({
   icon: LucideIcon;
   footer?: ReactNode;
   index?: number;
+  /** the figure as a number, so a change glides rather than jumps */
+  amount?: number;
+  format?: (n: number) => string;
+  /** the data has not arrived: a placeholder, never a zero */
+  loading?: boolean;
 }) {
   // Entrances move, they do not fade in: content parked at opacity 0 is invisible
   // if the animation never runs, and a sign-in card that does that is unusable.
@@ -95,7 +104,7 @@ export function KpiCard({
       initial={still ? false : { y: 12 }}
       animate={{ y: 0 }}
       transition={{ duration: 0.35, delay: index * 0.06, ease: [0.2, 0.7, 0.2, 1] }}
-      className="card-lift group relative flex h-full flex-col overflow-hidden p-5 transition duration-200 hover:shadow-lift"
+      className="card-lift card-hover group relative flex h-full flex-col overflow-hidden p-5"
     >
       {/* the icon sits on a corner cut at the angle of a crate lip */}
       <div
@@ -110,19 +119,27 @@ export function KpiCard({
       <div className="eyebrow max-w-[60%]">{label}</div>
 
       <div className="mt-3 flex items-baseline gap-1.5">
-        <span className={`num text-[2.1rem] font-bold leading-none tracking-tight ${t.text}`}>
-          {value}
-        </span>
-        {unit && <span className="text-sm font-semibold text-faint">{unit}</span>}
+        {loading ? (
+          <SkeletonFigure className="h-[2.1rem] w-28" />
+        ) : amount !== undefined ? (
+          <AnimatedNumber
+            value={amount}
+            format={format}
+            className={`num text-[2.1rem] font-bold leading-none tracking-tight ${t.text}`}
+          />
+        ) : (
+          <span className={`num text-[2.1rem] font-bold leading-none tracking-tight ${t.text}`}>{value}</span>
+        )}
+        {unit && !loading && <span className="text-sm font-semibold text-faint">{unit}</span>}
       </div>
 
-      {delta !== undefined && (
+      {delta !== undefined && !loading && (
         <div className="mt-3">
           <Delta delta={delta} unit={deltaUnit} higherIsBetter={higherIsBetter} />
         </div>
       )}
 
-      {footer && <div className="mt-3 text-xs text-muted">{footer}</div>}
+      {footer && !loading && <div className="mt-3 text-xs text-muted">{footer}</div>}
 
       {series && series.filter((v) => v !== null).length > 1 && (
         <div className="-mx-5 -mb-5 mt-auto pt-4 opacity-90">

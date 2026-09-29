@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Session, SessionStatus } from "../../api/types";
-import type { Mark } from "./activity";
+import type { Mark } from "../../live/activity";
 
 export const WINDOWS = {
   "1h": { ms: 3_600_000, tick: 600_000 },

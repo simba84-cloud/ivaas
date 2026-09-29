@@ -27,6 +27,7 @@ function api({
     http.get("/api/v1/sessions", () => HttpResponse.json(sessions)),
     http.get("/api/v1/analytics/overview", () => HttpResponse.json(view)),
     http.get("http://localhost:8889/", () => HttpResponse.json({})),
+    http.get("/api/v1/alerts/acknowledgements", () => HttpResponse.json([])),
   );
 }
 

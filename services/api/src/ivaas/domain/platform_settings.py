@@ -15,6 +15,12 @@ from typing import Any
 RECONCILE_TOLERANCE = "reconcile_tolerance"
 AUTO_CLOSE_IDLE_MINUTES = "auto_close_idle_minutes"
 AUTO_OPEN_DIRECTION = "auto_open_direction"
+FACE_RECOGNITION = "face_recognition"
+FACE_RECOGNITION_BASIS = "face_recognition_basis"
+BADGE_GRACE_MINUTES = "badge_grace_minutes"
+
+#: the value a setting has when nobody has changed it (the environment supplies the rest)
+DEFAULTS = {FACE_RECOGNITION: "off", FACE_RECOGNITION_BASIS: "", BADGE_GRACE_MINUTES: 10.0}
 
 
 @dataclass(frozen=True)
@@ -22,7 +28,7 @@ class EditableSetting:
     key: str
     label: str
     help: str
-    kind: str  # "percent" | "minutes" | "choice"
+    kind: str  # "percent" | "minutes" | "choice" | "text"
     choices: tuple[str, ...] = ()
     minimum: float | None = None
     maximum: float | None = None
@@ -58,6 +64,39 @@ EDITABLE: tuple[EditableSetting, ...] = (
         kind="choice",
         choices=("loading", "offloading", ""),
     ),
+    EditableSetting(
+        key=BADGE_GRACE_MINUTES,
+        label="A badge-in admits someone for",
+        help=(
+            "Someone seen in a badge-required zone is accounted for if the zone's door "
+            "logged a granted swipe within this many minutes before."
+        ),
+        kind="minutes",
+        minimum=1,
+        maximum=120,
+    ),
+    EditableSetting(
+        key=FACE_RECOGNITION_BASIS,
+        label="Legal basis for face recognition",
+        help=(
+            "Where the lawful basis for processing staff faces is recorded: the consent "
+            "process, the data protection assessment, the regulator's reference. Face "
+            "recognition cannot be switched on until this is filled in."
+        ),
+        kind="text",
+        maximum=500,
+    ),
+    EditableSetting(
+        key=FACE_RECOGNITION,
+        label="Face recognition",
+        help=(
+            "Recognise enrolled people in 'known faces only' zones. It processes biometric "
+            "data: switch it on only with the legal basis above. Switching it off stops "
+            "recognition at once; enrolled faces are kept until removed."
+        ),
+        kind="choice",
+        choices=("off", "on"),
+    ),
 )
 
 _BY_KEY = {s.key: s for s in EDITABLE}
@@ -72,6 +111,11 @@ def validate(key: str, value: Any) -> Any:
     spec = _BY_KEY.get(key)
     if spec is None:
         raise InvalidSettingError(f"{key} is not an editable setting")
+    if spec.kind == "text":
+        text = str(value or "").strip()
+        if spec.maximum is not None and len(text) > spec.maximum:
+            raise InvalidSettingError(f"{key} must be at most {int(spec.maximum)} characters")
+        return text
     if spec.kind == "choice":
         if value not in spec.choices:
             allowed = ", ".join(repr(c) for c in spec.choices)

@@ -1,4 +1,7 @@
+import { useQuery } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import {
+  Bell,
   Camera,
   ClipboardCheck,
   ScrollText,
@@ -10,6 +13,7 @@ import {
   MonitorPlay,
   Moon,
   Radar,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Sun,
@@ -19,6 +23,9 @@ import { type ReactNode, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import type { Me } from "../auth/session";
 import { useScope } from "../api/scope";
+import { api } from "../api/client";
+import { useAlerts } from "../live/alerts";
+import { PageTransition, transition } from "../motion";
 import { CrateMotif, RAIL_GRADIENT, RAIL_STACKS } from "./brand";
 
 /**
@@ -66,6 +73,8 @@ const NAV = [
     items: [
       { to: "/", label: "Dashboard", icon: LayoutDashboard },
       { to: "/command", label: "Command", icon: Radar },
+      { to: "/alerts", label: "Alerts", icon: Bell, badge: true },
+      { to: "/security", label: "Security", icon: ShieldAlert, incidents: true },
       { to: "/live", label: "Live View", icon: MonitorPlay },
       { to: "/sessions", label: "Reconciliation", icon: ClipboardCheck },
     ],
@@ -93,6 +102,55 @@ const visible = (me: Me | undefined) =>
     ...g,
     items: g.items.filter((i) => !("adminOnly" in i && i.adminOnly) || !!me?.roles.includes("admin")),
   })).filter((g) => g.items.length);
+
+/** Unacknowledged faults and warnings at this bay; pulses while any is critical. */
+function AlertBadge({ compact = false }: { compact?: boolean }) {
+  const { urgent, critical } = useAlerts();
+  if (!urgent) return null;
+  return (
+    <motion.span
+      key={urgent}
+      initial={{ scale: 0.6 }}
+      animate={{ scale: 1 }}
+      transition={transition.elastic}
+      aria-label={`${urgent} alert${urgent === 1 ? "" : "s"} need attention`}
+      className={`num relative grid min-w-[1.25rem] place-items-center rounded-full px-1.5 text-[10.5px] font-bold text-white ${
+        critical ? "bg-bad" : "bg-warn"
+      } ${compact ? "h-4" : "h-5"}`}
+    >
+      {critical && <span aria-hidden className="ping absolute inset-0 rounded-full text-bad" />}
+      <span className="relative">{urgent}</span>
+    </motion.span>
+  );
+}
+
+/** Open security incidents at this bay; pulses while any is fire, smoke or intrusion. */
+function IncidentBadge({ compact = false }: { compact?: boolean }) {
+  const { bay } = useScope();
+  const open = useQuery({
+    queryKey: ["incidents", bay?.id, "open"],
+    queryFn: () => api.incidents({ bayId: bay?.id, status: "open", days: 30 }),
+    enabled: !!bay,
+  });
+  const n = open.data?.length ?? 0;
+  if (!n) return null;
+  const critical = open.data!.some((i) => i.kind === "fire" || i.kind === "smoke" || i.kind === "intrusion");
+  return (
+    <motion.span
+      key={n}
+      initial={{ scale: 0.6 }}
+      animate={{ scale: 1 }}
+      transition={transition.elastic}
+      aria-label={`${n} open security incident${n === 1 ? "" : "s"}`}
+      className={`num relative grid min-w-[1.25rem] place-items-center rounded-full px-1.5 text-[10.5px] font-bold text-white ${
+        critical ? "bg-bad" : "bg-warn"
+      } ${compact ? "h-4" : "h-5"}`}
+    >
+      {critical && <span aria-hidden className="ping absolute inset-0 rounded-full text-bad" />}
+      <span className="relative">{n}</span>
+    </motion.span>
+  );
+}
 
 type Theme = "light" | "dark" | null;
 
@@ -164,7 +222,8 @@ export function Layout({
         className="fixed inset-y-0 left-0 hidden w-64 flex-col overflow-hidden text-white lg:flex"
         style={{ background: RAIL_GRADIENT }}
       >
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-72 opacity-90">
+        {/* decoration only: on a short window it would sit behind the menu, so it goes */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-72 opacity-90 [@media(min-height:960px)]:block">
           <CrateMotif stacks={RAIL_STACKS} viewBox="0 0 256 300" />
         </div>
         <div
@@ -202,28 +261,38 @@ export function Layout({
                 {group}
               </div>
               <div className="space-y-0.5">
-                {items.map(({ to, label, icon: Icon }) => (
+                {items.map(({ to, label, icon: Icon, ...rest }) => (
                   <NavLink
                     key={to}
                     to={to}
                     end={to === "/"}
                     className={({ isActive }) =>
-                      `relative flex items-center gap-2.5 rounded-lg py-2 pl-3 pr-3 text-sm font-semibold transition ${
-                        isActive
-                          ? "bg-white/15 text-white"
-                          : "text-white/65 hover:bg-white/8 hover:text-white"
+                      `group relative flex items-center gap-2.5 rounded-lg py-2 pl-3 pr-3 text-sm font-semibold transition ${
+                        isActive ? "text-white" : "text-white/65 hover:bg-white/8 hover:text-white"
                       }`
                     }
                   >
                     {({ isActive }) => (
                       <>
-                        <span
-                          className={`absolute left-0 h-5 w-[3px] rounded-r-full transition ${
-                            isActive ? "bg-[#f06ab5]" : "bg-transparent"
-                          }`}
+                        {/* one highlight that slides to the page you chose; the rail is
+                            single-theme, so its literals are deliberate */}
+                        {isActive && (
+                          <motion.span
+                            layoutId="rail-active"
+                            transition={transition.spring}
+                            className="absolute inset-0 rounded-lg bg-white/15"
+                          >
+                            <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[#f06ab5]" />
+                          </motion.span>
+                        )}
+                        <Icon
+                          size={16}
+                          strokeWidth={2.2}
+                          className="relative transition-transform duration-200 ease-out group-hover:scale-110"
                         />
-                        <Icon size={16} strokeWidth={2.2} />
-                        {label}
+                        <span className="relative flex-1">{label}</span>
+                        {"badge" in rest && <AlertBadge />}
+                        {"incidents" in rest && <IncidentBadge />}
                       </>
                     )}
                   </NavLink>
@@ -303,23 +372,38 @@ export function Layout({
         </header>
 
         <nav className="flex gap-1 overflow-x-auto border-b border-line bg-surface px-2 lg:hidden">
-          {nav.flatMap((g) => g.items).map(({ to, label }) => (
+          {nav.flatMap((g) => g.items).map(({ to, label, ...rest }) => (
             <NavLink
               key={to}
               to={to}
               end={to === "/"}
               className={({ isActive }) =>
-                `whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-semibold ${
-                  isActive ? "border-accent text-ink" : "border-transparent text-muted"
+                `relative flex items-center gap-1.5 whitespace-nowrap px-3 py-2.5 text-sm font-semibold transition-colors ${
+                  isActive ? "text-ink" : "text-muted hover:text-ink"
                 }`
               }
             >
-              {label}
+              {({ isActive }) => (
+                <>
+                  {label}
+                  {"badge" in rest && <AlertBadge compact />}
+                  {"incidents" in rest && <IncidentBadge compact />}
+                  {isActive && (
+                    <motion.span
+                      layoutId="mobile-active"
+                      transition={transition.spring}
+                      className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-accent"
+                    />
+                  )}
+                </>
+              )}
             </NavLink>
           ))}
         </nav>
 
-        <main className="flex-1 px-4 pb-10 pt-5 sm:px-6">{children}</main>
+        <main className="flex-1 px-4 pb-10 pt-5 sm:px-6">
+          <PageTransition>{children}</PageTransition>
+        </main>
       </div>
     </div>
   );

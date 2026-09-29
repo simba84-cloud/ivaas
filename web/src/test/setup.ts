@@ -23,11 +23,15 @@ window.matchMedia ??= ((query: string) => ({
   dispatchEvent: () => false,
 })) as unknown as typeof window.matchMedia;
 
+// jsdom does not lay out, so it has no scrollIntoView; the assistant keeps its latest reply in view.
+Element.prototype.scrollIntoView ??= () => {};
+
 // MSW intercepts fetch/XHR so tests exercise the real API client against scripted responses.
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();
   sessionStorage.clear();
+  localStorage.clear(); // remembered choices (wall order, bay) must not leak between tests
 });
 afterAll(() => server.close());

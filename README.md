@@ -70,7 +70,7 @@ Use a laptop webcam as a camera (register it as a push camera in the portal firs
 Replay recorded footage as a live camera (needs ffmpeg):
 
 ```bash
-ffmpeg -re -stream_loop -1 -i clip.mp4 -c copy -f rtsp rtsp://localhost:8554/bay-poc/chokepoint-1
+ffmpeg -re -stream_loop -1 -i clip.mp4 -c copy -rtsp_transport tcp -f rtsp rtsp://localhost:8554/bay-poc/chokepoint-1
 ```
 
 ## Test

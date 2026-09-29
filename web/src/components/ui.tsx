@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ApprovalReason, CameraStatus, SessionStatus } from "../api/types";
@@ -109,11 +110,18 @@ export const reasonLabel = (r: ApprovalReason | null) =>
 
 export function SessionBadge({ status }: { status: SessionStatus }) {
   const s = SESSION_CHIP[status];
+  // keyed on status: a load that changes state pops once, so the change is seen
   return (
-    <span className={`chip capitalize ${s.cls}`}>
+    <motion.span
+      key={status}
+      initial={{ scale: 0.85 }}
+      animate={{ scale: 1 }}
+      transition={{ type: "spring", bounce: 0.4, duration: 0.4 }}
+      className={`chip capitalize transition-colors ${s.cls}`}
+    >
       <span className={`dot ${s.dot}`} />
       {status}
-    </span>
+    </motion.span>
   );
 }
 

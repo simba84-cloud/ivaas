@@ -28,6 +28,8 @@ from ivaas.adapters.http.auth import (
     websocket_principal,
 )
 from ivaas.adapters.http.schemas import (
+    AcknowledgeIn,
+    AcknowledgementOut,
     AnalysisJobOut,
     ApproveIn,
     AssignRolesIn,
@@ -66,12 +68,14 @@ from ivaas.adapters.http.schemas import (
     ToolUseOut,
     UserOut,
 )
+from ivaas.adapters.http.security_routes import add_security_routes
 from ivaas.adapters.storage.objects import LocalObjectStore
 from ivaas.adapters.streaming.mediamtx import StreamGatewayError
 from ivaas.adapters.streaming.onvif import is_lan_device_url
 from ivaas.application.analysis import job_worker
 from ivaas.config.container import Container, build_container
 from ivaas.config.settings import Settings
+from ivaas.domain.alerts import InvalidAlertKeyError
 from ivaas.domain.audit import AuditAction, AuditEntry
 from ivaas.domain.models import (
     Bay,
@@ -88,10 +92,13 @@ from ivaas.domain.platform_settings import (
     AUTO_CLOSE_IDLE_MINUTES,
     AUTO_OPEN_DIRECTION,
     EDITABLE,
+    FACE_RECOGNITION,
+    FACE_RECOGNITION_BASIS,
     RECONCILE_TOLERANCE,
     InvalidSettingError,
     validate,
 )
+from ivaas.domain.platform_settings import DEFAULTS as SETTING_DEFAULTS
 from ivaas.domain.users import UserError, WeakPasswordError
 from ivaas.ports.assistant import ChatMessage, ChatModelUnavailableError
 from ivaas.ports.auth import Principal, Role
@@ -708,6 +715,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             RECONCILE_TOLERANCE: st.reconcile_tolerance,
             AUTO_CLOSE_IDLE_MINUTES: st.auto_close_idle_minutes,
             AUTO_OPEN_DIRECTION: st.auto_open_direction,
+            **SETTING_DEFAULTS,
         }
         stored = await c.setting_store.all()
         editable = [
@@ -818,6 +826,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             value = validate(key, body.value)
         except InvalidSettingError as exc:
             raise HTTPException(422, str(exc)) from exc
+        if key == FACE_RECOGNITION and value == "on":
+            basis = await c.effective(FACE_RECOGNITION_BASIS, "")
+            if not str(basis).strip():
+                raise HTTPException(
+                    422, "record the legal basis for face recognition before switching it on"
+                )
         await c.setting_store.set(key, value, by=principal.name, at=c.clock.now())
         c.forget_overrides()  # the next request sees it, not the next cache window
         await audit(c, principal.name, AuditAction.SETTING_CHANGED, key, value=value)
@@ -838,6 +852,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         since = c.clock.now() - timedelta(days=max(1, min(days, 365)))
         entries = await c.audit.list_recent(since=since, actor=actor, action=action, limit=limit)
         return [AuditEntryOut.of(e) for e in entries]
+
+    # alerts --------------------------------------------------------------
+    # Alerts are worked out from live state by the portal; only the acknowledgement
+    # is stored, because "who saw this, and when" is the part worth keeping.
+    @app.get(
+        "/api/v1/alerts/acknowledgements",
+        response_model=list[AcknowledgementOut],
+        dependencies=[Depends(require(Role.VIEWER))],
+    )
+    async def list_acknowledgements(
+        c: Container = Depends(get_container),
+    ) -> list[AcknowledgementOut]:
+        return [AcknowledgementOut.of(a) for a in await c.list_acknowledgements()]
+
+    @app.post(
+        "/api/v1/alerts/acknowledgements",
+        response_model=AcknowledgementOut,
+        dependencies=[Depends(require(Role.OPERATOR))],
+    )
+    async def acknowledge_alert(
+        body: AcknowledgeIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> AcknowledgementOut:
+        try:
+            kept, created = await c.acknowledge_alert(body.key, principal.name, body.note)
+        except InvalidAlertKeyError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if created:
+            await audit(
+                c,
+                principal.name,
+                AuditAction.ALERT_ACKNOWLEDGED,
+                body.title,
+                key=kept.key,
+                note=kept.note,
+            )
+        return AcknowledgementOut.of(kept)
 
     @app.get(
         "/api/v1/analytics/overview",
@@ -944,6 +996,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if job is None:
             raise HTTPException(404, "analysis not found")
         return await _job_out(c, job)
+
+    add_security_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}")
     async def get_object(

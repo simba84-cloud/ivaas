@@ -7,6 +7,7 @@ import { useScope } from "../api/scope";
 import type { AnalysisJob } from "../api/types";
 import { type Me, hasRole } from "../auth/session";
 import { EmptyState, PageHeader, dateTime } from "../components/ui";
+import { MotionRow, Progress, SkeletonRows } from "../motion";
 
 const STATUS: Record<AnalysisJob["status"], string> = {
   queued: "bg-ground text-muted",
@@ -105,9 +106,7 @@ function UploadCard({ bayId, maxMb }: { bayId: string; maxMb: number }) {
             <span>Uploading</span>
             <span>{Math.round(sent * 100)}%</span>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-line">
-            <div className="h-full bg-accent transition-all" style={{ width: `${sent * 100}%` }} />
-          </div>
+          <Progress value={sent} label="Upload progress" />
         </div>
       )}
       {rejected && (
@@ -168,7 +167,11 @@ export default function Analysis({ me }: { me: Me | undefined }) {
           <div className="border-b border-line px-5 py-4">
             <h2 className="font-semibold text-ink">Analyses</h2>
           </div>
-          {jobs.data?.length ? (
+          {jobs.isPending ? (
+            <table className="w-full">
+              <SkeletonRows rows={4} cols={5} />
+            </table>
+          ) : jobs.data?.length ? (
             <table className="w-full">
               <thead>
                 <tr className="border-b border-line">
@@ -180,8 +183,8 @@ export default function Analysis({ me }: { me: Me | undefined }) {
                 </tr>
               </thead>
               <tbody>
-                {jobs.data.map((j) => (
-                  <tr key={j.id} className="border-b border-line last:border-0">
+                {jobs.data.map((j, i) => (
+                  <MotionRow key={j.id} index={i} className="border-b border-line last:border-0">
                     <td className="td">
                       <Link to={`/analysis/${j.id}`} className="font-semibold text-ink hover:underline">
                         {j.filename}
@@ -198,6 +201,11 @@ export default function Analysis({ me }: { me: Me | undefined }) {
                         {j.status}
                         {j.status === "running" && ` ${Math.round(j.progress * 100)}%`}
                       </span>
+                      {j.status === "running" && (
+                        <div className="mt-1.5 w-32">
+                          <Progress value={j.progress} label={`${j.filename} progress`} />
+                        </div>
+                      )}
                       {j.error && <div className="mt-1 max-w-xs truncate text-xs text-bad">{j.error}</div>}
                     </td>
                     <td className="td text-right tabular-nums">{j.status === "done" ? j.loads.length : "—"}</td>
@@ -208,7 +216,7 @@ export default function Analysis({ me }: { me: Me | undefined }) {
                       {dateTime(j.created_at)}
                       <div className="text-xs text-faint">{j.created_by}</div>
                     </td>
-                  </tr>
+                  </MotionRow>
                 ))}
               </tbody>
             </table>

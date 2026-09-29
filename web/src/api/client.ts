@@ -1,5 +1,14 @@
 import { getToken, type Me } from "../auth/session";
 import type {
+  Acknowledgement,
+  BadgeEvent,
+  EnrolledPerson,
+  Incident,
+  IncidentKind,
+  IncidentStatus,
+  SecurityStatus,
+  Zone,
+  ZoneInput,
   AnalysisJob,
   ApprovalReason,
   AuditEntry,
@@ -141,6 +150,56 @@ export const api = {
       body.append("file", file);
       xhr.send(body);
     }),
+  acknowledgements: () => request<Acknowledgement[]>("/api/v1/alerts/acknowledgements"),
+  acknowledge: (key: string, title: string, note?: string) =>
+    request<Acknowledgement>("/api/v1/alerts/acknowledgements", {
+      method: "POST",
+      body: JSON.stringify({ key, title, note: note || null }),
+    }),
+  securityStatus: () => request<SecurityStatus>("/api/v1/security/status"),
+  zones: (bayId: string) => request<Zone[]>(`/api/v1/bays/${bayId}/zones`),
+  createZone: (cameraId: string, body: ZoneInput) =>
+    request<Zone>(`/api/v1/cameras/${cameraId}/zones`, { method: "POST", body: JSON.stringify(body) }),
+  updateZone: (id: string, body: ZoneInput) =>
+    request<Zone>(`/api/v1/zones/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteZone: (id: string) => request<void>(`/api/v1/zones/${id}`, { method: "DELETE" }),
+  /** A still frame to draw zones on; null when the camera is not streaming. */
+  cameraSnapshot: async (cameraId: string): Promise<Blob | null> => {
+    const token = getToken();
+    const res = await fetch(`/api/v1/cameras/${cameraId}/snapshot`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    return res.ok ? res.blob() : null;
+  },
+  incidents: (params: { bayId?: string; status?: IncidentStatus; kind?: IncidentKind; days?: number } = {}) => {
+    const q = new URLSearchParams({ days: String(params.days ?? 7) });
+    if (params.bayId) q.set("bay_id", params.bayId);
+    if (params.status) q.set("status", params.status);
+    if (params.kind) q.set("kind", params.kind);
+    return request<Incident[]>(`/api/v1/incidents?${q}`);
+  },
+  acknowledgeIncident: (id: string) =>
+    request<Incident>(`/api/v1/incidents/${id}/acknowledge`, { method: "POST" }),
+  resolveIncident: (id: string, note: string) =>
+    request<Incident>(`/api/v1/incidents/${id}/resolve`, { method: "POST", body: JSON.stringify({ note }) }),
+  badges: (hours = 24) => request<BadgeEvent[]>(`/api/v1/badges?hours=${hours}`),
+  people: () => request<EnrolledPerson[]>("/api/v1/people"),
+  enrol: async (form: FormData): Promise<EnrolledPerson> => {
+    // multipart: no JSON content type, the browser sets the boundary
+    const token = getToken();
+    const res = await fetch("/api/v1/people", {
+      method: "POST",
+      body: form,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.status === 401) window.dispatchEvent(new Event("ivaas:unauthorized"));
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(typeof body.detail === "string" ? body.detail : `${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  },
+  removePerson: (id: string) => request<void>(`/api/v1/people/${id}`, { method: "DELETE" }),
   sessions: (bayId?: string) =>
     request<Session[]>(`/api/v1/sessions?limit=100${bayId ? `&bay_id=${bayId}` : ""}`),
   openSession: (bay_id: string, direction: Direction) =>

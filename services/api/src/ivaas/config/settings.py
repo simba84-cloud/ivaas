@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     s3_bucket: str = "ivaas"
     stack_model: str = "../../models/stacks-v2.onnx"
     layers_model: str = "../../models/layers-v3.onnx"
+    # Face recognition (off until an admin records its legal basis under Settings).
+    # OpenCV Zoo models: YuNet (MIT) finds faces, SFace (Apache-2.0) embeds them.
+    face_detector_model: str = "../../models/face_detection_yunet_2023mar.onnx"
+    face_recognizer_model: str = "../../models/face_recognition_sface_2021dec.onnx"
     max_upload_mb: int = 5120
     # Run the video-analysis worker inside this process. True keeps a single-process
     # deployment working; docker-compose sets it False on the API and runs a separate
@@ -37,6 +41,8 @@ class Settings(BaseSettings):
     seed_demo_data: bool = True
     # empty = no media server (dev): cameras are stored but no stream is provisioned
     mediamtx_api_url: str = ""
+    # where the API reads a camera's stream for a still frame (drawing security zones)
+    media_rtsp_url: str = "rtsp://localhost:8554"
     # Fernet keys for camera credentials at rest, newest first. Generate one with
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     secrets_keys: list[str] = []

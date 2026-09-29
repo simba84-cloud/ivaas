@@ -8,3 +8,7 @@ scrape_configs:
     metrics_path: /varz
     static_configs:
       - targets: ["nats:8222"]
+  # the edge pipeline (compose profile "edge"): frame lag, processing time, dropped frames
+  - job_name: ivaas-pipeline
+    static_configs:
+      - targets: ["pipeline:9102"]

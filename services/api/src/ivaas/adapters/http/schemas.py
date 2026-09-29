@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from ivaas.application.overview import Overview, Severity, Trend
+from ivaas.domain.alerts import AlertAcknowledgement
 from ivaas.domain.audit import AuditAction, AuditEntry
 from ivaas.domain.models import (
     ApprovalReason,
@@ -18,6 +19,15 @@ from ivaas.domain.models import (
     SessionDirection,
     SessionStatus,
     Site,
+)
+from ivaas.domain.security import (
+    BadgeEvent,
+    EnrolledPerson,
+    Incident,
+    IncidentKind,
+    IncidentStatus,
+    Zone,
+    ZoneRule,
 )
 from ivaas.domain.users import User, UserRole
 
@@ -465,3 +475,209 @@ class AnalysisJobOut(BaseModel):
     timeline: list[TimelineEventOut]
     summary: str | None
     video_url: str | None
+
+
+class AcknowledgeIn(BaseModel):
+    key: str = Field(min_length=1, max_length=200)
+    #: what the alert said, so the audit trail reads in operator terms
+    title: str = Field(min_length=1, max_length=200)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class AcknowledgementOut(BaseModel):
+    key: str
+    acknowledged_by: str
+    acknowledged_at: datetime
+    note: str | None
+
+    @staticmethod
+    def of(a: AlertAcknowledgement) -> AcknowledgementOut:
+        return AcknowledgementOut(
+            key=a.key,
+            acknowledged_by=a.acknowledged_by,
+            acknowledged_at=a.acknowledged_at,
+            note=a.note,
+        )
+
+
+# --- site security -------------------------------------------------------------------
+
+
+class WindowIn(BaseModel):
+    days: list[int] = Field(min_length=1, max_length=7)
+    start: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    end: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+class ZoneIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    polygon: list[tuple[float, float]] = Field(min_length=3, max_length=64)
+    rules: list[ZoneRule] = []
+    schedule: list[WindowIn] = Field(default=[], max_length=14)
+    min_dwell_s: float = Field(default=3.0, ge=0, le=600)
+    exclude: bool = False
+    badge_door: str | None = Field(default=None, max_length=120)
+
+
+class ZoneOut(BaseModel):
+    id: UUID
+    camera_id: UUID
+    name: str
+    polygon: list[tuple[float, float]]
+    rules: list[ZoneRule]
+    schedule: list[WindowIn]
+    min_dwell_s: float
+    exclude: bool
+    badge_door: str | None
+    #: armed right now, in the site's own time zone
+    armed: bool
+
+    @staticmethod
+    def of(z: Zone, armed: bool) -> ZoneOut:
+        return ZoneOut(
+            id=z.id,
+            camera_id=z.camera_id,
+            name=z.name,
+            polygon=list(z.polygon),
+            rules=sorted(z.rules),
+            schedule=[WindowIn(days=list(w.days), start=w.start, end=w.end) for w in z.schedule],
+            min_dwell_s=z.min_dwell_s,
+            exclude=z.exclude,
+            badge_door=z.badge_door,
+            armed=armed,
+        )
+
+
+class IncidentIn(BaseModel):
+    bay_id: UUID
+    camera_id: UUID
+    zone_id: UUID
+    kind: IncidentKind
+    confidence: float = Field(ge=0, le=1)
+    detected_at: datetime
+    #: base64 JPEG; 2 MB decoded
+    snapshot_jpeg_b64: str | None = Field(default=None, max_length=2_800_000)
+    detail: dict = {}
+
+
+class IncidentOut(BaseModel):
+    id: UUID
+    bay_id: UUID
+    camera_id: UUID
+    kind: IncidentKind
+    zone_id: UUID | None
+    zone_name: str | None
+    detected_at: datetime
+    confidence: float
+    snapshot_url: str | None
+    detail: dict
+    status: IncidentStatus
+    acknowledged_by: str | None
+    acknowledged_at: datetime | None
+    resolved_by: str | None
+    resolved_at: datetime | None
+    resolution_note: str | None
+
+    @staticmethod
+    def of(i: Incident, snapshot_url: str | None) -> IncidentOut:
+        return IncidentOut(
+            id=i.id,
+            bay_id=i.bay_id,
+            camera_id=i.camera_id,
+            kind=i.kind,
+            zone_id=i.zone_id,
+            zone_name=i.zone_name,
+            detected_at=i.detected_at,
+            confidence=i.confidence,
+            snapshot_url=snapshot_url,
+            detail=i.detail,
+            status=i.status,
+            acknowledged_by=i.acknowledged_by,
+            acknowledged_at=i.acknowledged_at,
+            resolved_by=i.resolved_by,
+            resolved_at=i.resolved_at,
+            resolution_note=i.resolution_note,
+        )
+
+
+class ResolveIn(BaseModel):
+    note: str = Field(min_length=1, max_length=1000)
+
+
+class BadgeIn(BaseModel):
+    badge_id: str = Field(min_length=1, max_length=120)
+    door: str = Field(min_length=1, max_length=120)
+    at: datetime
+    granted: bool
+    holder: str | None = Field(default=None, max_length=160)
+
+
+class BadgeOut(BadgeIn):
+    id: UUID
+
+    @staticmethod
+    def of(e: BadgeEvent) -> BadgeOut:
+        return BadgeOut(
+            id=e.id, badge_id=e.badge_id, door=e.door, at=e.at, granted=e.granted, holder=e.holder
+        )
+
+
+class PersonOut(BaseModel):
+    """Who is enrolled. The face embedding is never returned, to anyone."""
+
+    id: UUID
+    name: str
+    employee_ref: str
+    consent_reference: str
+    enrolled_by: str
+    enrolled_at: datetime
+
+    @staticmethod
+    def of(p: EnrolledPerson) -> PersonOut:
+        return PersonOut(
+            id=p.id,
+            name=p.name,
+            employee_ref=p.employee_ref,
+            consent_reference=p.consent_reference,
+            enrolled_by=p.enrolled_by,
+            enrolled_at=p.enrolled_at,
+        )
+
+
+class EdgeCapabilities(BaseModel):
+    reported_at: datetime
+    detectors: list[str]
+
+
+class SecurityStatusOut(BaseModel):
+    """What the security features can actually do right now, so the portal can say so."""
+
+    face_recognition: bool
+    face_models_installed: bool
+    enrolled_people: int
+    badge_events_24h: int
+    last_badge_at: datetime | None
+    #: what the edge node last said it can detect; None if it has never checked in
+    edge: EdgeCapabilities | None
+
+
+class PipelineZone(BaseModel):
+    id: UUID
+    camera_id: UUID
+    name: str
+    polygon: list[tuple[float, float]]
+    rules: list[ZoneRule]
+    armed: bool
+    min_dwell_s: float
+    exclude: bool
+
+
+class GalleryEntry(BaseModel):
+    name: str
+    embedding: list[float]
+
+
+class PipelineSecurityOut(BaseModel):
+    zones: list[PipelineZone]
+    #: only while face recognition is switched on
+    gallery: list[GalleryEntry]

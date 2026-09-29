@@ -22,6 +22,9 @@ import { useLiveEvents } from "./hooks/useLiveEvents";
 import Analysis from "./pages/Analysis";
 import AnalysisReport from "./pages/AnalysisReport";
 import Assistant from "./pages/Assistant";
+import { LiveActivityProvider } from "./live/provider";
+import Alerts from "./pages/Alerts";
+import Security from "./pages/Security";
 import Cameras from "./pages/Cameras";
 import Command from "./pages/Command";
 import Dashboard from "./pages/Dashboard";
@@ -98,10 +101,13 @@ export default function App() {
   return (
     // the whole shell shares one bay selection, header and pages alike
     <ScopeProvider>
+      <LiveActivityProvider>
       <Layout connected={connected} me={me.data} onLogout={() => logout(config.data)}>
         <Routes>
           <Route path="/" element={<Dashboard me={me.data} />} />
           <Route path="/command" element={<Command />} />
+          <Route path="/alerts" element={<Alerts me={me.data} />} />
+          <Route path="/security" element={<Security me={me.data} />} />
           <Route path="/live" element={<LiveView />} />
           <Route path="/sessions" element={<Sessions me={me.data} />} />
           <Route path="/cameras" element={<Cameras me={me.data} />} />
@@ -115,6 +121,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>
+      </LiveActivityProvider>
     </ScopeProvider>
   );
 }

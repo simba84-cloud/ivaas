@@ -1,5 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  BadgeCheck,
+  BellRing,
+  Eraser,
+  PenTool,
+  ScanFace,
+  ShieldAlert,
+  UserMinus,
   Boxes,
   Camera,
   CameraOff,
@@ -22,6 +29,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { AuditAction, AuditEntry } from "../api/types";
 import { EmptyState, dateTime } from "../components/ui";
+import { Rise, Segmented, SkeletonList } from "../motion";
 
 /** Each action in the words an operator would use, with the icon it earns. */
 const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon; tone: string }> = {
@@ -54,6 +62,21 @@ const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon; tone: stri
     icon: SlidersHorizontal,
     tone: "text-warn bg-warn/10",
   },
+  alert_acknowledged: {
+    label: "Acknowledged an alert",
+    icon: BellRing,
+    tone: "text-brand bg-brand-tint",
+  },
+  zone_saved: { label: "Saved a security zone", icon: PenTool, tone: "text-warn bg-warn/10" },
+  zone_deleted: { label: "Deleted a security zone", icon: Eraser, tone: "text-bad bg-bad/10" },
+  incident_acknowledged: {
+    label: "Acknowledged an incident",
+    icon: ShieldAlert,
+    tone: "text-brand bg-brand-tint",
+  },
+  incident_resolved: { label: "Resolved an incident", icon: BadgeCheck, tone: "text-good bg-good/10" },
+  person_enrolled: { label: "Enrolled a face", icon: ScanFace, tone: "text-warn bg-warn/10" },
+  person_removed: { label: "Removed an enrolled face", icon: UserMinus, tone: "text-bad bg-bad/10" },
 };
 
 const WINDOWS = [
@@ -77,7 +100,8 @@ function Detail({ entry }: { entry: AuditEntry }) {
     if (d.variance !== undefined) parts.push(`variance ${Number(d.variance) > 0 ? "+" : ""}${d.variance}`);
   } else {
     for (const [k, v] of Object.entries(d)) {
-      if (k.endsWith("_id")) continue; // ids mean nothing to a person reading this
+      // ids and alert keys mean nothing to a person reading this; the note shows below
+      if (k.endsWith("_id") || k === "key" || k === "note") continue;
       parts.push(`${k.replace(/_/g, " ")} ${v}`);
     }
   }
@@ -119,18 +143,12 @@ export default function Audit() {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
-        <div className="segment" role="group" aria-label="Time window">
-          {WINDOWS.map((w) => (
-            <button
-              key={w.days}
-              onClick={() => setDays(w.days)}
-              aria-pressed={days === w.days}
-              className={`segment-item ${days === w.days ? "segment-item-on" : ""}`}
-            >
-              {w.label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Time window"
+          value={String(days)}
+          onChange={(v) => setDays(Number(v))}
+          options={WINDOWS.map((w) => ({ value: String(w.days), label: w.label }))}
+        />
         <select
           id="audit-action"
           aria-label="Action"
@@ -159,17 +177,19 @@ export default function Audit() {
             </option>
           ))}
         </select>
-        <span className="num ml-auto text-xs text-faint">{rows.length} entries</span>
+        <span className="num ml-auto text-xs text-faint">{entries.isPending ? "…" : `${rows.length} entries`}</span>
       </div>
 
       <div className="card overflow-hidden">
-        {rows.length ? (
+        {entries.isPending ? (
+          <SkeletonList rows={6} />
+        ) : rows.length ? (
           <ul className="divide-y divide-line">
-            {rows.map((e) => {
+            {rows.map((e, i) => {
               const a = ACTIONS[e.action];
               const Icon = a?.icon ?? ClipboardCheck;
               return (
-                <li key={e.id} className="flex items-start gap-3 px-4 py-2.5">
+                <Rise as="li" index={i} key={e.id} className="flex items-start gap-3 px-4 py-2.5">
                   <span
                     className={`mt-0.5 grid h-7 w-7 flex-none place-items-center rounded-lg ${a?.tone ?? "bg-ground text-muted"}`}
                   >
@@ -184,7 +204,7 @@ export default function Audit() {
                     <Detail entry={e} />
                   </div>
                   <span className="num flex-none text-xs text-faint">{dateTime(e.at)}</span>
-                </li>
+                </Rise>
               );
             })}
           </ul>

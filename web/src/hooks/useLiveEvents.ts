@@ -32,7 +32,11 @@ export function useLiveEvents(): boolean {
         } catch {
           /* ignore */
         }
-        if (subject.startsWith("ivaas.analysis")) {
+        if (subject.startsWith("ivaas.incident")) {
+          queryClient.invalidateQueries({ queryKey: ["incidents"] });
+        } else if (subject.startsWith("ivaas.alert")) {
+          queryClient.invalidateQueries({ queryKey: ["alert-acks"] });
+        } else if (subject.startsWith("ivaas.analysis")) {
           queryClient.invalidateQueries({ queryKey: ["analyses"] });
           queryClient.invalidateQueries({ queryKey: ["analysis"] });
         } else {

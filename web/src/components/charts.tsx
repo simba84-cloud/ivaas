@@ -20,6 +20,7 @@ import {
   YAxis,
 } from "recharts";
 import type { DayPoint } from "../api/types";
+import { useChartEntrance } from "../motion";
 
 const TOKENS = ["brand", "accent", "line", "muted", "faint", "good", "warn", "surface"] as const;
 type Token = (typeof TOKENS)[number];
@@ -67,6 +68,7 @@ export function Sparkline({
 }) {
   // A gap means the metric was not measured that day. Drawing it as zero would show a
   // collapse that never happened, so the line breaks instead.
+  const entrance = useChartEntrance(600);
   if (series.filter((v) => v !== null).length < 2) return <div style={{ height }} />;
   const data = series.map((v, i) => ({ i, v }));
   const id = `spark-${color.replace(/\D/g, "")}`;
@@ -85,7 +87,7 @@ export function Sparkline({
           stroke={color}
           strokeWidth={2}
           fill={`url(#${id})`}
-          isAnimationActive={false}
+          {...entrance}
           connectNulls={false}
           dot={false}
         />
@@ -100,6 +102,8 @@ const dayLabel = (iso: string) =>
 /** Crates moved per day, with verified accuracy tracked against the 95% target. */
 export function ThroughputChart({ daily, height = 260 }: { daily: DayPoint[]; height?: number }) {
   const c = useChartTheme();
+  // bars grow and the accuracy line draws in, but only when that will certainly finish
+  const entrance = useChartEntrance();
   const data = daily.map((d) => ({
     day: dayLabel(d.day),
     crates: d.crates,
@@ -158,7 +162,7 @@ export function ThroughputChart({ daily, height = 260 }: { daily: DayPoint[]; he
           fill={c.brand}
           radius={[4, 4, 0, 0]}
           maxBarSize={28}
-          isAnimationActive={false}
+          {...entrance}
         />
         {anyAccuracy && (
           <>
@@ -177,7 +181,8 @@ export function ThroughputChart({ daily, height = 260 }: { daily: DayPoint[]; he
               strokeWidth={2}
               dot={{ r: 3, fill: c.accent, strokeWidth: 0 }}
               connectNulls
-              isAnimationActive={false}
+              {...entrance}
+              animationBegin={200}
             />
           </>
         )}

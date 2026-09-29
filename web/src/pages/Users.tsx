@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { TemporaryPassword, User, UserRole } from "../api/types";
 import { EmptyState, dateTime } from "../components/ui";
+import { MotionRow, SkeletonRows } from "../motion";
 
 const ROLES: { value: UserRole; label: string; what: string }[] = [
   { value: "viewer", label: "Viewer", what: "Reads dashboards and reports" },
@@ -149,7 +150,17 @@ function NewUser({ onDone }: { onDone: (r: TemporaryPassword) => void }) {
   );
 }
 
-function Row({ user, me, onReset }: { user: User; me: string; onReset: (r: TemporaryPassword) => void }) {
+function Row({
+  user,
+  me,
+  onReset,
+  index = 0,
+}: {
+  user: User;
+  me: string;
+  onReset: (r: TemporaryPassword) => void;
+  index?: number;
+}) {
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: ["users"] });
   const isSelf = user.username === me;
@@ -173,7 +184,7 @@ function Row({ user, me, onReset }: { user: User; me: string; onReset: (r: Tempo
   const error = roles.error ?? enabled.error ?? reset.error;
 
   return (
-    <tr className={`border-t border-line ${user.disabled ? "opacity-60" : ""}`}>
+    <MotionRow index={index} className={`border-t border-line ${user.disabled ? "opacity-60" : ""}`}>
       <td className="td">
         <div className="font-semibold text-ink">{user.display_name}</div>
         <div className="num text-xs text-muted">
@@ -242,7 +253,7 @@ function Row({ user, me, onReset }: { user: User; me: string; onReset: (r: Tempo
           </button>
         </div>
       </td>
-    </tr>
+    </MotionRow>
   );
 }
 
@@ -282,7 +293,11 @@ export default function Users({ me }: { me: string }) {
       )}
 
       <div className="card overflow-hidden">
-        {rows.length ? (
+        {users.isPending ? (
+          <table className="w-full">
+            <SkeletonRows rows={4} cols={5} />
+          </table>
+        ) : rows.length ? (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -295,8 +310,8 @@ export default function Users({ me }: { me: string }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((u) => (
-                  <Row key={u.username} user={u} me={me} onReset={setShown} />
+                {rows.map((u, i) => (
+                  <Row key={u.username} index={i} user={u} me={me} onReset={setShown} />
                 ))}
               </tbody>
             </table>

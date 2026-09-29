@@ -3,7 +3,7 @@
  * appear: a load nobody checked has no accuracy, and is not drawn as one.
  */
 import type { Session } from "../../api/types";
-import { ACCURACY_TARGET } from "./activity";
+import { ACCURACY_TARGET } from "../../live/activity";
 
 const W = 320;
 const H = 150;

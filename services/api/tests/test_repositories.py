@@ -332,3 +332,173 @@ async def test_two_workers_never_claim_the_same_job(request):
     assert sorted(got) == sorted(j.id for j in queued)
 
     await dispose()
+
+
+# --- alert acknowledgements ------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def acks(request):
+    """-> an empty acknowledgement store for the requested backend."""
+    from ivaas.adapters.persistence.alerts_postgres import (
+        InMemoryAcknowledgementStore,
+        PostgresAcknowledgementStore,
+    )
+
+    if request.param == "memory":
+        yield InMemoryAcknowledgementStore()
+        return
+
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+
+    postgres_url = request.getfixturevalue("postgres_url")
+    *_, dispose, sm = await build_postgres_repositories(
+        postgres_url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
+    )
+    async with sm.begin() as db:
+        await db.execute(text("DELETE FROM alert_acknowledgements"))
+    yield PostgresAcknowledgementStore(sm)
+    await dispose()
+
+
+both_acks = pytest.mark.parametrize(
+    "acks", ["memory", pytest.param("postgres", marks=pytest.mark.postgres)], indirect=True
+)
+
+
+@both_acks
+async def test_first_acknowledgement_is_kept_and_listed_newest_first(acks):
+    from ivaas.domain.alerts import AlertAcknowledgement
+
+    t0 = datetime(2026, 9, 28, 8, 0, tzinfo=UTC)
+    first = AlertAcknowledgement("cam-a@never", "admin", t0, "on it")
+    assert await acks.add(first) == first
+    later = AlertAcknowledgement("cam-a@never", "operator", t0 + timedelta(minutes=5))
+    assert await acks.add(later) == first  # the first stands
+    await acks.add(AlertAcknowledgement("disputed-x", "operator", t0 + timedelta(hours=1)))
+
+    listed = await acks.list_since(t0 - timedelta(days=1))
+    assert [a.key for a in listed] == ["disputed-x", "cam-a@never"]
+    assert await acks.list_since(t0 + timedelta(minutes=30)) == [listed[0]]
+    assert await acks.get("nothing") is None
+
+
+# --- site security ---------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def security(request):
+    """-> (zones, incidents, badges, people, raw) for the requested backend, empty.
+    `raw` reads a person's stored embedding column, or None in memory."""
+    from ivaas.adapters.persistence import security_postgres as sp
+
+    if request.param == "memory":
+        yield (
+            sp.InMemoryZoneStore(),
+            sp.InMemoryIncidentStore(),
+            sp.InMemoryBadgeLog(),
+            sp.InMemoryPeopleStore(),
+            None,
+        )
+        return
+
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+
+    postgres_url = request.getfixturevalue("postgres_url")
+    box = SecretBox([SecretBox.generate_key()])
+    *_, dispose, sm = await build_postgres_repositories(postgres_url, seed=(SITE, BAY, []), box=box)
+    async with sm.begin() as db:
+        for table in ("security_zones", "security_incidents", "badge_events", "enrolled_people"):
+            await db.execute(text(f"DELETE FROM {table}"))
+
+    async def raw():
+        async with sm() as db:
+            return (await db.execute(text("SELECT embedding FROM enrolled_people"))).scalar_one()
+
+    yield (
+        sp.PostgresZoneStore(sm),
+        sp.PostgresIncidentStore(sm),
+        sp.PostgresBadgeLog(sm),
+        sp.PostgresPeopleStore(sm, box),
+        raw,
+    )
+    await dispose()
+
+
+both_security = pytest.mark.parametrize(
+    "security", ["memory", pytest.param("postgres", marks=pytest.mark.postgres)], indirect=True
+)
+
+
+@both_security
+async def test_zones_incidents_badges_and_people_round_trip(security):
+    from ivaas.domain.security import (
+        BadgeEvent,
+        EnrolledPerson,
+        Incident,
+        IncidentKind,
+        IncidentStatus,
+        Window,
+        Zone,
+        ZoneRule,
+    )
+
+    zones, incidents, badges, people, raw = security
+    cam = uuid4()
+    t0 = datetime(2026, 9, 28, 22, 0, tzinfo=UTC)
+
+    zone = Zone(
+        cam,
+        "Store",
+        ((0.1, 0.1), (0.9, 0.1), (0.5, 0.9)),
+        frozenset({ZoneRule.BADGE, ZoneRule.INTRUSION}),
+        (Window((0, 1), "22:00", "05:00"),),
+        5.0,
+        False,
+        "Store door",
+    )
+    await zones.save(zone)
+    assert await zones.get(zone.id) == zone
+    assert await zones.for_cameras([cam]) == [zone]
+    assert await zones.for_cameras([uuid4()]) == []
+
+    i = Incident(
+        BAY.id,
+        cam,
+        IncidentKind.INTRUSION,
+        t0,
+        0.9,
+        zone.id,
+        "Store",
+        "incidents/x.jpg",
+        {"track_id": 3},
+    )
+    await incidents.save(i)
+    i.acknowledge("operator", t0 + timedelta(minutes=1))
+    await incidents.save(i)
+    stored = await incidents.get(i.id)
+    assert stored.status is IncidentStatus.ACKNOWLEDGED and stored.detail == {"track_id": 3}
+    assert await incidents.list(status=IncidentStatus.OPEN) == []
+    assert [x.id for x in await incidents.list(bay_id=BAY.id, kind=IncidentKind.INTRUSION)] == [
+        i.id
+    ]
+
+    await badges.add(BadgeEvent("B1", "Store door", t0 - timedelta(minutes=2), True, "T. Moyo"))
+    await badges.add(BadgeEvent("B2", "Store door", t0 - timedelta(hours=2), True))
+    assert [e.badge_id for e in await badges.between(t0 - timedelta(minutes=10), t0)] == ["B1"]
+
+    person = EnrolledPerson(
+        "Tendai Moyo", "E-1042", "HR/118", "admin", t0, tuple(0.25 * (k % 7) for k in range(128))
+    )
+    await people.save(person)
+    [back] = await people.list()
+    assert back.embedding == person.embedding  # float32 round trip of exact values
+    if raw is not None:
+        stored_text = await raw()
+        assert stored_text.startswith("enc:")  # sealed: the table alone recognises nobody
+    assert (await people.delete(person.id)).name == "Tendai Moyo"
+    assert await people.list() == []
