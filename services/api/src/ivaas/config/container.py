@@ -171,6 +171,7 @@ def demo_topology() -> tuple[Site, Bay, list[Camera]]:
 class Container:
     settings: Settings
     tenants: Any
+    edge: Any
     users: Any
     hasher: Any
     audit: Any
@@ -505,6 +506,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.users_postgres import PostgresUserStore
 
         tenants = PostgresTenantStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.edge_postgres import PostgresEdgeStore
+
+        edge: Any = PostgresEdgeStore(pg_sessionmaker)
         audit = PostgresAuditLog(pg_sessionmaker)
         setting_store = PostgresSettingsStore(pg_sessionmaker)
         acknowledgements = PostgresAcknowledgementStore(pg_sessionmaker)
@@ -530,6 +534,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.users_postgres import InMemoryUserStore
 
         tenants = InMemoryTenantStore()
+        from ivaas.adapters.persistence.edge_postgres import InMemoryEdgeStore
+
+        edge = InMemoryEdgeStore()
         audit = PerTenant(InMemoryAuditLog)
         setting_store = PerTenant(InMemorySettingsStore)
         acknowledgements = PerTenant(InMemoryAcknowledgementStore)
@@ -607,6 +614,7 @@ async def build_container(settings: Settings) -> Container:
     return Container(
         settings=settings,
         tenants=tenants,
+        edge=edge,
         users=users,
         hasher=hasher,
         audit=audit,
