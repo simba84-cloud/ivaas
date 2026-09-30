@@ -126,6 +126,29 @@ a container holding a shared key.
     any camera path, and its recording flag, that the media server has lost. This runs
     every minute and at startup.
 
+## 2a''. Which truck, and people's corrections (M5, first slice)
+
+- **Fleet register.** Each tenant registers its trucks: plate, fleet number and
+  operator, added one at a time or imported from CSV. A plate is unique per tenant
+  under any spelling, with confusable characters folded together.
+- **Matching plate reads.** A plate read is matched against the register, forgiving
+  spacing and OCR confusion (`A8C I234` becomes truck ABC 1234). A score below 0.85,
+  or a tie between two trucks, is not a match. The load keeps the raw read beside the
+  register's spelling, and says honestly how it was identified:
+  - `registered`: matched a truck in the register;
+  - `unregistered`: a plate was read, but it isn't in the register;
+  - `unidentified`: no plate was read;
+  - `unchecked`: there is no register to check against.
+- **Unidentified loads (T5.2).** Crates crossing at an idle bay open a load in the
+  direction they crossed, when auto-open is on. Before, a missed plate read lost the
+  whole load's count. An operator can say which truck it was (audited, before and
+  after). A later camera read confirms an operator's identification rather than
+  replacing it.
+- **Corrections (T5.5).** A person records a corrected count with a reason (and a
+  note if the reason is "other"). The correction becomes the count of record. The AI
+  count, and the accuracy measured on it, never change, so a correction explains a
+  load without improving the AI's score.
+
 ## 2b. Analysis assistant
 
 ```

@@ -33,6 +33,7 @@ see the [README](../README.md).
 | Tenancy | Postgres row-level security on every tenant table; app runs as `ivaas_app` with `app.tenant_id` set per transaction (ADR 0001) |
 | Roles | Scoped bindings (platform / partner / tenant / site / bay), matrix in `domain/rbac.py` |
 | Edge nodes | Enrolled with a single-use token; authenticate with `X-IVaaS-Node`, bound to one site; heartbeat and pulled config (`/api/v1/edge/*`) |
+| Fleet register | Trucks per tenant; plate reads matched with OCR-confusion folding (`domain/plates.py`, `domain/fleet.py`) |
 | Evidence clips | MediaMTX records evidence cameras (30 min buffer); the node cuts clips via its playback server and uploads them; kept per tenant (default 90 days) |
 | Models (OTA) | Registered versions in object storage with SHA-256; nodes verify, cache by digest and swap in place; rollback per node (`/api/v1/models`) |
 | Secrets at rest | `cryptography` (Fernet, key in `IVAAS_SECRETS_KEY`) |
