@@ -26,7 +26,10 @@ import type {
   EdgeNode,
   EnrollmentToken,
   EvidenceClip,
+  Balance,
   FleetImport,
+  ManifestException,
+  ManifestImport,
   OverrideReason,
   Vehicle,
   Session,
@@ -71,6 +74,20 @@ export const api = {
     }),
   revokeNode: (nodeId: string) =>
     request<void>(`/api/v1/edge/nodes/${nodeId}`, { method: "DELETE" }),
+  balances: (by: "truck" | "route" | "day", days: number) =>
+    request<Balance[]>(`/api/v1/balances?by=${by}&days=${days}`),
+  exceptions: (status: "open" | "resolved") =>
+    request<ManifestException[]>(`/api/v1/exceptions?status=${status}`),
+  resolveException: (id: string, note: string) =>
+    request<ManifestException>(`/api/v1/exceptions/${id}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ note }),
+    }),
+  importManifest: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<ManifestImport>("/api/v1/manifests/import", { method: "POST", body: form });
+  },
   fleet: () => request<Vehicle[]>("/api/v1/fleet"),
   addVehicle: (v: { plate: string; fleet_number?: string; operator?: string }) =>
     request<Vehicle>("/api/v1/fleet", { method: "POST", body: JSON.stringify(v) }),

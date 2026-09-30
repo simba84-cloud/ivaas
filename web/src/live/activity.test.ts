@@ -117,3 +117,15 @@ describe("edge node model alerts", () => {
     expect(item.detail).toMatch(/still counting with the model it had/);
   });
 });
+
+describe("manifest exception alerts", () => {
+  const base = { cameras: [camera({ status: "online" })], mediaUp: true, sessions: [], insights: [] };
+  it("raises one alert while any exception is open, and none otherwise", () => {
+    expect(attention({ ...base, openExceptions: 3 })[0]).toMatchObject({
+      severity: "warn",
+      title: "3 manifest exceptions to look at",
+    });
+    expect(attention({ ...base, openExceptions: 0 })).toEqual([]);
+    expect(attention({ ...base })).toEqual([]);
+  });
+});

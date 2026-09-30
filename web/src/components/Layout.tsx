@@ -4,6 +4,8 @@ import {
   Bell,
   Camera,
   Cpu,
+  FileWarning,
+  Scale,
   Truck,
   ClipboardCheck,
   ClipboardList,
@@ -83,6 +85,8 @@ const NAV = [
       { to: "/sessions", label: "Reconciliation", icon: ClipboardCheck },
       { to: "/tally", label: "Tally Sheets", icon: ClipboardList, needs: "groundtruth.enter" },
       { to: "/accuracy", label: "Accuracy", icon: Target },
+      { to: "/exceptions", label: "Exceptions", icon: FileWarning },
+      { to: "/balances", label: "Balances", icon: Scale },
     ],
   },
   {

@@ -206,7 +206,9 @@ export type AuditAction =
   | "vehicle_saved"
   | "fleet_imported"
   | "session_identified"
-  | "count_overridden";
+  | "count_overridden"
+  | "manifest_imported"
+  | "exception_resolved";
 
 export interface AuditEntry {
   id: string;
@@ -255,7 +257,7 @@ export interface EditableSetting {
   key: string;
   label: string;
   help: string;
-  kind: "percent" | "minutes" | "days" | "choice" | "text";
+  kind: "percent" | "minutes" | "days" | "crates" | "choice" | "text";
   choices: string[];
   minimum: number | null;
   maximum: number | null;
@@ -533,4 +535,44 @@ export interface EvidenceClip {
   expires_at: string;
   /** signed and short-lived: plays in a <video> tag without a token */
   url: string;
+}
+
+export interface Balance {
+  /** the truck's plate, the route, or the day (YYYY-MM-DD); "" when unknown */
+  key: string;
+  dispatched: number;
+  returned: number;
+  outstanding: number;
+  loads_out: number;
+  loads_back: number;
+  /** loads still being counted: not in the totals yet */
+  in_progress: number;
+  corrected: number;
+}
+
+export type ExceptionKind = "count_mismatch" | "not_seen" | "unexpected";
+
+export interface ManifestException {
+  id: string;
+  kind: ExceptionKind;
+  day: string;
+  plate: string | null;
+  route: string;
+  expected: number | null;
+  counted: number | null;
+  /** counted - expected: negative means crates that went and were not seen */
+  difference: number | null;
+  session_id: string | null;
+  status: "open" | "resolved";
+  raised_at: string;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
+}
+
+export interface ManifestImport {
+  added: number;
+  updated: number;
+  errors: string[];
+  exceptions_raised: number;
 }

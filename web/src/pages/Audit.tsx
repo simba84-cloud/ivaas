@@ -103,6 +103,8 @@ const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon; tone: stri
   fleet_imported: { label: "Imported the fleet register", icon: Truck, tone: "text-brand bg-brand-tint" },
   session_identified: { label: "Said which truck a load was", icon: Truck, tone: "text-warn bg-warn/10" },
   count_overridden: { label: "Corrected a count", icon: PenTool, tone: "text-warn bg-warn/10" },
+  manifest_imported: { label: "Imported a dispatch manifest", icon: ClipboardList, tone: "text-brand bg-brand-tint" },
+  exception_resolved: { label: "Resolved a manifest exception", icon: BadgeCheck, tone: "text-good bg-good/10" },
 };
 
 const WINDOWS = [

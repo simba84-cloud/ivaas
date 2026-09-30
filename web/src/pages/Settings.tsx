@@ -16,7 +16,7 @@ function Rule({ setting }: { setting: EditableSetting }) {
   const save = useMutation({
     mutationFn: () => {
       const n = Number(draft);
-      const numeric = setting.kind === "minutes" || setting.kind === "days";
+      const numeric = ["minutes", "days", "crates"].includes(setting.kind);
       const value = setting.kind === "percent" ? n / 100 : numeric ? n : draft;
       return api.setSetting(setting.key, value);
     },

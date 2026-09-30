@@ -71,6 +71,7 @@ export function attention({
   sessions,
   insights,
   nodes,
+  openExceptions,
 }: {
   cameras: Camera[] | undefined;
   mediaUp: boolean | undefined;
@@ -78,8 +79,21 @@ export function attention({
   insights: Insight[] | undefined;
   /** this site's edge nodes; undefined while unknown, which raises nothing */
   nodes?: EdgeNode[];
+  /** open manifest exceptions; undefined while unknown */
+  openExceptions?: number;
 }): FeedItem[] {
   const items: FeedItem[] = [];
+
+  if (openExceptions) {
+    items.push({
+      // one alert while any are open; acknowledging it lasts for the day
+      key: alertKey("exceptions", today()),
+      severity: "warn",
+      title: `${plural(openExceptions, "manifest exception")} to look at`,
+      detail: "Loads that disagree with a dispatch manifest. Review them on the Exceptions page.",
+      at: null,
+    });
+  }
 
   for (const n of nodes ?? []) {
     const last = n.last_seen_at ? Date.parse(n.last_seen_at) : null;
