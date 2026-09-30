@@ -1,7 +1,7 @@
 # One entry point for everything CI runs. `make test` is what "all green" means.
-.PHONY: test test-api test-pipeline test-ml test-web lint build ci
+.PHONY: test test-api test-pipeline test-ml test-web test-e2e lint build ci
 
-test: test-api test-pipeline test-ml test-web
+test: test-api test-pipeline test-ml test-web test-e2e
 
 test-api:
 	cd services/api && uv run pytest -q
@@ -20,6 +20,9 @@ test-ml:
 
 test-web:
 	cd web && npm test --silent
+
+test-e2e:  # the portal against a real API in memory; once: cd web && npx playwright install chromium
+	cd web && npm run e2e --silent
 
 lint:
 	cd services/api && uv run ruff check src tests migrations && uv run ruff format --check src tests migrations
