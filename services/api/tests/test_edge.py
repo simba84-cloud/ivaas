@@ -325,3 +325,39 @@ def test_the_real_node_code_speaks_the_apis_protocol(bakers, tmp_path):
     listed = c.get("/api/v1/edge/nodes", headers=admin).json()[0]
     assert listed["health"] == "online" and listed["config_drift"] is False
     assert listed["cameras"][0]["fps"] == 7.5 and listed["spool_pending"] == 3
+
+
+def test_the_simulator_registers_a_bay_of_cameras_and_configures_the_node(bakers, tmp_path):
+    """The simulator's setup and teardown, run against this API (T2.3's rig)."""
+    from argparse import Namespace
+
+    from ivaas_pipeline import sim
+
+    c, admin, bay, _ = bakers
+    node = enrol(c, token(c, admin, bay["site_id"], bay_id=bay["id"])).json()
+    c.headers.update(admin)
+    out = tmp_path / "streams.txt"
+    args = Namespace(
+        bay=bay["id"],
+        cameras=16,
+        lpr=1,
+        node=node["node_id"],
+        model="/models/stacks-v2.onnx",
+        layers=None,
+        stride=2,
+        out=str(out),
+    )
+    cams = sim.setup(c, args)
+    assert len(cams) == 17 and all(cam["protocol"] == "push" for cam in cams)
+    assert out.read_text().splitlines() == [cam["stream_path"] for cam in cams]
+    assert len(sim.setup(c, args)) == 17  # idempotent: nothing registered twice
+    listed = c.get(f"/api/v1/bays/{bay['id']}/cameras", headers=admin).json()
+    assert sum(cam["name"].startswith("Sim ") for cam in listed) == 17
+
+    config = c.get("/api/v1/edge/config", headers=node_headers(node)).json()
+    assert len(config["cameras"]) == 16 and len(config["lpr_cameras"]) == 1
+    assert config["cameras"][0]["uri"].startswith("rtsp://")
+
+    assert sim.teardown(c, Namespace(bay=bay["id"])) == 17
+    left = c.get(f"/api/v1/bays/{bay['id']}/cameras", headers=admin).json()
+    assert not any(cam["name"].startswith("Sim ") for cam in left)

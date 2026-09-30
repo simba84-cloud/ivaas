@@ -183,7 +183,20 @@ services:
       - ./models:/models:ro
       - ./deploy/pipeline/pipeline.json:/config/pipeline.json:ro
       - pipelinespool:/var/lib/ivaas
+      # simulator stream list and load-test reports (deploy/simulator/README.md)
+      - ./deploy/simulator:/sim
     depends_on: [api, mediamtx]
+    restart: unless-stopped
+
+  # T2.3 stream simulator: recorded footage as a bay's cameras, pushed to MediaMTX.
+  # Not started by `up`; see deploy/simulator/README.md.
+  simulator:
+    profiles: [sim]
+    image: lscr.io/linuxserver/ffmpeg:7.1.1
+    entrypoint: ["bash", "/sim/publish.sh"]
+    volumes:
+      - ./deploy/simulator:/sim:ro
+    depends_on: [mediamtx]
     restart: unless-stopped
 
 volumes:
