@@ -4,7 +4,10 @@ OidcTokenVerifier: any OpenID Connect provider (Keycloak, Authentik, Zitadel, ..
   Keys come from the issuer's JWKS endpoint and are cached; a token signed with an
   unknown key id triggers one refresh (key rotation) before being rejected.
 LocalTokenVerifier: HS256 with a shared secret, for development and tests only.
-ApiKeyVerifier: static keys for machine callers (the pipeline), role SERVICE.
+ApiKeyVerifier: static keys for machine callers (the pipeline), each bound to a tenant.
+
+A token names its tenant in the `tenant` claim (a slug or id). The auth dependency
+resolves it and loads the caller's role bindings; nothing here decides access.
 """
 
 from __future__ import annotations
@@ -16,21 +19,27 @@ from collections.abc import Iterable
 import httpx
 import jwt
 
-from ivaas.ports.auth import AuthError, Principal, Role
+from ivaas.domain.rbac import Role
+from ivaas.domain.tenancy import BAKERS_INN_ID
+from ivaas.ports.auth import AuthError, Principal
 
 ROLE_CLAIM = "roles"  # a flat list; Keycloak is configured to map realm roles into it
+#: the tenant a token acts for; Keycloak sets it from the user's organisation
+TENANT_CLAIM = "tenant"
 
 
-def _roles(claims: dict) -> frozenset[Role]:
+def _roles(claims: dict) -> tuple[str, ...]:
     raw: Iterable[str] = claims.get(ROLE_CLAIM) or claims.get("realm_access", {}).get("roles", [])
-    return frozenset(Role(r) for r in raw if r in Role.__members__.values())
+    known = set(Role.__members__.values())
+    return tuple(sorted(r for r in raw if r in known))
 
 
 def _principal(claims: dict) -> Principal:
     return Principal(
         subject=str(claims["sub"]),
         name=claims.get("name") or claims.get("preferred_username") or str(claims["sub"]),
-        roles=_roles(claims),
+        claimed_roles=_roles(claims),
+        tenant_ref=claims.get(TENANT_CLAIM) or None,
         password_epoch=int(claims.get("pwd") or 0),
         must_change_password=bool(claims.get("mcp", False)),
     )
@@ -48,23 +57,27 @@ class LocalTokenVerifier:
         self,
         subject: str,
         name: str,
-        roles: Iterable[Role],
+        roles: Iterable[str],
         ttl_s: int = 8 * 3600,
         *,
         must_change_password: bool = False,
         password_epoch: int = 0,
+        tenant: str | None = None,
     ) -> str:
         now = int(time.time())
         claims = {
             "iss": self._issuer,
             "sub": subject,
             "name": name,
-            ROLE_CLAIM: [r.value for r in roles],
+            # informational: access comes from the bindings stored for the account
+            ROLE_CLAIM: sorted(str(r) for r in roles),
             "iat": now,
             "exp": now + ttl_s,
             "mcp": must_change_password,
             "pwd": password_epoch,
         }
+        if tenant:
+            claims[TENANT_CLAIM] = tenant
         return jwt.encode(claims, self._secret, algorithm=self.ALG)
 
     async def verify(self, token: str) -> Principal:
@@ -150,18 +163,28 @@ class OidcTokenVerifier:
 
 
 class ApiKeyVerifier:
-    """Static keys -> SERVICE principals. Keys are compared in constant time."""
+    """Static keys -> service principals. Keys are compared in constant time.
+
+    Each key belongs to one tenant, named after the caller as `name@tenant-slug`. A
+    bare name belongs to Bakers Inn, the first tenant, so existing keys keep working.
+    The key cannot choose its tenant per request: the binding is in configuration.
+    """
 
     def __init__(self, keys: dict[str, str]) -> None:
-        # {key: caller name}
+        # {key: "caller name[@tenant slug]"}
         self._keys = dict(keys)
 
     async def verify(self, token: str) -> Principal:
         import hmac
 
-        for key, name in self._keys.items():
+        for key, caller in self._keys.items():
             if hmac.compare_digest(key, token):
+                name, _, tenant = caller.partition("@")
                 return Principal(
-                    subject=f"service:{name}", name=name, roles=frozenset({Role.SERVICE})
+                    subject=f"service:{name}",
+                    name=name,
+                    tenant_ref=tenant or str(BAKERS_INN_ID),
+                    is_service=True,
+                    claimed_roles=(Role.INTEGRATION.value,),
                 )
         raise AuthError("invalid api key")

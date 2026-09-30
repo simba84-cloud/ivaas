@@ -38,8 +38,10 @@ from ivaas.adapters.http.schemas import (
     ZoneIn,
     ZoneOut,
 )
+from ivaas.adapters.http.scope import require_bay, require_camera
 from ivaas.domain.audit import AuditAction
 from ivaas.domain.models import NotFoundError
+from ivaas.domain.rbac import Permission as P
 from ivaas.domain.security import (
     BadgeEvent,
     Incident,
@@ -49,7 +51,7 @@ from ivaas.domain.security import (
     Window,
     Zone,
 )
-from ivaas.ports.auth import Principal, Role
+from ivaas.ports.auth import Principal
 
 if TYPE_CHECKING:
     from ivaas.config.container import Container
@@ -100,9 +102,14 @@ def add_security_routes(
     @app.get(
         "/api/v1/bays/{bay_id}/zones",
         response_model=list[ZoneOut],
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(require(P.TOPOLOGY_READ, scoped=True))],
     )
-    async def bay_zones(bay_id: UUID, c: Container = Depends(get_container)) -> list[ZoneOut]:
+    async def bay_zones(
+        bay_id: UUID,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> list[ZoneOut]:
+        await require_bay(c, principal, P.TOPOLOGY_READ, bay_id)
         cameras = await c.cameras.list_for_bay(bay_id)
         now = c.clock.now().astimezone(await site_zone(c, bay_id))
         zones = await c.zones.for_cameras([cam.id for cam in cameras])
@@ -112,7 +119,7 @@ def add_security_routes(
         "/api/v1/cameras/{camera_id}/zones",
         response_model=ZoneOut,
         status_code=201,
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.DEVICE_CALIBRATE))],
     )
     async def create_zone(
         camera_id: UUID,
@@ -129,7 +136,7 @@ def add_security_routes(
     @app.put(
         "/api/v1/zones/{zone_id}",
         response_model=ZoneOut,
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.DEVICE_CALIBRATE))],
     )
     async def update_zone(
         zone_id: UUID,
@@ -147,7 +154,9 @@ def add_security_routes(
         return ZoneOut.of(zone, zone.armed(await local_now(c, zone.camera_id)))
 
     @app.delete(
-        "/api/v1/zones/{zone_id}", status_code=204, dependencies=[Depends(require(Role.ADMIN))]
+        "/api/v1/zones/{zone_id}",
+        status_code=204,
+        dependencies=[Depends(require(P.DEVICE_CALIBRATE))],
     )
     async def delete_zone(
         zone_id: UUID,
@@ -161,13 +170,18 @@ def add_security_routes(
         await audit(c, principal.name, AuditAction.ZONE_DELETED, zone.name)
         return Response(status_code=204)
 
-    @app.get("/api/v1/cameras/{camera_id}/snapshot", dependencies=[Depends(require(Role.VIEWER))])
-    async def camera_snapshot(camera_id: UUID, c: Container = Depends(get_container)) -> Response:
+    @app.get(
+        "/api/v1/cameras/{camera_id}/snapshot",
+        dependencies=[Depends(require(P.VIDEO_LIVE_VIEW, scoped=True))],
+    )
+    async def camera_snapshot(
+        camera_id: UUID,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> Response:
         """One still frame from the camera, to draw zones on. A camera that is not
         streaming has no frame, and says so rather than returning a stale one."""
-        camera = await c.cameras.get(camera_id)
-        if camera is None:
-            raise NotFoundError(f"camera {camera_id} not found")
+        camera = await require_camera(c, principal, P.VIDEO_LIVE_VIEW, camera_id)
         url = f"{c.settings.media_rtsp_url.rstrip('/')}/{camera.stream_path}"
 
         def grab() -> bytes | None:
@@ -199,7 +213,7 @@ def add_security_routes(
     @app.get(
         "/api/v1/incidents",
         response_model=list[IncidentOut],
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(require(P.COUNT_READ))],
     )
     async def list_incidents(
         bay_id: UUID | None = None,
@@ -215,7 +229,7 @@ def add_security_routes(
     @app.post(
         "/api/v1/incidents/{incident_id}/acknowledge",
         response_model=IncidentOut,
-        dependencies=[Depends(require(Role.OPERATOR))],
+        dependencies=[Depends(require(P.SESSION_OPERATE))],
     )
     async def acknowledge_incident(
         incident_id: UUID,
@@ -235,7 +249,7 @@ def add_security_routes(
     @app.post(
         "/api/v1/incidents/{incident_id}/resolve",
         response_model=IncidentOut,
-        dependencies=[Depends(require(Role.OPERATOR))],
+        dependencies=[Depends(require(P.SESSION_OPERATE))],
     )
     async def resolve_incident(
         incident_id: UUID,
@@ -257,7 +271,7 @@ def add_security_routes(
     @app.post(
         "/api/v1/ingest/incidents",
         response_model=IncidentOut | None,
-        dependencies=[Depends(require(Role.SERVICE))],
+        dependencies=[Depends(require(P.INGEST_WRITE))],
     )
     async def ingest_incident(
         body: IncidentIn, c: Container = Depends(get_container)
@@ -287,7 +301,7 @@ def add_security_routes(
     @app.post(
         "/api/v1/ingest/badges",
         response_model=BadgeOut,
-        dependencies=[Depends(require(Role.SERVICE))],
+        dependencies=[Depends(require(P.INGEST_WRITE))],
     )
     async def ingest_badge(body: BadgeIn, c: Container = Depends(get_container)) -> BadgeOut:
         event = await c.record_badge(
@@ -298,7 +312,7 @@ def add_security_routes(
     @app.get(
         "/api/v1/badges",
         response_model=list[BadgeOut],
-        dependencies=[Depends(require(Role.OPERATOR))],
+        dependencies=[Depends(require(P.SESSION_OPERATE))],
     )
     async def badge_log(hours: int = 24, c: Container = Depends(get_container)) -> list[BadgeOut]:
         now = c.clock.now()
@@ -309,7 +323,7 @@ def add_security_routes(
     @app.get(
         "/api/v1/people",
         response_model=list[PersonOut],
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.SECURITY_MANAGE))],
     )
     async def list_people(c: Container = Depends(get_container)) -> list[PersonOut]:
         return [PersonOut.of(p) for p in await c.people.list()]
@@ -318,7 +332,7 @@ def add_security_routes(
         "/api/v1/people",
         response_model=PersonOut,
         status_code=201,
-        dependencies=[Depends(require(Role.ADMIN))],
+        dependencies=[Depends(require(P.SECURITY_MANAGE))],
     )
     async def enrol_person(
         name: str = Form(..., min_length=1, max_length=160),
@@ -350,7 +364,9 @@ def add_security_routes(
         return PersonOut.of(person)
 
     @app.delete(
-        "/api/v1/people/{person_id}", status_code=204, dependencies=[Depends(require(Role.ADMIN))]
+        "/api/v1/people/{person_id}",
+        status_code=204,
+        dependencies=[Depends(require(P.SECURITY_MANAGE))],
     )
     async def remove_person(
         person_id: UUID,
@@ -369,7 +385,7 @@ def add_security_routes(
     @app.get(
         "/api/v1/security/status",
         response_model=SecurityStatusOut,
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(require(P.COUNT_READ))],
     )
     async def security_status(c: Container = Depends(get_container)) -> SecurityStatusOut:
         now = c.clock.now()
@@ -387,7 +403,7 @@ def add_security_routes(
     @app.get(
         "/api/v1/pipeline/security",
         response_model=PipelineSecurityOut,
-        dependencies=[Depends(require(Role.SERVICE))],
+        dependencies=[Depends(require(P.INGEST_WRITE))],
     )
     async def pipeline_security(
         bay_id: UUID, capabilities: str = "", c: Container = Depends(get_container)

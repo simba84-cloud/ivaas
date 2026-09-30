@@ -155,7 +155,9 @@ export type AuditAction =
   | "person_enrolled"
   | "person_removed"
   | "tally_sheet_saved"
-  | "tally_conflict";
+  | "tally_conflict"
+  | "tenant_provisioned"
+  | "role_bound";
 
 export interface AuditEntry {
   id: string;
@@ -163,15 +165,30 @@ export interface AuditEntry {
   actor: string;
   action: AuditAction;
   subject: string;
-  detail: Record<string, string | number | boolean>;
+  detail: Record<string, string | number | boolean | string[]>;
 }
 
-export type UserRole = "viewer" | "operator" | "admin";
+/** The roles a tenant grants its own people (proposal §4.1). */
+export type UserRole =
+  | "tenant_owner"
+  | "tenant_admin"
+  | "site_manager"
+  | "bay_operator"
+  | "auditor"
+  | "integration";
+
+export interface RoleBinding {
+  role: string;
+  scope_type: "platform" | "partner" | "tenant" | "site" | "bay";
+  scope_id: string | null;
+}
 
 export interface User {
   username: string;
   display_name: string;
+  /** Roles held across the whole tenant; narrower ones are in `bindings`. */
   roles: UserRole[];
+  bindings?: RoleBinding[];
   disabled: boolean;
   must_change_password: boolean;
   password_is_default: boolean;

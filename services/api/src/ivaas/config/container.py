@@ -32,6 +32,7 @@ from ivaas.adapters.persistence.memory import (
     InMemorySiteRepository,
     SystemClock,
 )
+from ivaas.adapters.persistence.partitioned import PerTenant
 from ivaas.adapters.storage.objects import LocalObjectStore, S3ObjectStore
 from ivaas.adapters.streaming.mediamtx import MediaMtxGateway, NullStreamGateway
 from ivaas.adapters.streaming.onvif import OnvifDiscovery
@@ -41,6 +42,7 @@ from ivaas.application.analytics import AnalyticsTools
 from ivaas.application.assistant import AskAssistant
 from ivaas.application.cameras import RefreshCameraStatus, RegisterCamera, RemoveCamera
 from ivaas.application.overview import OperationsOverview, Overview
+from ivaas.application.provisioning import ProvisionTenant
 from ivaas.application.security import (
     EnrolPerson,
     RecordBadge,
@@ -69,11 +71,23 @@ from ivaas.domain.platform_settings import (
     FACE_RECOGNITION,
     RECONCILE_TOLERANCE,
 )
-from ivaas.domain.users import User, UserRole
+from ivaas.domain.rbac import LEGACY_ROLES, Role, RoleBinding
+from ivaas.domain.tenancy import (
+    BAKERS_INN_ID,
+    ISOLATION_TEST_ID,
+    LITZIM_ID,
+    OPERATING,
+    Partner,
+    ScopeType,
+    Tenant,
+    TenantStatus,
+)
+from ivaas.domain.users import User
 from ivaas.ports.assistant import ChatModel
 from ivaas.ports.auth import TokenVerifier
 from ivaas.ports.repositories import Clock, EventPublisher
 from ivaas.ports.streaming import CameraDiscovery, StreamGateway
+from ivaas.tenancy import current_tenant, system_context, tenant_context
 
 # Camera array from section 4.1 of the POC scope: 16 volumetric + 1 LPR.
 POC_CAMERA_LAYOUT: list[tuple[CameraRole, int]] = [
@@ -88,6 +102,49 @@ POC_CAMERA_LAYOUT: list[tuple[CameraRole, int]] = [
 
 def _stable_id(name: str) -> Any:
     return uuid5(NAMESPACE_DNS, f"ivaas.{name}")
+
+
+#: The commercial hierarchy every environment starts with (proposal M1 seed).
+LITZIM = Partner(LITZIM_ID, "litzim", "LITZIM")
+BAKERS_INN = Tenant(BAKERS_INN_ID, "bakers-inn", "Bakers Inn", LITZIM_ID, TenantStatus.TRIAL)
+#: Synthetic: exists so isolation can be demonstrated against something real.
+ISOLATION_TEST = Tenant(
+    ISOLATION_TEST_ID, "isolation-test", "Isolation Test Foods", LITZIM_ID, TenantStatus.TRIAL
+)
+
+
+def isolation_topology() -> tuple[Site, Bay]:
+    site = Site(id=_stable_id("site.isolation-test"), name="Test Depot", timezone="Africa/Harare")
+    return site, Bay(id=_stable_id("bay.isolation-test"), site_id=site.id, name="Test Bay")
+
+
+def _demo_accounts() -> list[tuple[str, UUID | None, list[RoleBinding]]]:
+    """Platform, partner and second-tenant accounts, so every scope can be signed in as.
+
+    Seeded with their username as password and flagged as still holding it, exactly
+    like the configured tenant accounts, so the portal nags until they change.
+    """
+    t = ScopeType
+    return [
+        ("platform", None, [RoleBinding(Role.PLATFORM_ADMIN, t.PLATFORM)]),
+        ("litzim", None, [RoleBinding(Role.PARTNER_ADMIN, t.PARTNER, LITZIM_ID)]),
+        (
+            "b-admin",
+            ISOLATION_TEST_ID,
+            [RoleBinding(Role.TENANT_ADMIN, t.TENANT, ISOLATION_TEST_ID)],
+        ),
+        (
+            "b-operator",
+            ISOLATION_TEST_ID,
+            [RoleBinding(Role.BAY_OPERATOR, t.TENANT, ISOLATION_TEST_ID)],
+        ),
+    ]
+
+
+def _configured_roles(role: str) -> list[RoleBinding]:
+    """IVAAS_LOCAL_USERS names a pre-tenancy role (admin/operator/viewer) or a new one."""
+    roles = LEGACY_ROLES.get(role) or (Role(role),)
+    return [RoleBinding(r, ScopeType.TENANT, BAKERS_INN_ID) for r in roles]
 
 
 def demo_topology() -> tuple[Site, Bay, list[Camera]]:
@@ -113,6 +170,7 @@ def demo_topology() -> tuple[Site, Bay, list[Camera]]:
 @dataclass
 class Container:
     settings: Settings
+    tenants: Any
     users: Any
     hasher: Any
     audit: Any
@@ -143,8 +201,8 @@ class Container:
 
     #: overrides cached for this long; a change is live everywhere within it
     OVERRIDE_TTL = timedelta(seconds=10)
-    _overrides: dict[str, Any] = field(default_factory=dict)
-    _overrides_at: datetime | None = None
+    #: per tenant: each tenant's settings are its own
+    _overrides: dict[Any, tuple[datetime, dict[str, Any]]] = field(default_factory=dict)
     _dummy_hash: str = ""
     #: what the edge node last said it can detect (set when it fetches its zones)
     edge_security: Any = None
@@ -152,20 +210,27 @@ class Container:
     _face_encoder_missing: bool = False
 
     async def effective(self, key: str, default: Any) -> Any:
-        """The value in force: a stored override if there is one, else the environment."""
+        """The value in force for the tenant in context: its override, else the environment."""
         now = self.clock.now()
-        if self._overrides_at is None or now - self._overrides_at > self.OVERRIDE_TTL:
+        tenant = current_tenant()
+        cached = self._overrides.get(tenant)
+        if cached is None or now - cached[0] > self.OVERRIDE_TTL:
             try:
-                self._overrides = await self.setting_store.all()
+                values = await self.setting_store.all()
             except Exception:
                 logging.getLogger(__name__).exception("could not read setting overrides")
-                self._overrides = {}
-            self._overrides_at = now
-        return self._overrides.get(key, default)
+                values = {}
+            cached = self._overrides[tenant] = (now, values)
+        return cached[1].get(key, default)
 
     def forget_overrides(self) -> None:
         """Drop the cache so a just-saved change is visible immediately."""
-        self._overrides_at = None
+        self._overrides.pop(current_tenant(), None)
+
+    async def operating_tenants(self) -> list[Tenant]:
+        """Tenants whose sites are counting: what the background sweeps visit, one by one."""
+        with system_context():
+            return [t for t in await self.tenants.list_all() if t.status in OPERATING]
 
     # use cases -----------------------------------------------------------
     @property
@@ -248,6 +313,10 @@ class Container:
     @property
     def user_admin(self) -> UserAdmin:
         return UserAdmin(self.users, self.hasher, self.clock)
+
+    @property
+    def provision_tenant(self) -> ProvisionTenant:
+        return ProvisionTenant(self.tenants, self.users, self.hasher, self.clock)
 
     # security --------------------------------------------------------------
     async def face_recognition_on(self) -> bool:
@@ -355,6 +424,8 @@ async def build_container(settings: Settings) -> Container:
         sinks.append(InMemoryEventPublisher())
 
     site, bay, cams = demo_topology()
+    seed = settings.seed_demo_data
+    tenants: Any
     if settings.storage == "postgres":
         from ivaas.adapters.persistence.postgres import build_postgres_repositories
         from ivaas.adapters.persistence.secrets import SecretBox
@@ -373,11 +444,18 @@ async def build_container(settings: Settings) -> Container:
         closers.append(dispose)
         pg_sessionmaker: Any = sm
     else:
-        seed = settings.seed_demo_data
-        sites = InMemorySiteRepository([site] if seed else [])
-        bays = InMemoryBayRepository([bay] if seed else [])
-        cameras = InMemoryCameraRepository(cams if seed else [])
-        sessions = InMemorySessionRepository()
+        # one store per tenant: the in-memory equivalent of row-level security
+        sites = PerTenant(
+            InMemorySiteRepository, {BAKERS_INN_ID: InMemorySiteRepository([site] if seed else [])}
+        )
+        bays = PerTenant(
+            InMemoryBayRepository, {BAKERS_INN_ID: InMemoryBayRepository([bay] if seed else [])}
+        )
+        cameras = PerTenant(
+            InMemoryCameraRepository,
+            {BAKERS_INN_ID: InMemoryCameraRepository(cams if seed else [])},
+        )
+        sessions = PerTenant(InMemorySessionRepository)
         pg_sessionmaker = None
 
     gateway: StreamGateway
@@ -423,8 +501,10 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.alerts_postgres import PostgresAcknowledgementStore
         from ivaas.adapters.persistence.audit_postgres import PostgresAuditLog
         from ivaas.adapters.persistence.settings_postgres import PostgresSettingsStore
+        from ivaas.adapters.persistence.tenants_postgres import PostgresTenantStore
         from ivaas.adapters.persistence.users_postgres import PostgresUserStore
 
+        tenants = PostgresTenantStore(pg_sessionmaker)
         audit = PostgresAuditLog(pg_sessionmaker)
         setting_store = PostgresSettingsStore(pg_sessionmaker)
         acknowledgements = PostgresAcknowledgementStore(pg_sessionmaker)
@@ -446,14 +526,16 @@ async def build_container(settings: Settings) -> Container:
     else:
         from ivaas.adapters.persistence.alerts_postgres import InMemoryAcknowledgementStore
         from ivaas.adapters.persistence.settings_postgres import InMemorySettingsStore
+        from ivaas.adapters.persistence.tenants_postgres import InMemoryTenantStore
         from ivaas.adapters.persistence.users_postgres import InMemoryUserStore
 
-        audit = InMemoryAuditLog()
-        setting_store = InMemorySettingsStore()
-        acknowledgements = InMemoryAcknowledgementStore()
+        tenants = InMemoryTenantStore()
+        audit = PerTenant(InMemoryAuditLog)
+        setting_store = PerTenant(InMemorySettingsStore)
+        acknowledgements = PerTenant(InMemoryAcknowledgementStore)
         from ivaas.adapters.persistence.tally_postgres import InMemoryTallySheetStore
 
-        tally = InMemoryTallySheetStore()
+        tally = PerTenant(InMemoryTallySheetStore)
         users = InMemoryUserStore()
         from ivaas.adapters.persistence.security_postgres import (
             InMemoryBadgeLog,
@@ -462,10 +544,10 @@ async def build_container(settings: Settings) -> Container:
             InMemoryZoneStore,
         )
 
-        zones = InMemoryZoneStore()
-        incidents = InMemoryIncidentStore()
-        badges = InMemoryBadgeLog()
-        people = InMemoryPeopleStore()
+        zones = PerTenant(InMemoryZoneStore)
+        incidents = PerTenant(InMemoryIncidentStore)
+        badges = PerTenant(InMemoryBadgeLog)
+        people = PerTenant(InMemoryPeopleStore)
 
     jobs: Any
     if pg_sessionmaker is not None:
@@ -478,25 +560,53 @@ async def build_container(settings: Settings) -> Container:
         if restored:
             logging.getLogger(__name__).info("restored %d analysis job(s)", restored)
 
+    # The hierarchy every environment starts with. Partners and tenants are platform
+    # records, written in system context; each tenant's own rows in its own.
+    with system_context():
+        if await tenants.get_partner(LITZIM_ID) is None:
+            await tenants.save_partner(LITZIM)
+        for tenant in (BAKERS_INN, ISOLATION_TEST) if seed else (BAKERS_INN,):
+            if await tenants.get(tenant.id) is None:
+                tenant.created_at = SystemClock().now()
+                await tenants.save(tenant)
+    if seed:
+        other_site, other_bay = isolation_topology()
+        with tenant_context(ISOLATION_TEST_ID):
+            if await sites.get(other_site.id) is None:
+                await sites.save(other_site)
+                await bays.save(other_bay)
+
     # Accounts live in the database. The configured ones are carried across on first
     # run so an existing deployment keeps working, flagged as still holding the
-    # password they were seeded with so the portal can say so.
-    if settings.auth_mode == "local" and not await users.list_all():
-        for username, (password, role) in settings.local_users.items():
-            await users.save(
-                User(
-                    username=username,
-                    display_name=username,
-                    password_hash=hasher.hash(password),
-                    roles={UserRole(role)},
-                    password_is_default=True,
-                    created_at=SystemClock().now(),
-                    password_changed_at=SystemClock().now(),
+    # password they were seeded with so the portal can say so. Only missing accounts
+    # are created: one that exists keeps its password and roles.
+    if settings.auth_mode == "local":
+        accounts = [
+            (name, password, BAKERS_INN_ID, _configured_roles(role))
+            for name, (password, role) in settings.local_users.items()
+        ]
+        if seed:
+            accounts += [(name, name, t, b) for name, t, b in _demo_accounts()]
+        with system_context():  # usernames are global; the lookup must see every tenant
+            for username, password, tenant_id, bindings in accounts:
+                if await users.get(username) is not None:
+                    continue
+                await users.save(
+                    User(
+                        username=username,
+                        display_name=username,
+                        password_hash=hasher.hash(password),
+                        tenant_id=tenant_id,
+                        bindings=bindings,
+                        password_is_default=True,
+                        created_at=SystemClock().now(),
+                        password_changed_at=SystemClock().now(),
+                    )
                 )
-            )
 
     return Container(
         settings=settings,
+        tenants=tenants,
         users=users,
         hasher=hasher,
         audit=audit,

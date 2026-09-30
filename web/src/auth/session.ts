@@ -12,10 +12,35 @@ export interface AuthConfig {
   oidc_client_id: string | null;
 }
 
+/** Proposal §4.2 permissions, plus the additions the API names in domain/rbac.py. */
+export type Permission =
+  | "tenant.create"
+  | "user.invite"
+  | "user.manage"
+  | "device.register"
+  | "device.calibrate"
+  | "video.live.view"
+  | "count.read"
+  | "count.override"
+  | "groundtruth.enter"
+  | "reconciliation.resolve"
+  | "report.export"
+  | "audit.read"
+  | "assistant.query"
+  | "topology.read"
+  | "site.manage"
+  | "session.operate"
+  | "settings.manage"
+  | "security.manage";
+
 export interface Me {
   subject: string;
   name: string;
   roles: string[];
+  /** What the portal may offer. The API checks every call regardless. */
+  permissions?: string[];
+  /** Null for platform and partner staff, who belong to no tenant. */
+  tenant?: { id: string; slug: string; name: string; status: string } | null;
   must_change_password?: boolean;
 }
 
@@ -116,8 +141,10 @@ export async function logout(cfg: AuthConfig | undefined): Promise<void> {
   if (cfg?.mode === "oidc") await manager(cfg).signoutRedirect();
 }
 
-export function hasRole(me: Me | undefined, role: "viewer" | "operator" | "admin"): boolean {
-  const rank = { viewer: 1, operator: 2, admin: 3 };
-  const have = Math.max(0, ...(me?.roles ?? []).map((r) => rank[r as keyof typeof rank] ?? 0));
-  return have >= rank[role];
+/**
+ * Whether to offer an action. Permissions come from the account's role bindings,
+ * which may be scoped to one site or bay; the API is the judge of each call.
+ */
+export function can(me: Me | undefined, permission: Permission): boolean {
+  return !!me?.permissions?.includes(permission);
 }

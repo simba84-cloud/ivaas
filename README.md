@@ -15,6 +15,7 @@ to the truck's number plate, reconciled against manual counts (target: >95%).
 | `web` | Operator portal (dashboard, live view, reconciliation, **video analysis + reports**, cameras, assistant) (Liquid Intelligent Technologies branding) | React, TypeScript, Vite, Tailwind, TanStack Query |
 | `deploy` | MediaMTX, Prometheus config | MediaMTX, Prometheus, Grafana, MinIO |
 | `docs/ARCHITECTURE.md` | Design, SOLID mapping, scaling path, known gaps | |
+| `docs/STACK.md` | Stack reference: libraries, services, ports, commands | |
 
 Every component is open source (Apache-2.0 / MIT / BSD / PostgreSQL / AGPL for MinIO & Grafana).
 

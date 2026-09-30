@@ -54,7 +54,7 @@ def test_temporary_passwords_are_long_random_and_unambiguous():
 def test_admin_creates_a_user_and_gets_a_one_time_password(client):
     r = client.post(
         "/api/v1/users",
-        json={"username": "Yard.Sup", "display_name": "Yard Supervisor", "roles": ["operator"]},
+        json={"username": "Yard.Sup", "display_name": "Yard Supervisor", "roles": ["bay_operator"]},
     )
     assert r.status_code == 201, r.text
     body = r.json()
@@ -131,16 +131,16 @@ def test_roles_can_be_reassigned_and_take_effect(anon):
     body = {"bay_id": bay, "direction": "loading"}
     assert anon.post("/api/v1/sessions", json=body, headers=viewer).status_code == 403
 
-    r = anon.put("/api/v1/users/viewer/roles", json={"roles": ["operator"]}, headers=admin)
+    r = anon.put("/api/v1/users/viewer/roles", json={"roles": ["bay_operator"]}, headers=admin)
     assert r.status_code == 200, r.text
-    assert r.json()["roles"] == ["operator"]
+    assert r.json()["roles"] == ["bay_operator"]
 
     promoted = login(anon, "viewer")  # a new token carries the new role
     assert anon.post("/api/v1/sessions", json=body, headers=promoted).status_code == 201
 
 
 def test_an_admin_cannot_lock_themselves_out(client):
-    demote = client.put("/api/v1/users/admin/roles", json={"roles": ["viewer"]})
+    demote = client.put("/api/v1/users/admin/roles", json={"roles": ["auditor"]})
     assert demote.status_code == 409
     assert "your own" in demote.json()["detail"]
 
@@ -151,10 +151,11 @@ def test_an_admin_cannot_lock_themselves_out(client):
 def test_the_last_administrator_cannot_be_removed(client):
     """Even a second admin demoting the first must leave one standing."""
     client.post(
-        "/api/v1/users", json={"username": "second", "display_name": "Second", "roles": ["admin"]}
+        "/api/v1/users",
+        json={"username": "second", "display_name": "Second", "roles": ["tenant_admin"]},
     )
     # two admins now: demoting one is allowed
-    assert client.put("/api/v1/users/second/roles", json={"roles": ["viewer"]}).status_code == 200
+    assert client.put("/api/v1/users/second/roles", json={"roles": ["auditor"]}).status_code == 200
     # back to one: it cannot be disabled by anyone
     assert client.put("/api/v1/users/admin/enabled", json={"enabled": False}).status_code == 409
 
@@ -195,7 +196,7 @@ def test_only_admins_manage_accounts(anon):
         assert anon.get("/api/v1/users", headers=h).status_code == 403
         assert (
             anon.post(
-                "/api/v1/users", json={"username": "x", "roles": ["viewer"]}, headers=h
+                "/api/v1/users", json={"username": "x", "roles": ["auditor"]}, headers=h
             ).status_code
             == 403
         )

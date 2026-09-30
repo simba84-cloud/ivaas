@@ -26,6 +26,7 @@ from ivaas.adapters.http.schemas import (
 from ivaas.adapters.tally_csv import decode, parse_upload
 from ivaas.domain.audit import AuditAction
 from ivaas.domain.platform_settings import RECONCILE_TOLERANCE
+from ivaas.domain.rbac import Permission as P
 from ivaas.domain.tally import (
     InvalidTallySheetError,
     TallyLine,
@@ -33,7 +34,7 @@ from ivaas.domain.tally import (
     TallyStatus,
     parse_direction,
 )
-from ivaas.ports.auth import Principal, Role
+from ivaas.ports.auth import Principal
 
 if TYPE_CHECKING:
     from ivaas.config.container import Container
@@ -92,7 +93,7 @@ def add_tally_routes(
     @app.post(
         "/api/v1/tally/import",
         response_model=TallyImportOut,
-        dependencies=[Depends(require(Role.OPERATOR))],
+        dependencies=[Depends(require(P.GROUNDTRUTH_ENTER))],
     )
     async def import_tally(
         bay_id: UUID,
@@ -126,7 +127,7 @@ def add_tally_routes(
         "/api/v1/tally/sheets",
         response_model=TallySheetOut,
         status_code=201,
-        dependencies=[Depends(require(Role.OPERATOR))],
+        dependencies=[Depends(require(P.GROUNDTRUTH_ENTER))],
     )
     async def enter_tally(
         body: TallySheetIn,
@@ -161,7 +162,7 @@ def add_tally_routes(
     @app.get(
         "/api/v1/tally/sheets",
         response_model=list[TallySheetOut],
-        dependencies=[Depends(require(Role.OPERATOR))],
+        dependencies=[Depends(require(P.GROUNDTRUTH_ENTER))],
     )
     async def list_tally(
         limit: int = 200, c: Container = Depends(get_container)
@@ -171,7 +172,7 @@ def add_tally_routes(
     @app.post(
         "/api/v1/tally/rematch",
         response_model=TallyRematchOut,
-        dependencies=[Depends(require(Role.OPERATOR))],
+        dependencies=[Depends(require(P.GROUNDTRUTH_ENTER))],
     )
     async def rematch_tally(c: Container = Depends(get_container)) -> TallyRematchOut:
         changed = await (await c.rematch_tally_sheets_uc())()
@@ -180,7 +181,7 @@ def add_tally_routes(
     @app.get(
         "/api/v1/tally/report",
         response_model=TallyReportOut,
-        dependencies=[Depends(require(Role.VIEWER))],
+        dependencies=[Depends(require(P.COUNT_READ))],
     )
     async def tally_report(
         limit: int = 500, c: Container = Depends(get_container)

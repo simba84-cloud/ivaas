@@ -22,6 +22,8 @@ class AnalysisJobRow(Base):
     __tablename__ = "analysis_jobs"
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
     bay_id: Mapped[UUID] = mapped_column(ForeignKey("bays.id"), index=True)
+    # read so the worker knows whose job it claimed; written by the column default
+    tenant_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), index=True)
     filename: Mapped[str] = mapped_column(String(120))
     object_key: Mapped[str] = mapped_column(String(512))
     created_by: Mapped[str] = mapped_column(String(120))
@@ -56,6 +58,7 @@ def _to_domain(r: AnalysisJobRow) -> AnalysisJob:
         loads=[DetectedLoad(**ld) for ld in r.loads],
         timeline=[TimelineEvent(**e) for e in r.timeline],
         summary=r.summary,
+        tenant_id=r.tenant_id,
     )
     return job
 

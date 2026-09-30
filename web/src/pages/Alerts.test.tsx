@@ -4,13 +4,13 @@ import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 import type { Acknowledgement } from "../api/types";
 import type { Me } from "../auth/session";
-import { bay, camera, overview, session, site } from "../test/fixtures";
+import { bay, camera, overview, session, site, meAs } from "../test/fixtures";
 import { renderPage } from "../test/render";
 import { server } from "../test/server";
 import Alerts from "./Alerts";
 
-const OPERATOR: Me = { subject: "op", name: "Operator", roles: ["operator"] };
-const VIEWER: Me = { subject: "v", name: "Viewer", roles: ["viewer"] };
+const OPERATOR: Me = meAs(["operator"]);
+const VIEWER: Me = meAs(["viewer"]);
 const OFFLINE_KEY = "cam-2-offline@never";
 
 function api({ acks = [] as Acknowledgement[], ackStatus = 200 } = {}) {

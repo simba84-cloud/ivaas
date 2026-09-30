@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import type { Me } from "../auth/session";
+import { type Me, type Permission, can } from "../auth/session";
 import { useScope } from "../api/scope";
 import { api } from "../api/client";
 import { useAlerts } from "../live/alerts";
@@ -79,7 +79,7 @@ const NAV = [
       { to: "/security", label: "Security", icon: ShieldAlert, incidents: true },
       { to: "/live", label: "Live View", icon: MonitorPlay },
       { to: "/sessions", label: "Reconciliation", icon: ClipboardCheck },
-      { to: "/tally", label: "Tally Sheets", icon: ClipboardList, operatorOnly: true },
+      { to: "/tally", label: "Tally Sheets", icon: ClipboardList, needs: "groundtruth.enter" },
       { to: "/accuracy", label: "Accuracy", icon: Target },
     ],
   },
@@ -94,24 +94,17 @@ const NAV = [
     group: "Configure",
     items: [
       { to: "/cameras", label: "Cameras", icon: Camera },
-      { to: "/users", label: "Users", icon: Users, adminOnly: true },
-      { to: "/audit", label: "Audit Log", icon: ScrollText, adminOnly: true },
-      { to: "/settings", label: "Settings", icon: SlidersHorizontal, adminOnly: true },
+      { to: "/users", label: "Users", icon: Users, needs: "user.manage" },
+      { to: "/audit", label: "Audit Log", icon: ScrollText, needs: "audit.read" },
+      { to: "/settings", label: "Settings", icon: SlidersHorizontal, needs: "settings.manage" },
     ],
   },
 ];
-/** The audit trail is a security surface, so it is not advertised to non-admins. */
+/** A page someone cannot use is not advertised to them: they would only meet a refusal. */
 const visible = (me: Me | undefined) =>
   NAV.map((g) => ({
     ...g,
-    items: g.items
-      .filter((i) => !("adminOnly" in i && i.adminOnly) || !!me?.roles.includes("admin"))
-      // entering counts is an operator's job; a viewer would only meet a refusal
-      .filter(
-        (i) =>
-          !("operatorOnly" in i && i.operatorOnly) ||
-          !!me?.roles.some((r) => r === "operator" || r === "admin"),
-      ),
+    items: g.items.filter((i) => !("needs" in i && i.needs) || can(me, i.needs as Permission)),
   })).filter((g) => g.items.length);
 
 /** Unacknowledged faults and warnings at this bay; pulses while any is critical. */
@@ -191,14 +184,24 @@ function useTheme(): [boolean, () => void] {
   return [isDark, () => setTheme(isDark ? "light" : "dark")];
 }
 
-/** Highest role held, which is what "access level" means to the person reading it. */
+/** Proposal §4.1 roles, most senior first: the first one held is the "access level". */
+const ROLE_LABELS: [string, string][] = [
+  ["platform_admin", "Platform Administrator"],
+  ["partner_admin", "Partner Administrator"],
+  ["tenant_owner", "Tenant Owner"],
+  ["tenant_admin", "Tenant Administrator"],
+  ["site_manager", "Site Manager"],
+  ["bay_operator", "Bay Operator"],
+  ["auditor", "Auditor"],
+  ["partner_installer", "Installer"],
+  ["integration", "Integration"],
+];
+
 function accessLevel(me: Me | undefined): string {
-  for (const role of ["admin", "operator", "viewer"]) {
-    if (me?.roles.includes(role)) {
-      return role === "admin" ? "System Administrator" : role === "operator" ? "Bay Operator" : "Viewer";
-    }
-  }
-  return "Signed in";
+  const held = ROLE_LABELS.find(([role]) => me?.roles.includes(role));
+  const level = held ? held[1] : "Signed in";
+  // which customer this is matters once there is more than one
+  return me?.tenant ? `${level} · ${me.tenant.name}` : level;
 }
 
 const initials = (name: string) =>

@@ -1,14 +1,22 @@
 """PostgreSQL adapters (SQLAlchemy 2 async). Mapping between rows and domain
 entities stays inside this module so the domain never sees an ORM type.
+
+Tenancy is enforced by the database, not by the queries here. Every transaction
+begins by switching to the `ivaas_app` role, which row-level security applies to,
+and by recording the tenant in context. Tenant-owned tables take their tenant_id
+from that setting by default and their policies hide every other tenant's rows, so
+a repository that forgets a filter returns nothing it should not.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, delete, select
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, delete, select, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -27,6 +35,52 @@ from ivaas.domain.models import (
     Site,
     StreamSource,
 )
+from ivaas.domain.tenancy import BAKERS_INN_ID
+from ivaas.tenancy import current_tenant, is_system, tenant_context
+
+#: The role the application's queries run as: no superuser, no BYPASSRLS (migration 0012).
+APP_ROLE = "ivaas_app"
+
+_SCOPE = text(
+    "SELECT set_config('role', :role, true), "
+    "set_config('app.tenant_id', :tenant, true), "
+    "set_config('app.scope', :scope, true)"
+)
+
+
+class TenantScopedSessions:
+    """A drop-in for async_sessionmaker whose every transaction is tenant-scoped.
+
+    `set_config(..., true)` is SET LOCAL: it lasts exactly one transaction, so a
+    pooled connection never carries one request's tenant into the next.
+    """
+
+    def __init__(self, sm: async_sessionmaker[AsyncSession], role: str = APP_ROLE) -> None:
+        self._sm = sm
+        self._role = role
+
+    async def _scope(self, db: AsyncSession) -> None:
+        tenant = current_tenant()
+        await db.execute(
+            _SCOPE,
+            {
+                "role": self._role,
+                "tenant": str(tenant) if tenant else "",
+                "scope": "system" if is_system() else "",
+            },
+        )
+
+    @asynccontextmanager
+    async def __call__(self) -> AsyncIterator[AsyncSession]:
+        async with self._sm() as db:
+            await self._scope(db)
+            yield db
+
+    @asynccontextmanager
+    async def begin(self) -> AsyncIterator[AsyncSession]:
+        async with self._sm.begin() as db:
+            await self._scope(db)
+            yield db
 
 
 class Base(DeclarativeBase):
@@ -305,39 +359,43 @@ async def build_postgres_repositories(
     PostgresCameraRepository,
     PostgresSessionRepository,
     Callable[[], Awaitable[None]],
-    async_sessionmaker[AsyncSession],
+    TenantScopedSessions,
 ]:
     engine = create_async_engine(url, pool_pre_ping=True)
     await run_migrations(url)
-    sm = async_sessionmaker(engine, expire_on_commit=False)
+    sm: Any = TenantScopedSessions(async_sessionmaker(engine, expire_on_commit=False))
 
     if seed is not None:
         site, bay, cameras = seed
-        async with sm.begin() as db:
-            # the site name is authored in code, so keep the row in step with it
-            await db.execute(
-                insert(SiteRow)
-                .values(id=site.id, name=site.name, timezone=site.timezone)
-                .on_conflict_do_update(
-                    index_elements=[SiteRow.id],
-                    set_={"name": site.name, "timezone": site.timezone},
-                )
-            )
-            await db.execute(
-                insert(BayRow)
-                .values(
-                    id=bay.id,
-                    site_id=bay.site_id,
-                    name=bay.name,
-                    height_m=bay.height_m,
-                    width_m=bay.width_m,
-                )
-                .on_conflict_do_nothing()
-            )
-            for cam in cameras:
+        # the demo topology is Bakers Inn's: seeded in its tenant, like any of its rows
+        with tenant_context(BAKERS_INN_ID):
+            async with sm.begin() as db:
+                # the site name is authored in code, so keep the row in step with it
                 await db.execute(
-                    insert(CameraRow).values(**_camera_values(cam, box)).on_conflict_do_nothing()
+                    insert(SiteRow)
+                    .values(id=site.id, name=site.name, timezone=site.timezone)
+                    .on_conflict_do_update(
+                        index_elements=[SiteRow.id],
+                        set_={"name": site.name, "timezone": site.timezone},
+                    )
                 )
+                await db.execute(
+                    insert(BayRow)
+                    .values(
+                        id=bay.id,
+                        site_id=bay.site_id,
+                        name=bay.name,
+                        height_m=bay.height_m,
+                        width_m=bay.width_m,
+                    )
+                    .on_conflict_do_nothing()
+                )
+                for cam in cameras:
+                    await db.execute(
+                        insert(CameraRow)
+                        .values(**_camera_values(cam, box))
+                        .on_conflict_do_nothing()
+                    )
 
     return (
         PostgresSiteRepository(sm),

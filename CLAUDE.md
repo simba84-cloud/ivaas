@@ -43,6 +43,12 @@ pruning is fine and is sometimes needed when rebuilds fill the disk.
 **One statement per `op.execute`** in migrations: asyncpg rejects multi-statement
 strings. Migrations run at API startup, so a broken one takes the API down.
 
+**Tenant tables are row-level secured, and a test enforces it.** Any new table
+with `tenant_id` needs `ENABLE` + `FORCE ROW LEVEL SECURITY` and the
+`tenant_isolation` policy, or `tests/test_rls.py` fails. RLS binds the owner too,
+so a migration that updates data sets `app.scope` to `system` first. Code that
+must cross tenants uses `system_context()`, never a raw connection.
+
 **Never invent a number.** If the data cannot support a figure, say so on screen:
 "No prior period to compare" rather than 0%, a broken sparkline rather than zeroes
 for days nothing was measured, "no cameras registered" rather than a green tick.

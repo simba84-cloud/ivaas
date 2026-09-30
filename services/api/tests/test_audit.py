@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 
 from conftest import SERVICE, login
 
+from ivaas.domain.tenancy import BAKERS_INN_ID
+
 
 def _entries(client, **params):
     r = client.get("/api/v1/audit", params=params)
@@ -19,7 +21,7 @@ def _entries(client, **params):
 def test_signing_in_is_recorded(client):
     rows = _entries(client, action="signed_in")  # the fixture signed in as admin
     assert [r["actor"] for r in rows] == ["admin"]
-    assert rows[0]["detail"]["role"] == "admin"
+    assert rows[0]["detail"]["roles"] == "site_manager,tenant_admin"
 
 
 def test_reconciling_records_both_counts_and_the_outcome(client):
@@ -92,11 +94,13 @@ def test_the_trail_is_newest_first_and_filterable_by_actor(anon):
     assert mine and {r["actor"] for r in mine} == {"operator"}
 
 
-def test_only_admins_can_read_the_trail(anon):
-    for user in ("viewer", "operator"):
-        r = anon.get("/api/v1/audit", headers=login(anon, user))
-        assert r.status_code == 403, user
-    assert anon.get("/api/v1/audit", headers=login(anon, "admin")).status_code == 200
+def test_the_trail_is_for_admins_and_auditors_not_operators(anon):
+    """Proposal §4.2: audit.read belongs to owners, admins and auditors. The seeded
+    viewer became an auditor when roles were scoped (migration 0012)."""
+    r = anon.get("/api/v1/audit", headers=login(anon, "operator"))
+    assert r.status_code == 403
+    for user in ("admin", "viewer"):
+        assert anon.get("/api/v1/audit", headers=login(anon, user)).status_code == 200, user
 
 
 def test_a_failing_audit_write_does_not_fail_the_action(client, monkeypatch):
@@ -107,7 +111,8 @@ def test_a_failing_audit_write_does_not_fail_the_action(client, monkeypatch):
     async def boom(entry):
         raise RuntimeError("audit store unavailable")
 
-    monkeypatch.setattr(container.audit, "record", boom)
+    # the in-memory audit log is one store per tenant; break Bakers Inn's
+    monkeypatch.setattr(container.audit.partition(BAKERS_INN_ID), "record", boom)
 
     bay = client.get("/api/v1/bays").json()[0]
     r = client.post("/api/v1/sessions", json={"bay_id": bay["id"], "direction": "loading"})
@@ -200,3 +205,55 @@ def test_only_admins_read_or_change_settings(anon):
             ).status_code
             == 403
         )
+
+
+def test_every_mutation_leaves_an_entry_in_its_own_tenant_only(anon):
+    """T1.7: each call that changes a count or the setup records who and what.
+
+    The entries land in the acting tenant's trail; the other tenant's trail stays
+    exactly as it was.
+    """
+    admin, other = login(anon, "admin"), login(anon, "b-admin")
+    others_before = anon.get("/api/v1/audit", headers=other).json()
+    bay = anon.get("/api/v1/bays", headers=admin).json()[0]["id"]
+    camera = anon.get(f"/api/v1/bays/{bay}/cameras", headers=admin).json()[0]["id"]
+    opened = anon.post(
+        "/api/v1/sessions", json={"bay_id": bay, "direction": "loading"}, headers=admin
+    )
+    session = opened.json()["id"]
+
+    def post(path, body=None):
+        return anon.post(path, json=body, headers=admin)
+
+    def put(path, body):
+        return anon.put(path, json=body, headers=admin)
+
+    cam = {"name": "Audit cam", "role": "overhead", "source_url": "rtsp://10.0.0.7/a"}
+    zone = {"name": "Audit zone", "polygon": [[0, 0], [1, 0], [1, 1]]}
+    steps = [
+        ("site_created", lambda: post("/api/v1/sites", {"name": "S"})),
+        ("camera_registered", lambda: post(f"/api/v1/bays/{bay}/cameras", cam)),
+        ("session_closed", lambda: post(f"/api/v1/sessions/{session}/close")),
+        (
+            "session_reconciled",
+            lambda: post(f"/api/v1/sessions/{session}/reconcile", {"manual_count": 3}),
+        ),
+        ("user_created", lambda: post("/api/v1/users", {"username": "aud", "roles": ["auditor"]})),
+        ("user_roles_changed", lambda: put("/api/v1/users/aud/roles", {"roles": ["bay_operator"]})),
+        ("setting_changed", lambda: put("/api/v1/settings/reconcile_tolerance", {"value": 0.9})),
+        ("zone_saved", lambda: post(f"/api/v1/cameras/{camera}/zones", zone)),
+    ]
+    for action, call in steps:
+        before = len(anon.get("/api/v1/audit", params={"action": action}, headers=admin).json())
+        r = call()
+        assert r.status_code < 300, (action, r.text)
+        rows = anon.get("/api/v1/audit", params={"action": action}, headers=admin).json()
+        assert len(rows) == before + 1, action
+        assert rows[0]["actor"] == "admin", action
+
+    changed = anon.get("/api/v1/audit", params={"action": "user_roles_changed"}, headers=admin)
+    assert changed.json()[0]["detail"]["before"] == ["auditor"]
+    assert changed.json()[0]["detail"]["after"] == ["bay_operator"]
+    reconciled = anon.get("/api/v1/audit", params={"action": "session_reconciled"}, headers=admin)
+    assert reconciled.json()[0]["detail"]["manual_count"] == 3  # the value it now holds
+    assert anon.get("/api/v1/audit", headers=other).json() == others_before

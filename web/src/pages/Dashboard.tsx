@@ -15,7 +15,7 @@ import { MEDIA_BASE, useMediaServerUp } from "../api/media";
 import { api } from "../api/client";
 import { useScope } from "../api/scope";
 import type { Camera as Cam, Direction } from "../api/types";
-import { type Me, hasRole } from "../auth/session";
+import { type Me, can } from "../auth/session";
 import { ThroughputChart } from "../components/charts";
 import { InsightFeed } from "../components/insights";
 import { KpiCard } from "../components/kpi";
@@ -146,7 +146,7 @@ function CameraStrip({ cameras }: { cameras: Cam[] }) {
 export default function Dashboard({ me }: { me: Me | undefined }) {
   const qc = useQueryClient();
   const still = useReducedMotion();
-  const canOperate = hasRole(me, "operator");
+  const canOperate = can(me, "session.operate");
 
   const { bay } = useScope();
   const overview = useQuery({

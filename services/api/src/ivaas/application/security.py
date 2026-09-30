@@ -27,6 +27,7 @@ from ivaas.domain.security import (
 )
 from ivaas.ports.repositories import CameraReader, Clock, EventPublisher
 from ivaas.ports.security import BadgeLog, FaceEncoder, IncidentStore, PeopleStore, ZoneStore
+from ivaas.tenancy import object_key
 
 SUBJECT_INCIDENT_CREATED = "ivaas.incident.created"
 SUBJECT_INCIDENT_UPDATED = "ivaas.incident.updated"
@@ -120,7 +121,7 @@ class ReportIncident:
             detail=dict(detail or {}),
         )
         if snapshot:
-            key = f"incidents/{incident.id}.jpg"
+            key = object_key(f"incidents/{incident.id}.jpg")
             await self.objects.put(key, snapshot, "image/jpeg")
             incident.snapshot_key = key
         await self.incidents.save(incident)

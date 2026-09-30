@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useScope } from "../api/scope";
 import type { AnalysisJob } from "../api/types";
-import { type Me, hasRole } from "../auth/session";
+import { type Me, can } from "../auth/session";
 import { EmptyState, PageHeader, dateTime } from "../components/ui";
 import { MotionRow, Progress, SkeletonRows } from "../motion";
 
@@ -154,7 +154,7 @@ export default function Analysis({ me }: { me: Me | undefined }) {
       />
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="xl:col-span-1">
-          {hasRole(me, "operator") ? (
+          {can(me, "session.operate") ? (
             bayId && <UploadCard bayId={bayId} maxMb={config.data?.max_upload_mb ?? 5120} />
           ) : (
             <div className="card p-5 text-sm text-muted">

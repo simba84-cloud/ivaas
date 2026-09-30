@@ -1,0 +1,301 @@
+"""T1.1: cross-tenant isolation (proposal M1).
+
+Tenant B, holding every tenant role there is, calls every endpoint with tenant A's
+ids. Each must answer 404 — not 403, which would confirm the thing exists — and
+nothing tenant A owns may appear in any response B can read.
+
+The routes are enumerated from the app, not listed by hand. A new route that
+takes an id and is not classified below fails `test_every_route_is_classified`,
+so isolation cannot be forgotten for it.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, date, datetime
+from uuid import UUID, uuid4
+
+import pytest
+from conftest import login, make_client
+from fastapi.routing import APIRoute
+
+from ivaas.domain.analysis import AnalysisJob
+from ivaas.domain.rbac import Role, RoleBinding
+from ivaas.domain.security import EnrolledPerson, Incident, IncidentKind
+from ivaas.domain.tenancy import BAKERS_INN_ID, ISOLATION_TEST_ID, ScopeType
+from ivaas.domain.users import User
+from ivaas.tenancy import system_context, tenant_context
+
+A_SERVICE = {"X-IVaaS-Key": "dev-pipeline-key"}
+B_SERVICE = {"X-IVaaS-Key": "b-pipeline-key"}
+B_PASSWORD = "b-holds-every-role-2026"
+
+#: Every route that names a resource in its path, and the body a real caller would send.
+#: None: the route takes no body. "service": called by the pipeline, with B's key.
+BODIES: dict[tuple[str, str], object] = {
+    ("GET", "/api/v1/sites/{site_id}/bays"): None,
+    ("POST", "/api/v1/sites/{site_id}/bays"): {"name": "B's bay"},
+    ("GET", "/api/v1/bays/{bay_id}/cameras"): None,
+    ("POST", "/api/v1/bays/{bay_id}/cameras"): {
+        "name": "x",
+        "role": "overhead",
+        "source_url": "rtsp://10.0.0.9/b",
+    },
+    ("DELETE", "/api/v1/cameras/{camera_id}"): None,
+    ("POST", "/api/v1/cameras/{camera_id}/heartbeat"): "service",
+    ("POST", "/api/v1/sessions/{session_id}/close"): None,
+    ("POST", "/api/v1/sessions/{session_id}/reconcile"): {"manual_count": 1},
+    ("POST", "/api/v1/sessions/{session_id}/approve"): {"reason": "other", "note": "x"},
+    ("PUT", "/api/v1/users/{username}/roles"): {"roles": ["auditor"]},
+    ("PUT", "/api/v1/users/{username}/bindings"): {"bindings": [{"role": "auditor"}]},
+    ("PUT", "/api/v1/users/{username}/enabled"): {"enabled": False},
+    ("POST", "/api/v1/users/{username}/reset-password"): None,
+    ("GET", "/api/v1/analysis/{job_id}"): None,
+    ("GET", "/api/v1/objects/{key:path}"): None,
+    ("GET", "/api/v1/bays/{bay_id}/zones"): None,
+    ("POST", "/api/v1/cameras/{camera_id}/zones"): {
+        "name": "z",
+        "polygon": [[0, 0], [1, 0], [1, 1]],
+    },
+    ("PUT", "/api/v1/zones/{zone_id}"): {"name": "z", "polygon": [[0, 0], [1, 0], [1, 1]]},
+    ("DELETE", "/api/v1/zones/{zone_id}"): None,
+    ("GET", "/api/v1/cameras/{camera_id}/snapshot"): None,
+    ("POST", "/api/v1/incidents/{incident_id}/acknowledge"): None,
+    ("POST", "/api/v1/incidents/{incident_id}/resolve"): {"note": "x"},
+    ("DELETE", "/api/v1/people/{person_id}"): None,
+}
+
+#: Path parameters that are not a tenant's resource, and why.
+NOT_TENANT_RESOURCES = {
+    # a setting name, not an id: each tenant writes its own (see the settings test)
+    ("PUT", "/api/v1/settings/{key}"),
+    # platform records, reached only with platform or partner roles (test_provisioning)
+    ("GET", "/api/v1/platform/tenants/{tenant_id}"),
+}
+
+
+def _routes_with_ids(app) -> set[tuple[str, str]]:
+    found = set()
+    for r in app.routes:
+        if isinstance(r, APIRoute) and "{" in r.path:
+            for method in r.methods - {"HEAD", "OPTIONS"}:
+                found.add((method, r.path))
+    return found
+
+
+@pytest.fixture
+def world():
+    """Tenant A (Bakers Inn) with one of everything; tenant B with a user holding all roles."""
+    keys = {"dev-pipeline-key": "pipeline", "b-pipeline-key": "pipeline@isolation-test"}
+    with make_client(service_api_keys=keys) as c:
+        container = c.app.state.container
+        a = login(c, "admin")
+        bay = c.get("/api/v1/bays", headers=a).json()[0]
+        camera = c.get(f"/api/v1/bays/{bay['id']}/cameras", headers=a).json()[0]
+        session = c.post(
+            "/api/v1/sessions", json={"bay_id": bay["id"], "direction": "loading"}, headers=a
+        ).json()
+        zone = c.post(
+            f"/api/v1/cameras/{camera['id']}/zones",
+            json={"name": "Dock", "polygon": [[0, 0], [1, 0], [1, 1]], "rules": ["intrusion"]},
+            headers=a,
+        ).json()
+        now = datetime.now(UTC)
+        incident = Incident(UUID(bay["id"]), UUID(camera["id"]), IncidentKind.INTRUSION, now, 0.9)
+        person = EnrolledPerson("Ann", "E1", "consent-1", "admin", now, (0.1,) * 128)
+        job = AnalysisJob(UUID(bay["id"]), "a.mp4", "k", "admin", now)
+
+        async def seed_a():
+            with tenant_context(BAKERS_INN_ID):
+                await container.incidents.save(incident)
+                await container.people.save(person)
+                await container.jobs.save(job)
+                key = f"tenants/{BAKERS_INN_ID}/uploads/{job.id}/a.mp4"
+                await container.objects.put(key, b"secret video", "video/mp4")
+            with system_context():
+                await container.users.save(
+                    User(
+                        username="b-all",
+                        display_name="B, everything",
+                        password_hash=container.hasher.hash(B_PASSWORD),
+                        tenant_id=ISOLATION_TEST_ID,
+                        bindings=[
+                            RoleBinding(r, ScopeType.TENANT, ISOLATION_TEST_ID)
+                            for r in (
+                                Role.TENANT_OWNER,
+                                Role.TENANT_ADMIN,
+                                Role.SITE_MANAGER,
+                                Role.BAY_OPERATOR,
+                                Role.AUDITOR,
+                            )
+                        ],
+                        created_at=now,
+                        password_changed_at=now,
+                    )
+                )
+            return key
+
+        object_key = c.portal.call(seed_a)
+        ids = {
+            "site_id": bay["site_id"],
+            "bay_id": bay["id"],
+            "camera_id": camera["id"],
+            "session_id": session["id"],
+            "zone_id": zone["id"],
+            "incident_id": str(incident.id),
+            "person_id": str(person.id),
+            "job_id": str(job.id),
+            "username": "operator",
+            "key:path": object_key,
+        }
+        b = login(c, "b-all", B_PASSWORD)
+        yield c, a, b, ids
+
+
+def test_every_route_is_classified():
+    with make_client() as c:
+        routes = _routes_with_ids(c.app)
+    unclassified = routes - set(BODIES) - NOT_TENANT_RESOURCES
+    assert not unclassified, f"classify these for the isolation suite: {sorted(unclassified)}"
+
+
+def _call(c, method, path, body, b, ids):
+    url = path
+    used = ""
+    for name, value in ids.items():
+        if "{" + name + "}" in url:
+            url, used = url.replace("{" + name + "}", value), value
+    assert "{" not in url, f"no id for {path}"
+    headers = B_SERVICE if body == "service" else b
+    payload = None if body in (None, "service") else body
+    r = c.request(method, url, json=payload, headers=headers)
+    return r.status_code, r.text.replace(used, "<id>")
+
+
+def test_tenant_b_gets_404_for_every_one_of_tenant_as_ids(world):
+    """404, and word for word what an id that exists nowhere gets: B learns nothing."""
+    c, _, b, ids = world
+    nowhere = {k: str(uuid4()) for k in ids} | {
+        "username": "nobody-at-all",
+        "key:path": f"tenants/{BAKERS_INN_ID}/uploads/{uuid4()}/a.mp4",
+    }
+    for (method, path), body in BODIES.items():
+        status, text = _call(c, method, path, body, b, ids)
+        assert status == 404, (method, path, status, text)
+        assert (status, text) == _call(c, method, path, body, b, nowhere), (method, path)
+
+
+def test_nothing_of_tenant_as_appears_in_anything_b_can_list(world):
+    c, _, b, ids = world
+    secrets = [v for k, v in ids.items() if k != "username"]
+    for path in (
+        "/api/v1/sites",
+        "/api/v1/bays",
+        "/api/v1/sessions",
+        "/api/v1/summary",
+        "/api/v1/analytics/overview",
+        "/api/v1/users",
+        "/api/v1/audit",
+        "/api/v1/analysis",
+        "/api/v1/alerts/acknowledgements",
+        "/api/v1/incidents",
+        "/api/v1/badges",
+        "/api/v1/people",
+        "/api/v1/security/status",
+        "/api/v1/tally/sheets",
+        "/api/v1/tally/report",
+        "/api/v1/settings",
+    ):
+        r = c.get(path, headers=b)
+        assert r.status_code == 200, (path, r.text)
+        for value in secrets:
+            assert value not in r.text, (path, "shows tenant A's", value)
+    users = {u["username"] for u in c.get("/api/v1/users", headers=b).json()}
+    assert users.isdisjoint({"admin", "operator", "viewer"})
+    assert c.get("/api/v1/summary", headers=b).json()["cameras_total"] == 0
+
+
+def test_writes_that_name_tenant_as_ids_in_the_body_change_nothing(world):
+    c, a, b, ids = world
+    before = c.get("/api/v1/sessions", headers=a).json()
+
+    r = c.post(
+        "/api/v1/sessions", json={"bay_id": ids["bay_id"], "direction": "loading"}, headers=b
+    )
+    assert r.status_code == 404
+    r = c.post(
+        f"/api/v1/analysis?bay_id={ids['bay_id']}", files={"file": ("v.mp4", b"x")}, headers=b
+    )
+    assert r.status_code == 404
+    sheet = {
+        "sheet_id": "B-0001",
+        "bay_id": ids["bay_id"],
+        "date": date.today().isoformat(),
+        "plate": "ABC 1234",
+        "direction": "LOAD",
+        "lines": [{"line_no": 1, "crates": 10}],
+    }
+    r = c.post("/api/v1/tally/sheets", json=sheet, headers=b)
+    assert r.status_code in (404, 422), r.text
+    # B's pipeline reporting crates at A's bay must not reach A's open session
+    crossing = {
+        "bay_id": ids["bay_id"],
+        "camera_id": ids["camera_id"],
+        "track_id": 1,
+        "direction": "loading",
+        "crates": 50,
+        "confidence": 0.9,
+        "crossed_at": datetime.now(UTC).isoformat(),
+    }
+    c.post("/api/v1/ingest/crossings", json=crossing, headers=B_SERVICE)
+    plate = {
+        "bay_id": ids["bay_id"],
+        "camera_id": ids["camera_id"],
+        "plate": "EVIL 1",
+        "confidence": 0.99,
+        "read_at": datetime.now(UTC).isoformat(),
+    }
+    c.post("/api/v1/ingest/plates", json=plate, headers=B_SERVICE)
+
+    after = c.get("/api/v1/sessions", headers=a).json()
+    assert after == before, "tenant B changed tenant A's sessions"
+
+
+def test_each_tenant_keeps_its_own_settings(world):
+    c, a, b, _ = world
+    r = c.put("/api/v1/settings/reconcile_tolerance", json={"value": 0.5}, headers=b)
+    assert r.status_code == 200, r.text
+    mine = {s["key"]: s for s in c.get("/api/v1/settings", headers=a).json()["editable"]}
+    assert mine["reconcile_tolerance"]["overridden"] is False
+
+
+def test_live_events_reach_only_their_own_tenant(world):
+    c, a, b, ids = world
+    token = b["Authorization"].split()[1]
+    with c.websocket_connect(f"/ws/events?token={token}") as ws:
+        # A's activity, then B's: B's socket must hear only its own
+        c.post(f"/api/v1/sessions/{ids['session_id']}/close", headers=a)
+        b_bay = c.get("/api/v1/bays", headers=b).json()[0]["id"]
+        c.post("/api/v1/sessions", json={"bay_id": b_bay, "direction": "loading"}, headers=b)
+        message = ws.receive_json()
+        assert message["subject"] == "ivaas.session.opened"
+        assert message["data"]["bay_id"] == b_bay
+
+
+def test_a_signed_in_user_cannot_read_another_tenants_objects_by_key(world):
+    c, a, b, ids = world
+    url = f"/api/v1/objects/{ids['key:path']}"
+    assert c.get(url, headers=a).content == b"secret video"
+    assert c.get(url, headers=b).status_code == 404
+
+
+def test_an_unknown_tenant_in_a_service_key_is_refused():
+    with make_client(service_api_keys={"k": "pipeline@no-such-tenant"}) as c:
+        assert c.get("/api/v1/bays", headers={"X-IVaaS-Key": "k"}).status_code == 401
+
+
+def test_the_tenant_cannot_be_chosen_by_the_client(world):
+    c, a, _, _ = world
+    # headers and query parameters naming another tenant are ignored, not honoured
+    sneaky = {**a, "X-Tenant-Id": str(ISOLATION_TEST_ID), "X-IVaaS-Tenant": "isolation-test"}
+    names = {s["name"] for s in c.get(f"/api/v1/sites?tenant={uuid4()}", headers=sneaky).json()}
+    assert names == {"Bakery Industrial Site"}

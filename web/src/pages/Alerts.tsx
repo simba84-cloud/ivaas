@@ -14,7 +14,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useScope } from "../api/scope";
 import type { Acknowledgement } from "../api/types";
-import { type Me, hasRole } from "../auth/session";
+import { type Me, can } from "../auth/session";
 import { useToast } from "../components/toast";
 import { EmptyState, dateTime, time } from "../components/ui";
 import { type Severity, history, mergeActivity } from "../live/activity";
@@ -145,7 +145,7 @@ export default function Alerts({ me }: { me: Me | undefined }) {
   });
   const [filter, setFilter] = useState<Filter>("all");
   const [showAcked, setShowAcked] = useState(false);
-  const canAck = hasRole(me, "operator");
+  const canAck = can(me, "session.operate");
 
   const ack = useMutation({
     mutationFn: ({ alert, note }: { alert: Alert; note: string }) =>

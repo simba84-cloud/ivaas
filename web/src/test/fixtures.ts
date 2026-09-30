@@ -130,3 +130,60 @@ export const overview = (over: Partial<Overview> = {}): Overview => ({
   ],
   ...over,
 });
+
+/**
+ * The seeded personas as the API describes them since roles were scoped: their
+ * roles and the permissions those grant (services/api/src/ivaas/domain/rbac.py).
+ * "admin", "operator" and "viewer" are the accounts, not roles, so tests read the same.
+ */
+const PERSONAS: Record<string, { roles: string[]; permissions: string[] }> = {
+  admin: {
+    roles: ["site_manager", "tenant_admin"],
+    permissions: [
+      "user.invite",
+      "user.manage",
+      "device.register",
+      "device.calibrate",
+      "video.live.view",
+      "count.read",
+      "count.override",
+      "groundtruth.enter",
+      "reconciliation.resolve",
+      "report.export",
+      "audit.read",
+      "assistant.query",
+      "topology.read",
+      "site.manage",
+      "session.operate",
+      "settings.manage",
+      "security.manage",
+    ],
+  },
+  operator: {
+    roles: ["bay_operator"],
+    permissions: [
+      "video.live.view",
+      "count.read",
+      "count.override",
+      "groundtruth.enter",
+      "assistant.query",
+      "topology.read",
+      "session.operate",
+    ],
+  },
+  viewer: {
+    roles: ["auditor"],
+    permissions: ["count.read", "report.export", "audit.read", "assistant.query", "topology.read"],
+  },
+};
+
+export const meAs = (personas: string[]) => {
+  const held = personas.map((p) => PERSONAS[p]).filter(Boolean);
+  return {
+    subject: personas[0] ?? "u",
+    name: personas[0] ?? "u",
+    roles: [...new Set(held.flatMap((h) => h.roles))],
+    permissions: [...new Set(held.flatMap((h) => h.permissions))],
+    tenant: { id: "t", slug: "bakers-inn", name: "Bakers Inn", status: "trial" },
+  };
+};

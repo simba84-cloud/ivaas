@@ -33,7 +33,8 @@ class PostgresSettingsStore:
     async def set(self, key: str, value: Any, by: str, at: datetime) -> None:
         values = {"key": key, "value": value, "updated_at": at, "updated_by": by}
         stmt = insert(SettingRow).values(**values)
-        stmt = stmt.on_conflict_do_update(index_elements=[SettingRow.key], set_=values)
+        # one value per key per tenant; tenant_id comes from the column default
+        stmt = stmt.on_conflict_do_update(index_elements=["tenant_id", "key"], set_=values)
         async with self._sm.begin() as db:
             await db.execute(stmt)
 

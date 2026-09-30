@@ -7,17 +7,23 @@ from conftest import SERVICE, login, make_client
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from ivaas.adapters.auth.jwt_verifiers import LocalTokenVerifier, OidcTokenVerifier
-from ivaas.ports.auth import AuthError, Principal, Role
+from ivaas.domain.rbac import Permission, Role, RoleBinding
+from ivaas.domain.tenancy import BAKERS_INN_ID, ScopeType
+from ivaas.ports.auth import AuthError, Principal
 
 
-def test_role_hierarchy():
-    assert Principal("u", "u", frozenset({Role.ADMIN})).allows(Role.VIEWER)
-    assert not Principal("u", "u", frozenset({Role.VIEWER})).allows(Role.OPERATOR)
-    assert not Principal("u", "u", frozenset({Role.ADMIN})).allows(
-        Role.SERVICE
-    )  # service is not "above"
-    assert not Principal("s", "s", frozenset({Role.SERVICE})).allows(Role.VIEWER)  # nor "below"
-    assert not Principal("u", "u").allows(Role.VIEWER)
+def _as(*roles: Role) -> Principal:
+    bindings = tuple(RoleBinding(r, ScopeType.TENANT, BAKERS_INN_ID) for r in roles)
+    return Principal("u", "u", bindings, tenant_id=BAKERS_INN_ID)
+
+
+def test_permissions_come_from_bindings_and_nothing_else():
+    assert _as(Role.TENANT_ADMIN).can(Permission.DEVICE_REGISTER)
+    assert not _as(Role.AUDITOR).can(Permission.SESSION_OPERATE)
+    # an admin is not the pipeline, and the pipeline is not an admin
+    assert not _as(Role.TENANT_ADMIN).can(Permission.INGEST_WRITE)
+    assert not _as(Role.INTEGRATION).can(Permission.DEVICE_REGISTER)
+    assert not Principal("u", "u").can(Permission.COUNT_READ)  # deny by default
 
 
 def test_every_route_is_closed_to_anonymous(anon):
@@ -56,10 +62,13 @@ def test_roles_gate_the_right_routes(anon):
         anon.post(f"/api/v1/bays/{bay}/cameras", json=cam_body, headers=operator).status_code == 403
     )
     assert anon.post(f"/api/v1/bays/{bay}/cameras", json=cam_body, headers=admin).status_code == 201
-    # a human admin cannot impersonate the pipeline, and the pipeline cannot browse
+    # a human admin cannot impersonate the pipeline, and the pipeline cannot run the bay
     assert anon.post("/api/v1/ingest/crossings", json={}, headers=admin).status_code == 403
-    assert anon.get("/api/v1/sessions", headers=SERVICE).status_code == 403
-    assert anon.get("/api/v1/auth/me", headers=SERVICE).json()["roles"] == ["service"]
+    assert anon.post("/api/v1/sessions", json=open_body, headers=SERVICE).status_code == 403
+    # §4.2: an integration reads counts, it does not change them
+    assert anon.get("/api/v1/sessions", headers=SERVICE).status_code == 200
+    me = anon.get("/api/v1/auth/me", headers=SERVICE).json()
+    assert me["roles"] == ["integration"] and me["tenant"]["slug"] == "bakers-inn"
 
 
 def test_bad_credentials(anon):
@@ -74,7 +83,7 @@ def test_bad_credentials(anon):
 def test_expired_and_foreign_local_tokens_are_rejected():
     v = LocalTokenVerifier("x" * 32)
     other = LocalTokenVerifier("y" * 32)
-    token = other.mint("u", "u", [Role.ADMIN])
+    token = other.mint("u", "u", ["tenant_admin"])
     with pytest.raises(AuthError):
         import asyncio
 
@@ -132,7 +141,8 @@ async def test_oidc_verifier_validates_rs256_and_handles_key_rotation():
             "aud": aud,
             "sub": "42",
             "preferred_username": "sam",
-            "realm_access": {"roles": ["operator", "offline_access"]},
+            "realm_access": {"roles": ["bay_operator", "offline_access"]},
+            "tenant": "bakers-inn",
             "exp": int(time.time()) + 60,
         } | extra
         return jwt.encode(claims, keys[kid], algorithm="RS256", headers={"kid": kid})
@@ -141,10 +151,11 @@ async def test_oidc_verifier_validates_rs256_and_handles_key_rotation():
         issuer, aud, client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
     p = await v.verify(mint("k1"))
-    assert (p.subject, p.name, p.roles) == (
+    assert (p.subject, p.name, p.claimed_roles, p.tenant_ref) == (
         "42",
         "sam",
-        frozenset({Role.OPERATOR}),
+        ("bay_operator",),
+        "bakers-inn",
     )  # unknown roles ignored
 
     with pytest.raises(AuthError):  # k2 not published yet: refetch once, then refuse

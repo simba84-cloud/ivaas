@@ -2,12 +2,12 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
-import { bay, job } from "../test/fixtures";
+import { bay, job, meAs } from "../test/fixtures";
 import { renderPage } from "../test/render";
 import { server } from "../test/server";
 import Analysis from "./Analysis";
 
-const me = (roles: string[]) => ({ subject: "u", name: "u", roles });
+const me = meAs;
 
 describe("analysis list", () => {
   it("lists jobs with status, loads and crates; viewers cannot upload", async () => {

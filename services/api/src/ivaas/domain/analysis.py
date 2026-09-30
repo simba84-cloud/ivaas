@@ -52,6 +52,8 @@ class AnalysisJob:
     loads: list[DetectedLoad] = field(default_factory=list)
     timeline: list[TimelineEvent] = field(default_factory=list)
     summary: str | None = None  # written by the assistant once analysis is done
+    #: whose video this is; the worker runs the job inside this tenant
+    tenant_id: UUID | None = None
 
     @property
     def total_crates(self) -> int:

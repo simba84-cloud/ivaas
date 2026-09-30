@@ -7,7 +7,7 @@
  */
 import { useSearchParams } from "react-router-dom";
 import type { Me } from "../auth/session";
-import { hasRole } from "../auth/session";
+import { can } from "../auth/session";
 import { Capabilities } from "../components/security/capabilities";
 import { IncidentsTab } from "../components/security/incidents";
 import { BadgesTab, PeopleTab } from "../components/security/people";
@@ -18,12 +18,13 @@ type Tab = "incidents" | "zones" | "people" | "badges";
 
 export default function Security({ me }: { me: Me | undefined }) {
   const [params, setParams] = useSearchParams();
-  const isAdmin = hasRole(me, "admin");
-  const isOperator = hasRole(me, "operator");
+  const isAdmin = can(me, "device.calibrate");
+  const canEnrol = can(me, "security.manage");
+  const isOperator = can(me, "session.operate");
   const tabs: { value: Tab; label: string }[] = [
     { value: "incidents", label: "Incidents" },
     { value: "zones", label: "Zones" },
-    ...(isAdmin ? [{ value: "people" as Tab, label: "Enrolled faces" }] : []),
+    ...(canEnrol ? [{ value: "people" as Tab, label: "Enrolled faces" }] : []),
     ...(isOperator ? [{ value: "badges" as Tab, label: "Badge log" }] : []),
   ];
   const wanted = params.get("tab") as Tab | null;

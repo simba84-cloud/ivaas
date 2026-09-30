@@ -14,7 +14,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import StrEnum
+from uuid import UUID
+
+from ivaas.domain.rbac import ADMINISTERING, TENANT_ROLES, Role, RoleBinding
+from ivaas.domain.tenancy import ScopeType
 
 MIN_PASSWORD_LENGTH = 12
 MAX_PASSWORD_LENGTH = 200  # hashing is deliberately slow; do not let a request choose how slow
@@ -39,14 +42,6 @@ OBVIOUS_PASSWORDS = frozenset(
 )
 
 
-class UserRole(StrEnum):
-    """Mirrors ports.auth.Role, minus SERVICE: machines do not have accounts."""
-
-    VIEWER = "viewer"
-    OPERATOR = "operator"
-    ADMIN = "admin"
-
-
 class WeakPasswordError(ValueError):
     pass
 
@@ -57,7 +52,9 @@ class UserError(Exception):
 
 class LastAdminError(UserError):
     def __init__(self) -> None:
-        super().__init__("this is the last enabled administrator; the platform would be locked out")
+        super().__init__(
+            "this is the last enabled administrator of this tenant; it would be locked out"
+        )
 
 
 class SelfLockoutError(UserError):
@@ -85,7 +82,9 @@ class User:
     username: str
     display_name: str
     password_hash: str
-    roles: set[UserRole] = field(default_factory=set)
+    #: the tenant this account belongs to; None for platform and partner staff
+    tenant_id: UUID | None = None
+    bindings: list[RoleBinding] = field(default_factory=list)
     disabled: bool = False
     #: set after an administrator resets the password; blocks everything until changed
     must_change_password: bool = False
@@ -97,11 +96,16 @@ class User:
     last_login_at: datetime | None = None
 
     @property
-    def highest_role(self) -> UserRole:
-        for role in (UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER):
-            if role in self.roles:
-                return role
-        return UserRole.VIEWER
+    def roles(self) -> set[Role]:
+        """Every role held, at any scope."""
+        return {b.role for b in self.bindings}
+
+    @property
+    def administers(self) -> bool:
+        """Can manage this tenant: the thing the last-admin rule protects."""
+        return not self.disabled and any(
+            b.role in ADMINISTERING and b.scope_type is ScopeType.TENANT for b in self.bindings
+        )
 
     def set_password(self, password_hash: str, at: datetime, *, temporary: bool = False) -> None:
         self.password_hash = password_hash
@@ -109,7 +113,24 @@ class User:
         self.must_change_password = temporary
         self.password_is_default = False
 
-    def assign_roles(self, roles: set[UserRole]) -> None:
-        if not roles:
+    def assign_roles(self, roles: set[Role]) -> None:
+        """Replace the account's roles with these, each across the whole tenant."""
+        if self.tenant_id is None:
+            raise UserError("only an account in a tenant can hold tenant roles")
+        self.set_bindings([RoleBinding(r, ScopeType.TENANT, self.tenant_id) for r in sorted(roles)])
+
+    def set_bindings(self, bindings: list[RoleBinding]) -> None:
+        if not bindings:
             raise UserError("a user must have at least one role")
-        self.roles = set(roles)
+        if self.tenant_id is not None:
+            foreign = [b for b in bindings if b.role not in TENANT_ROLES]
+            if foreign:
+                raise UserError(f"a tenant cannot grant {foreign[0].role.value}")
+            elsewhere = [
+                b
+                for b in bindings
+                if b.scope_type is ScopeType.TENANT and b.scope_id != self.tenant_id
+            ]
+            if elsewhere:
+                raise UserError("a role cannot reach outside the account's own tenant")
+        self.bindings = list(dict.fromkeys(bindings))

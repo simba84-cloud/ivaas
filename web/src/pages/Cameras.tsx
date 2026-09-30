@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import { useScope } from "../api/scope";
 import type { Camera, CameraRole } from "../api/types";
-import { type Me, hasRole } from "../auth/session";
+import { type Me, can } from "../auth/session";
 import { AddCamera } from "../components/AddCamera";
 import { CameraDot, EmptyState, dateTime, roleLabel } from "../components/ui";
 import { MotionRow, SkeletonRows } from "../motion";
@@ -51,7 +51,7 @@ function FleetBar({ cameras }: { cameras: Camera[] }) {
 }
 
 export default function Cameras({ me }: { me: Me | undefined }) {
-  const isAdmin = hasRole(me, "admin");
+  const isAdmin = can(me, "device.register");
   const bayId = useScope().bay?.id;
   const cameras = useQuery({
     queryKey: ["cameras", bayId],
