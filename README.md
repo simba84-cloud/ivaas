@@ -42,6 +42,18 @@ docker compose --profile edge up pipeline     # on the GPU edge node; needs mode
 docker compose up -d --scale worker=3         # more analysis throughput
 ```
 
+Enrol the edge node once, instead of hand-writing `pipeline.json` (Configure → Edge
+Nodes → Add node gives a single-use token):
+
+```bash
+docker compose --profile edge run --rm pipeline python -m ivaas_pipeline enroll \
+  --api http://api:8000 --token <token from the portal>
+docker compose --profile edge up -d pipeline  # fetches its config from the API
+```
+
+Set the node's configuration with `PUT /api/v1/edge/nodes/{id}/config`; the node
+picks it up within a minute. Its health, cameras and backlog show on the Edge Nodes page.
+
 Uploaded-video analysis runs in its own `worker` container, not in the API: a
 36-minute clip saturates every core it is given for over an hour, and that must not
 compete with the portal's requests. The two are the same image with the same
