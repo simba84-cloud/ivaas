@@ -149,6 +149,24 @@ a container holding a shared key.
   count, and the accuracy measured on it, never change, so a correction explains a
   load without improving the AI's score.
 
+## 2a-iii. Balances, manifests and exceptions (M5, second slice)
+
+- **Balances (T5.3).** Crates dispatched, returned and still outstanding, per truck,
+  route or day (in site time), from each load's count of record. Loads still at the
+  bay are shown as in progress and never added in.
+- **Dispatch manifests (T5.4).** A CSV of what each truck was meant to carry
+  (`POST /api/v1/manifests/import`). Each line is matched one-to-one with the load
+  that day, in the same direction, for the same truck (OCR-forgiving).
+- **Exceptions.** Three kinds are raised for a person, each with the load's evidence
+  clips at hand:
+  - the count differs from the manifest by more than a tolerance (a setting, 0 crates
+    by default);
+  - a manifest truck never came, once its day is over;
+  - a truck came that no manifest expected, on a day that had manifests.
+- **Keeping exceptions current.** Matching reruns on every import and on the idle
+  sweep. Nothing is raised twice. A correction or a late truck closes the exception it
+  caused, and says so. Resolving needs a note and never changes a count.
+
 ## 2b. Analysis assistant
 
 ```
