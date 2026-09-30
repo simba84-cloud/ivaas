@@ -55,6 +55,10 @@ class AuditAction(StrEnum):
     NODE_CONFIG_CHANGED = "node_config_changed"
     NODE_ROLLED_BACK = "node_rolled_back"
     MODEL_UPLOADED = "model_uploaded"
+    VEHICLE_SAVED = "vehicle_saved"
+    FLEET_IMPORTED = "fleet_imported"
+    SESSION_IDENTIFIED = "session_identified"
+    COUNT_OVERRIDDEN = "count_overridden"
 
 
 @dataclass(frozen=True)

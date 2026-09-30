@@ -30,6 +30,7 @@ from ivaas.adapters.http.auth import (
 )
 from ivaas.adapters.http.edge_routes import add_edge_routes
 from ivaas.adapters.http.evidence_routes import add_evidence_routes, sweep_expired
+from ivaas.adapters.http.fleet_routes import add_fleet_routes
 from ivaas.adapters.http.model_routes import add_model_routes
 from ivaas.adapters.http.platform_routes import add_platform_routes
 from ivaas.adapters.http.schemas import (
@@ -519,7 +520,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await require_bay(c, principal, P.COUNT_READ, bay_id)
         mine = {b.id for b in await visible_bays(c, principal, P.COUNT_READ)}
         rows = await c.sessions.list_recent(bay_id=bay_id, status=status, limit=min(limit, 500))
-        return [SessionOut.of(s) for s in rows if s.bay_id in mine]
+        registered = bool(await c.fleet.list_all())  # "unregistered" means nothing without one
+        return [SessionOut.of(s, has_register=registered) for s in rows if s.bay_id in mine]
 
     @app.post(
         "/api/v1/sessions",
@@ -1215,6 +1217,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_edge_routes(app, get_container, audit)
     add_model_routes(app, get_container, audit)
     add_evidence_routes(app, get_container, audit)
+    add_fleet_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}")
     async def get_object(

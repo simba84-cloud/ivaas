@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from ivaas.application.overview import Overview, Severity, Trend
 from ivaas.domain.alerts import AlertAcknowledgement
 from ivaas.domain.audit import AuditAction, AuditEntry
+from ivaas.domain.fleet import Identification, Vehicle, identification
 from ivaas.domain.models import (
     ApprovalReason,
     Bay,
@@ -16,6 +17,7 @@ from ivaas.domain.models import (
     CameraRole,
     CameraStatus,
     LoadingSession,
+    OverrideReason,
     SessionDirection,
     SessionStatus,
     Site,
@@ -251,9 +253,23 @@ class SessionOut(BaseModel):
     approved_at: datetime | None
     approval_reason: ApprovalReason | None
     approval_note: str | None
+    vehicle_id: UUID | None = None
+    #: the plate exactly as the camera read it, beside the register's spelling
+    plate_read: str | None = None
+    #: registered, unregistered, unidentified, or unchecked (no register to check)
+    identification: Identification = Identification.UNCHECKED
+    identified_by: str | None = None
+    #: a person's corrected count; the AI count above is never changed
+    override_count: int | None = None
+    override_reason: OverrideReason | None = None
+    override_note: str | None = None
+    override_by: str | None = None
+    override_at: datetime | None = None
+    #: what the load is taken to have carried: the correction if any, else the AI count
+    count_of_record: int = 0
 
     @classmethod
-    def of(cls, s: LoadingSession) -> SessionOut:
+    def of(cls, s: LoadingSession, *, has_register: bool = False) -> SessionOut:
         return cls(
             id=s.id,
             bay_id=s.bay_id,
@@ -270,6 +286,16 @@ class SessionOut(BaseModel):
             approved_at=s.approved_at,
             approval_reason=s.approval_reason,
             approval_note=s.approval_note,
+            vehicle_id=s.vehicle_id,
+            plate_read=s.plate_read,
+            identification=identification(s.plate, s.vehicle_id, has_register),
+            identified_by=s.identified_by,
+            override_count=s.override_count,
+            override_reason=s.override_reason,
+            override_note=s.override_note,
+            override_by=s.override_by,
+            override_at=s.override_at,
+            count_of_record=s.count_of_record,
         )
 
 
@@ -1082,3 +1108,49 @@ class ModelVersionOut(BaseModel):
             created_by=m.created_by,
             created_at=m.created_at,
         )
+
+
+class VehicleIn(BaseModel):
+    plate: str = Field(min_length=2, max_length=16)
+    fleet_number: str = Field(default="", max_length=40)
+    operator: str = Field(default="", max_length=120)
+    notes: str = Field(default="", max_length=1000)
+    active: bool = True
+
+
+class VehicleOut(VehicleIn):
+    id: UUID
+    created_at: datetime | None
+
+    @staticmethod
+    def of(v: Vehicle) -> VehicleOut:  # type: ignore[override]
+        return VehicleOut(
+            id=v.id,
+            plate=v.plate,
+            fleet_number=v.fleet_number,
+            operator=v.operator,
+            notes=v.notes,
+            active=v.active,
+            created_at=v.created_at,
+        )
+
+
+class FleetImportOut(BaseModel):
+    added: int
+    updated: int
+    #: "line 7: ..." for every row that could not be used; the rest were saved
+    errors: list[str]
+
+
+class AssignVehicleIn(BaseModel):
+    """Say which truck a load was: a registered one, or a plate that is not registered."""
+
+    vehicle_id: UUID | None = None
+    plate: str | None = Field(default=None, min_length=2, max_length=16)
+    note: str | None = Field(default=None, max_length=280)
+
+
+class OverrideIn(BaseModel):
+    count: int = Field(ge=0, le=100_000)
+    reason: OverrideReason
+    note: str | None = Field(default=None, max_length=280)

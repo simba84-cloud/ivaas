@@ -42,6 +42,17 @@ class SessionStatus(StrEnum):
     APPROVED = "approved"
 
 
+class OverrideReason(StrEnum):
+    """Why a person corrected the AI count. Fixed options so they can be counted."""
+
+    PERSON_OR_FORKLIFT = "person_or_forklift"  # something that is not crates was counted
+    DOUBLE_COUNTED = "double_counted"
+    MISSED_BY_CAMERA = "missed_by_camera"
+    CAMERA_BLOCKED = "camera_blocked"
+    DAMAGED_REMOVED = "damaged_removed"
+    OTHER = "other"
+
+
 class ApprovalReason(StrEnum):
     """Why a discrepancy was accepted. Fixed options so the reasons can be counted."""
 
@@ -173,12 +184,61 @@ class LoadingSession:
     approved_at: datetime | None = None
     approval_reason: ApprovalReason | None = None
     approval_note: str | None = None
+    #: the registered truck, once known: matched from a plate read, or assigned by a person
+    vehicle_id: UUID | None = None
+    #: the plate exactly as the camera read it, kept beside the register's spelling
+    plate_read: str | None = None
+    #: "lpr" when the camera identified the truck, "operator" when a person did
+    identified_by: str | None = None
+    #: a person's correction of the AI count. The AI count is never changed: accuracy
+    #: is measured on it, and a correction must not flatter that figure.
+    override_count: int | None = None
+    override_reason: OverrideReason | None = None
+    override_note: str | None = None
+    override_by: str | None = None
+    override_at: datetime | None = None
 
     def attach_plate(self, read: PlateRead) -> None:
         if self.status is not SessionStatus.OPEN:
             raise SessionClosedError(self.id)
         self.plate = read.plate
+        self.plate_read = read.plate
         self.plate_last_seen_at = read.read_at
+
+    def identify(
+        self, *, plate: str, vehicle_id: UUID | None, by: str, read: str | None = None
+    ) -> None:
+        """Say which truck this load was: from a plate read ("lpr") or by a person."""
+        self.plate = plate
+        self.vehicle_id = vehicle_id
+        self.identified_by = by
+        if read is not None:
+            self.plate_read = read
+
+    def override(
+        self,
+        count: int,
+        *,
+        reason: OverrideReason,
+        by: str,
+        at: datetime,
+        note: str | None = None,
+    ) -> None:
+        """Record a person's corrected count. The AI's own count stays as it was."""
+        if count < 0:
+            raise ValueError("a corrected count cannot be negative")
+        if reason is OverrideReason.OTHER and not (note or "").strip():
+            raise ValueError("say what happened when the reason is 'other'")
+        self.override_count = count
+        self.override_reason = reason
+        self.override_note = (note or "").strip() or None
+        self.override_by = by
+        self.override_at = at
+
+    @property
+    def count_of_record(self) -> int:
+        """What the load is taken to have carried: a person's correction, else the AI's."""
+        return self.override_count if self.override_count is not None else self.ai_count
 
     def idle_since(self, now: datetime) -> timedelta:
         """How long since the truck was last seen (or since opening, if never seen)."""

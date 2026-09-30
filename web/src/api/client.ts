@@ -26,6 +26,9 @@ import type {
   EdgeNode,
   EnrollmentToken,
   EvidenceClip,
+  FleetImport,
+  OverrideReason,
+  Vehicle,
   Session,
   Site,
   Overview,
@@ -68,6 +71,24 @@ export const api = {
     }),
   revokeNode: (nodeId: string) =>
     request<void>(`/api/v1/edge/nodes/${nodeId}`, { method: "DELETE" }),
+  fleet: () => request<Vehicle[]>("/api/v1/fleet"),
+  addVehicle: (v: { plate: string; fleet_number?: string; operator?: string }) =>
+    request<Vehicle>("/api/v1/fleet", { method: "POST", body: JSON.stringify(v) }),
+  importFleet: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<FleetImport>("/api/v1/fleet/import", { method: "POST", body: form });
+  },
+  assignVehicle: (sessionId: string, body: { vehicle_id?: string; plate?: string; note?: string }) =>
+    request<Session>(`/api/v1/sessions/${sessionId}/vehicle`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  overrideCount: (sessionId: string, body: { count: number; reason: OverrideReason; note?: string }) =>
+    request<Session>(`/api/v1/sessions/${sessionId}/override`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   sessionEvidence: (sessionId: string) =>
     request<EvidenceClip[]>(`/api/v1/sessions/${sessionId}/evidence`),
   rollBackNode: (nodeId: string) =>

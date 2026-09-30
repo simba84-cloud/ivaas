@@ -180,6 +180,7 @@ class Container:
     ingest: Any
     ml_models: Any
     evidence: Any
+    fleet: Any
     users: Any
     hasher: Any
     audit: Any
@@ -256,7 +257,15 @@ class Container:
 
     @property
     def record_crossing(self) -> RecordCrateCrossing:
-        return RecordCrateCrossing(self.sessions, self.events)
+        async def enabled() -> bool:
+            # the same switch as plate reads: an idle bay opens a load, or does not
+            return bool(
+                await self.effective(AUTO_OPEN_DIRECTION, self.settings.auto_open_direction)
+            )
+
+        return RecordCrateCrossing(
+            self.sessions, self.events, auto_open=self.open_session, auto_open_enabled=enabled
+        )
 
     async def record_plate_uc(self) -> RecordPlateRead:
         direction = await self.effective(AUTO_OPEN_DIRECTION, self.settings.auto_open_direction)
@@ -265,6 +274,7 @@ class Container:
             self.events,
             auto_open=self.open_session if direction else None,
             auto_open_direction=SessionDirection(direction or "loading"),
+            fleet=await self.fleet.list_all(),
         )
 
     async def close_idle_sessions_uc(self) -> CloseIdleSessions | None:
@@ -541,6 +551,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.evidence_postgres import PostgresEvidenceStore
 
         evidence: Any = PostgresEvidenceStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.fleet_postgres import PostgresFleetStore
+
+        fleet: Any = PostgresFleetStore(pg_sessionmaker)
         audit = PostgresAuditLog(pg_sessionmaker)
         setting_store = PostgresSettingsStore(pg_sessionmaker)
         acknowledgements = PostgresAcknowledgementStore(pg_sessionmaker)
@@ -578,6 +591,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.evidence_postgres import InMemoryEvidenceStore
 
         evidence = PerTenant(InMemoryEvidenceStore)
+        from ivaas.adapters.persistence.fleet_postgres import InMemoryFleetStore
+
+        fleet = PerTenant(InMemoryFleetStore)
         audit = PerTenant(InMemoryAuditLog)
         setting_store = PerTenant(InMemorySettingsStore)
         acknowledgements = PerTenant(InMemoryAcknowledgementStore)
@@ -663,6 +679,7 @@ async def build_container(settings: Settings) -> Container:
         ingest=ingest,
         ml_models=ml_models,
         evidence=evidence,
+        fleet=fleet,
         users=users,
         hasher=hasher,
         audit=audit,

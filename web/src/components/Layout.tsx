@@ -4,6 +4,7 @@ import {
   Bell,
   Camera,
   Cpu,
+  Truck,
   ClipboardCheck,
   ClipboardList,
   ScrollText,
@@ -95,6 +96,7 @@ const NAV = [
     group: "Configure",
     items: [
       { to: "/cameras", label: "Cameras", icon: Camera },
+      { to: "/fleet", label: "Fleet", icon: Truck },
       { to: "/edge", label: "Edge Nodes", icon: Cpu, needs: "device.register" },
       { to: "/users", label: "Users", icon: Users, needs: "user.manage" },
       { to: "/audit", label: "Audit Log", icon: ScrollText, needs: "audit.read" },

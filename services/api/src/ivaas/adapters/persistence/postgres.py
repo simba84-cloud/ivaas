@@ -30,6 +30,7 @@ from ivaas.domain.models import (
     CameraRole,
     CameraStatus,
     LoadingSession,
+    OverrideReason,
     SessionDirection,
     SessionStatus,
     Site,
@@ -132,6 +133,14 @@ class SessionRow(Base):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     approval_reason: Mapped[str | None] = mapped_column(String(32))
     approval_note: Mapped[str | None] = mapped_column(String(280))
+    vehicle_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    plate_read: Mapped[str | None] = mapped_column(String(16))
+    identified_by: Mapped[str | None] = mapped_column(String(16))
+    override_count: Mapped[int | None] = mapped_column(Integer)
+    override_reason: Mapped[str | None] = mapped_column(String(32))
+    override_note: Mapped[str | None] = mapped_column(String(280))
+    override_by: Mapped[str | None] = mapped_column(String(128))
+    override_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 def _session_to_domain(r: SessionRow) -> LoadingSession:
@@ -150,6 +159,14 @@ def _session_to_domain(r: SessionRow) -> LoadingSession:
         approved_at=r.approved_at,
         approval_reason=ApprovalReason(r.approval_reason) if r.approval_reason else None,
         approval_note=r.approval_note,
+        vehicle_id=r.vehicle_id,
+        plate_read=r.plate_read,
+        identified_by=r.identified_by,
+        override_count=r.override_count,
+        override_reason=OverrideReason(r.override_reason) if r.override_reason else None,
+        override_note=r.override_note,
+        override_by=r.override_by,
+        override_at=r.override_at,
     )
 
 
@@ -322,6 +339,14 @@ class PostgresSessionRepository:
             "approved_at": session.approved_at,
             "approval_reason": session.approval_reason.value if session.approval_reason else None,
             "approval_note": session.approval_note,
+            "vehicle_id": session.vehicle_id,
+            "plate_read": session.plate_read,
+            "identified_by": session.identified_by,
+            "override_count": session.override_count,
+            "override_reason": session.override_reason.value if session.override_reason else None,
+            "override_note": session.override_note,
+            "override_by": session.override_by,
+            "override_at": session.override_at,
         }
         stmt = insert(SessionRow).values(**values)
         stmt = stmt.on_conflict_do_update(index_elements=[SessionRow.id], set_=values)

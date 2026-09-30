@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { EvidenceClips } from "../components/EvidenceClips";
+import { AssignTruck, CorrectCount, CountCell, PlateCell } from "../components/LoadIdentity";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronRight, ShieldCheck, X } from "lucide-react";
 import { Fragment, useState } from "react";
@@ -278,10 +279,14 @@ export default function Sessions({ me }: { me: Me | undefined }) {
                         </motion.span>
                       </button>
                     </td>
-                    <td className="td num font-semibold text-ink">{s.plate ?? "—"}</td>
+                    <td className="td">
+                      <PlateCell session={s} />
+                    </td>
                     <td className="td capitalize text-muted">{s.direction}</td>
                     <td className="td text-muted">{dateTime(s.opened_at)}</td>
-                    <td className="td num text-right font-semibold">{s.ai_count.toLocaleString()}</td>
+                    <td className="td num text-right font-semibold">
+                      <CountCell session={s} />
+                    </td>
                     <td className="td text-right">
                       <VerifyCell session={s} canCorrect={isAdmin} />
                     </td>
@@ -342,6 +347,30 @@ export default function Sessions({ me }: { me: Me | undefined }) {
                               </dd>
                             </div>
                           </dl>
+                          <div className="mt-3 grid gap-3 border-t border-line pt-3 lg:grid-cols-2">
+                            <div>
+                              <div className="eyebrow mb-1">Truck</div>
+                              <div className="mb-1.5 text-xs text-muted">
+                                {s.plate
+                                  ? `${s.plate}${s.plate_read && s.plate_read !== s.plate ? ` (camera read ${s.plate_read})` : ""}${
+                                      s.identified_by === "operator" ? " · set by an operator" : ""
+                                    }`
+                                  : "No plate was read for this load."}
+                              </div>
+                              {can(me, "session.operate") && <AssignTruck session={s} />}
+                            </div>
+                            <div>
+                              <div className="eyebrow mb-1">Correction</div>
+                              <div className="mb-1.5 text-xs text-muted">
+                                {s.override_count != null
+                                  ? `Corrected from ${s.ai_count} to ${s.override_count} by ${s.override_by} (${(s.override_reason ?? "").replace(/_/g, " ")}${
+                                      s.override_note ? `: ${s.override_note}` : ""
+                                    }). Accuracy stays measured on the AI count.`
+                                  : "None. The AI count stands."}
+                              </div>
+                              {can(me, "count.override") && <CorrectCount session={s} />}
+                            </div>
+                          </div>
                           <div className="mt-3 border-t border-line pt-3">
                             <EvidenceClips sessionId={s.id} />
                           </div>

@@ -68,6 +68,9 @@ BODIES: dict[tuple[str, str], object] = {
     ("PUT", "/api/v1/edge/nodes/{node_id}/config"): {"model": {"path": "/models/x.onnx"}},
     ("POST", "/api/v1/edge/nodes/{node_id}/rollback"): None,
     ("GET", "/api/v1/sessions/{session_id}/evidence"): None,
+    ("POST", "/api/v1/sessions/{session_id}/vehicle"): {"plate": "B 999 ZZ"},
+    ("POST", "/api/v1/sessions/{session_id}/override"): {"count": 1, "reason": "double_counted"},
+    ("PUT", "/api/v1/fleet/{vehicle_id}"): {"plate": "B 999 ZZ"},
     ("GET", "/api/v1/edge/models/{model_id}/file"): "node",
 }
 
@@ -146,6 +149,7 @@ def world():
             f"/api/v1/sites/{bay['site_id']}/enrollment-tokens", json={"name": "A node"}, headers=a
         ).json()
         node = c.post("/api/v1/edge/enroll", json={"token": made["token"]}).json()
+        vehicle = c.post("/api/v1/fleet", json={"plate": "AAA 111"}, headers=a).json()
         model = c.post(
             "/api/v1/models",
             data={"name": "stacks", "version": "a1", "meta": META},
@@ -165,6 +169,7 @@ def world():
             "key:path": object_key,
             "node_id": node["node_id"],
             "model_id": model["id"],
+            "vehicle_id": vehicle["id"],
         }
         b = login(c, "b-all", B_PASSWORD)
         b_site = c.get("/api/v1/sites", headers=b).json()[0]["id"]
