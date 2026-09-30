@@ -41,9 +41,10 @@ VOLUMETRIC = [
 ]
 
 
-def camera_plan(volumetric: int, lpr: int) -> list[tuple[str, str]]:
-    """-> [(name, role)]: the scope's layout, cut or cycled to `volumetric` cameras."""
-    roles = [role for role, n in VOLUMETRIC for _ in range(n)]
+def camera_plan(volumetric: int, lpr: int, role: str | None = None) -> list[tuple[str, str]]:
+    """-> [(name, role)]: the scope's layout, cut or cycled to `volumetric` cameras, or
+    every volumetric camera in one `role` (a small rig of chokepoints, say)."""
+    roles = [role] if role else [r for r, n in VOLUMETRIC for _ in range(n)]
     plan = []
     for i in range(volumetric):
         role = roles[i % len(roles)]
@@ -94,7 +95,7 @@ def setup(client: httpx.Client, args: argparse.Namespace) -> list[dict]:
         for c in _check(client.get(f"/api/v1/bays/{args.bay}/cameras"), "listing cameras")
     }
     cameras = []
-    for name, role in camera_plan(args.cameras, args.lpr):
+    for name, role in camera_plan(args.cameras, args.lpr, getattr(args, "role", None)):
         cam = existing.get(name) or _check(
             client.post(
                 f"/api/v1/bays/{args.bay}/cameras",
@@ -194,6 +195,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.choices["setup"]
     s.add_argument("--cameras", type=int, default=16, help="volumetric cameras (scope: 16)")
     s.add_argument("--lpr", type=int, default=1, help="plate cameras (scope: 1)")
+    s.add_argument(
+        "--role", help="give every volumetric camera this role, e.g. chokepoint (small rigs)"
+    )
     s.add_argument("--node", help="an enrolled node to configure for every simulated camera")
     s.add_argument("--model", default="/models/stacks-v2.onnx")
     s.add_argument("--layers", default="/models/layers-v3.onnx")

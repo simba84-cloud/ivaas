@@ -84,3 +84,7 @@ ivaas_delivery_pending 4.0
         "dropped": 0.0,
         "pending": 4.0,
     }
+
+
+def test_a_small_rig_can_be_all_chokepoints():
+    assert {role for _, role in sim.camera_plan(2, 0, "chokepoint")} == {"chokepoint"}
