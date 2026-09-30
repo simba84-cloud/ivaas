@@ -23,15 +23,16 @@ class SpooledDelivery:
     def __init__(
         self,
         api_url: str,
-        api_key: str,
+        api_key: str | None,
         spool_path: str | Path,
         *,
         max_spool: int = 100_000,
         client: httpx.Client | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
-        self._client = client or httpx.Client(
-            base_url=api_url, timeout=5.0, headers={"X-IVaaS-Key": api_key}
-        )
+        # an enrolled node authenticates as itself; an unenrolled one with the shared key
+        auth = headers if headers is not None else {"X-IVaaS-Key": api_key or ""}
+        self._client = client or httpx.Client(base_url=api_url, timeout=5.0, headers=auth)
         self._spool_path = Path(spool_path)
         self._max_spool = max_spool
         self._lock = threading.Lock()

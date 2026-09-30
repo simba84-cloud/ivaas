@@ -287,3 +287,41 @@ def test_enrolment_is_audited(bakers):
     c.delete(f"/api/v1/edge/nodes/{enrolled['node_id']}", headers=admin)
     actions = {e["action"] for e in c.get("/api/v1/audit", headers=admin).json()}
     assert {"edge_token_created", "node_enrolled", "node_revoked"} <= actions
+
+
+def test_the_real_node_code_speaks_the_apis_protocol(bakers, tmp_path):
+    """The pipeline's own enrolment, config fetch and heartbeat, against this API."""
+    from ivaas_pipeline.adapters import fleet
+
+    c, admin, bay, _ = bakers
+    tok = token(c, admin, bay["site_id"], bay_id=bay["id"])
+    identity = fleet.enroll("http://testserver", tok, tmp_path / "node.json", client=c)
+    choke = next(
+        x
+        for x in c.get(f"/api/v1/bays/{bay['id']}/cameras", headers=admin).json()
+        if x["role"] == "chokepoint"
+    )
+    body = {
+        "model": {"path": "/models/stacks-v2.onnx"},
+        "cameras": [{"api_camera_id": choke["id"], "zone": [0, 0, 10, 10]}],
+    }
+    c.put(f"/api/v1/edge/nodes/{identity.node_id}/config", json=body, headers=admin)
+
+    c.headers.pop("Authorization", None)
+    c.headers.update(identity.headers)
+    cfg = fleet.fetch_config(c, sleep=lambda s: None)
+    assert cfg["bay_id"] == bay["id"] and cfg["cameras"][0]["api_camera_id"] == choke["id"]
+
+    changed = []
+    beat = fleet.Heartbeat(
+        c,
+        config_version=cfg["config_version"],
+        cameras=lambda: {cfg["cameras"][0]["key"]: {"connected": True, "fps": 7.5, "lag_s": 0.1}},
+        camera_ids={cfg["cameras"][0]["key"]: choke["id"]},
+        spool_pending=lambda: 3,
+        on_new_config=changed.append,
+    )
+    assert beat.beat() and changed == []
+    listed = c.get("/api/v1/edge/nodes", headers=admin).json()[0]
+    assert listed["health"] == "online" and listed["config_drift"] is False
+    assert listed["cameras"][0]["fps"] == 7.5 and listed["spool_pending"] == 3
