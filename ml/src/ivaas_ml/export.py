@@ -21,19 +21,26 @@ import json
 from pathlib import Path
 
 import numpy as np
-import torch
 
 
-class _Wrapper(torch.nn.Module):
-    """Only the two tensors the adapter needs, in a fixed order."""
+def _wrap(model):
+    """Only the two tensors the adapter needs, in a fixed order.
 
-    def __init__(self, model: torch.nn.Module) -> None:
-        super().__init__()
-        self.model = model
+    torch is imported here, not at module level: it is the `train` extra, and
+    `detection_error` below must stay importable (and testable) without it.
+    """
+    import torch
 
-    def forward(self, pixel_values: torch.Tensor):
-        out = self.model(pixel_values=pixel_values)
-        return out.logits, out.pred_boxes
+    class _Wrapper(torch.nn.Module):
+        def __init__(self, model: torch.nn.Module) -> None:
+            super().__init__()
+            self.model = model
+
+        def forward(self, pixel_values: torch.Tensor):
+            out = self.model(pixel_values=pixel_values)
+            return out.logits, out.pred_boxes
+
+    return _Wrapper(model)
 
 
 def detection_error(ref_logits, ref_boxes, logits, boxes, *, top: int = 100) -> float:
@@ -59,6 +66,7 @@ def detection_error(ref_logits, ref_boxes, logits, boxes, *, top: int = 100) -> 
 
 def export(checkpoint: str | Path, out: Path, *, opset: int = 17) -> dict:
     checkpoint = str(checkpoint)  # a local directory or a Hugging Face model id
+    import torch
     from transformers import AutoImageProcessor, RTDetrForObjectDetection
 
     processor = AutoImageProcessor.from_pretrained(checkpoint)
@@ -66,7 +74,7 @@ def export(checkpoint: str | Path, out: Path, *, opset: int = 17) -> dict:
     size = processor.size
     h, w = int(size["height"]), int(size["width"])
     dummy = torch.rand(1, 3, h, w)
-    wrapper = _Wrapper(model).eval()
+    wrapper = _wrap(model).eval()
     # Reference BEFORE export: the exporter restores the wrapper's mode on exit, which
     # would put BatchNorm/dropout back into training mode for a later forward pass.
     with torch.no_grad():
