@@ -29,10 +29,14 @@ def password_epoch(user: User) -> int:
 
 BEARER = "bearer "
 API_KEY_HEADER = "x-ivaas-key"
+NODE_HEADER = "x-ivaas-node"
 
 
 async def _authenticate(verifiers: dict[str, TokenVerifier], headers, query) -> Principal:
     auth = headers.get("authorization", "")
+    node = headers.get(NODE_HEADER)
+    if node and "node" in verifiers:
+        return await verifiers["node"].verify(node)
     api_key = headers.get(API_KEY_HEADER)
     if api_key and "api_key" in verifiers:
         return await verifiers["api_key"].verify(api_key)
@@ -69,6 +73,8 @@ async def _check_account(container, principal: Principal, path: str) -> Principa
     account as it stands right now, and so is what the account may do: roles are
     read from the account on every request, never trusted from the token.
     """
+    if principal.is_service and principal.tenant_id is not None:
+        return principal  # an edge node: its verifier already bound tenant and site
     if principal.is_service:
         tenant_id = await _resolve_tenant(container, principal.tenant_ref)
         if tenant_id is None:

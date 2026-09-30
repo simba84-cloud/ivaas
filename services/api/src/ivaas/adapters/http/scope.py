@@ -59,6 +59,17 @@ async def require_camera(
     return camera
 
 
+async def require_bay_camera(
+    c: Any, principal: Principal, permission: Permission, bay_id: UUID, camera_id: UUID
+) -> None:
+    """The bay is in scope and the camera is one of its own: an edge node reports only
+    what its own cameras saw, at its own site."""
+    await require_bay(c, principal, permission, bay_id)
+    camera = await c.cameras.get(camera_id)
+    if camera is None or camera.bay_id != bay_id:
+        raise NotFoundError(f"camera {camera_id} not found")
+
+
 async def visible_bays(c: Any, principal: Principal, permission: Permission) -> list[Any]:
     """The tenant's bays the caller holds `permission` for."""
     return [

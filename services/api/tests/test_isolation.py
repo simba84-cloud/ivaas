@@ -62,6 +62,9 @@ BODIES: dict[tuple[str, str], object] = {
     ("POST", "/api/v1/incidents/{incident_id}/acknowledge"): None,
     ("POST", "/api/v1/incidents/{incident_id}/resolve"): {"note": "x"},
     ("DELETE", "/api/v1/people/{person_id}"): None,
+    ("POST", "/api/v1/sites/{site_id}/enrollment-tokens"): {"name": "B's node"},
+    ("DELETE", "/api/v1/edge/nodes/{node_id}"): None,
+    ("PUT", "/api/v1/edge/nodes/{node_id}/config"): {"model": {"path": "/models/x.onnx"}},
 }
 
 #: Path parameters that are not a tenant's resource, and why.
@@ -135,6 +138,10 @@ def world():
             return key
 
         object_key = c.portal.call(seed_a)
+        made = c.post(
+            f"/api/v1/sites/{bay['site_id']}/enrollment-tokens", json={"name": "A node"}, headers=a
+        ).json()
+        node = c.post("/api/v1/edge/enroll", json={"token": made["token"]}).json()
         ids = {
             "site_id": bay["site_id"],
             "bay_id": bay["id"],
@@ -146,6 +153,7 @@ def world():
             "job_id": str(job.id),
             "username": "operator",
             "key:path": object_key,
+            "node_id": node["node_id"],
         }
         b = login(c, "b-all", B_PASSWORD)
         yield c, a, b, ids
