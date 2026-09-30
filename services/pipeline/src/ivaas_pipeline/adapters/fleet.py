@@ -57,6 +57,16 @@ def enroll(
     client: httpx.Client | None = None,
 ) -> NodeIdentity:
     """Spend the token; keep the credential where only this node's user can read it."""
+    target = Path(path)
+    # A token works once. Find out that the credential can be kept *before* spending
+    # it, or a permissions problem would burn the token and orphan the node.
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        probe = target.parent / f".{target.name}.probe"
+        probe.touch()
+        probe.unlink()
+    except OSError as exc:
+        raise EnrollmentError(f"cannot write {target}: {exc.strerror}") from exc
     http = client or httpx.Client(base_url=api_url, timeout=10.0)
     try:
         r = http.post(
@@ -73,8 +83,6 @@ def enroll(
         raise EnrollmentError(f"enrollment refused ({r.status_code}): {detail}")
     body = r.json()
     identity = NodeIdentity(api_url, body["node_id"], body["credential"], body["name"])
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
     # created 0600 from the start: never world-readable, not even for a moment
     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as fh:
@@ -159,6 +167,9 @@ class Heartbeat:
     def beat(self) -> bool:
         try:
             r = self._client.post("/api/v1/edge/heartbeat", json=self.report())
+            if r.status_code == 401:
+                log.error("the API refused this node's credential (revoked?); enroll it again")
+                return False
             r.raise_for_status()
         except httpx.HTTPError as exc:
             log.warning("heartbeat not delivered (%s)", type(exc).__name__)

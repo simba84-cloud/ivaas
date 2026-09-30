@@ -72,6 +72,11 @@ class SpooledDelivery:
         if r.status_code >= 500:
             log.warning("API error %s; item spooled", r.status_code)
             return False
+        if r.status_code == 401:
+            # Not a bad event: this node's credential was refused (revoked, or the node
+            # was re-enrolled). Keep it; enrolling again replays the spool as the new node.
+            log.error("API refused this node's credential; item spooled until it is enrolled again")
+            return False
         if r.status_code >= 400:
             # our bug or a config error: retrying cannot help, so log loudly and drop
             log.error(

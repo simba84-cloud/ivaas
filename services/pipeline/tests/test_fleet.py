@@ -160,3 +160,22 @@ def test_without_a_client_the_delivery_builds_one_with_the_node_header(tmp_path)
     assert delivery._client.headers["X-IVaaS-Node"] == "c"
     legacy = SpooledDelivery(API, "k", tmp_path / "spool2")
     assert legacy._client.headers["X-IVaaS-Key"] == "k"
+
+
+def test_an_unwritable_credential_file_is_found_before_the_token_is_spent(tmp_path):
+    """A token works once: a permissions problem must not burn it and orphan the node."""
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    called = []
+    try:
+        with pytest.raises(fleet.EnrollmentError, match="cannot write"):
+            fleet.enroll(
+                API,
+                "ivaas-enr-x.y",
+                locked / "node.json",
+                client=client(lambda r: called.append(r) or httpx.Response(201)),
+            )
+    finally:
+        locked.chmod(0o700)
+    assert called == [], "the token was spent although the credential could not be kept"

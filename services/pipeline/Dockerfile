@@ -7,9 +7,14 @@ COPY pyproject.toml uv.lock* ./
 RUN uv sync --no-dev --no-install-project --extra lpr
 COPY src ./src
 RUN uv sync --no-dev --extra lpr
+# so `python -m ivaas_pipeline enroll ...` works as documented, not only via the venv path
+ENV PATH="/app/.venv/bin:$PATH"
 # -m: fast-alpr caches its ONNX weights under $HOME, and a user without one cannot
 # start (the pipeline crash-looped on it). Same fix as the API image.
 RUN useradd -r -m -d /home/ivaas ivaas
+# the event spool and the node's credential live here; the pipeline runs as ivaas, so
+# the directory must be its own (a fresh volume inherits this ownership)
+RUN mkdir -p /var/lib/ivaas && chown ivaas /var/lib/ivaas
 USER ivaas
 # Fetch the plate-reader weights at build time: an edge node on site may have no
 # outbound internet when it starts.
