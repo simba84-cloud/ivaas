@@ -227,6 +227,17 @@ class AnalyticsTools:
             "returned": r.returned,
             "outstanding": r.outstanding,
             "still_at_the_bay": r.in_progress,
+            # which loads: a count alone invites a model to guess the plate
+            "loads_at_the_bay": [
+                {
+                    "opened": x.opened,
+                    "plate": x.plate or None,
+                    "direction": x.direction,
+                    "counted_so_far": x.ai_count,
+                }
+                for x in r.loads
+                if x.status == "open"
+            ],
             "without_a_plate": r.unidentified,
             "accuracy": {
                 "verified_loads": r.verified,

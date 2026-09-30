@@ -36,14 +36,16 @@ MANIFEST = (
 @dataclass(frozen=True)
 class Golden:
     question: str
+    #: the tool to check, then any other a model may rightly answer it with
     tool: str
     args: dict[str, Any]
     #: the figure, from the tool result
     said: Any
     #: the same figure, from what people see
     shown: Any
-    #: how a reply states it
+    #: what a reply must say: every item, each a phrase or a tuple of alternatives
     words: Any
+    also: tuple[str, ...] = ()
 
 
 def _csv(c, admin, site) -> list[dict]:
@@ -75,7 +77,7 @@ GOLDEN = [
         {"day": DAY},
         lambda t: t["dispatched"],
         lambda s: _settled(s.rows, "loading"),
-        lambda v: [f"{v}", f"{v:,}"],
+        lambda v: [f"{v}"],
     ),
     Golden(
         "How many crates came back on 1 October?",
@@ -92,6 +94,7 @@ GOLDEN = [
         lambda t: t["outstanding"],
         lambda s: _settled(s.rows, "loading") - _settled(s.rows, "offloading"),
         lambda v: [f"{v}"],
+        also=("balances",),
     ),
     Golden(
         "What was the counting accuracy on 1 October?",
@@ -99,7 +102,7 @@ GOLDEN = [
         {"day": DAY},
         lambda t: t["accuracy"]["mean_accuracy_pct"],
         lambda s: 98.0 if "98.0%" in s.pdf else None,
-        lambda v: [f"{v}%", f"{v:.0f}%"],
+        lambda v: [(f"{v}%", f"{v:.0f}%", f"{v}")],
     ),
     Golden(
         "How many loads on 1 October had no number plate?",
@@ -107,15 +110,15 @@ GOLDEN = [
         {"day": DAY},
         lambda t: t["without_a_plate"],
         lambda s: sum(1 for r in s.rows if not r["plate"]),
-        lambda v: [f"{v}", "one"],
+        lambda v: [(f"{v}", "one")],
     ),
     Golden(
         "Is any truck still at the bay from 1 October?",
         "daily_report",
         {"day": DAY},
-        lambda t: t["still_at_the_bay"],
-        lambda s: sum(1 for r in s.rows if r["status"] == "open"),
-        lambda v: ["ABC 1003"],
+        lambda t: [x["plate"] for x in t["loads_at_the_bay"]],
+        lambda s: [r["plate"] for r in s.rows if r["status"] == "open"],
+        lambda v: v,
     ),
     Golden(
         "Which loads on 1 October were corrected by a person, and to what?",
@@ -128,6 +131,7 @@ GOLDEN = [
             if r["corrected_count"]
         ],
         lambda v: ["78"],
+        also=("list_sessions",),
     ),
     Golden(
         "Did any load on 1 October disagree with the manifest?",
@@ -151,7 +155,8 @@ GOLDEN = [
         {"days": 7, "by": "day"},
         lambda t: {r["day"]: (r["dispatched"], r["returned"]) for r in t["rows"]},
         lambda s: {b["key"]: (b["dispatched"], b["returned"]) for b in s.by_day},
-        lambda v: ["190", "30"],
+        lambda v: ["190"],
+        also=("daily_report",),
     ),
 ]
 
@@ -231,6 +236,8 @@ def test_a_real_model_answers_the_golden_set_with_the_reports_figures(world):
     from ivaas.adapters.llm.openai_compatible import OpenAiCompatibleChatModel
 
     c, admin, shown, _ = world
+    # a model on a CPU takes minutes; the idle sweep must not close ABC 1003 meanwhile
+    c.portal.call(lambda: [t.cancel() for t in c.app.state.background_tasks])
     model = os.environ.get("IVAAS_EVAL_LLM_MODEL", "qwen3:8b")
     c.app.state.container.chat_model = OpenAiCompatibleChatModel(LIVE, model, timeout_s=300)
     missed = []
@@ -244,7 +251,10 @@ def test_a_real_model_answers_the_golden_set_with_the_reports_figures(world):
         body = r.json()
         wanted = g.words(g.shown(shown))
         tools = [t["name"] for t in body["tools_used"]]
-        ok = g.tool in tools and any(w in body["reply"] for w in wanted)
+        says = all(
+            any(x in body["reply"] for x in ((w,) if isinstance(w, str) else w)) for w in wanted
+        )
+        ok = bool({g.tool, *g.also} & set(tools)) and says
         print(f"\n[{'ok' if ok else 'MISS'}] {g.question}\n  tools={tools}\n  {body['reply']}")
         if not ok:
             missed.append(g.question)
