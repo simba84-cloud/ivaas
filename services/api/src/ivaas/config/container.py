@@ -58,6 +58,7 @@ from ivaas.application.sessions import (
     RecordPlateRead,
 )
 from ivaas.application.summarise import SummariseReport
+from ivaas.application.tally import RematchTallySheets, SaveTallySheets
 from ivaas.application.users import UserAdmin
 from ivaas.config.settings import Settings
 from ivaas.domain.models import Bay, Camera, CameraRole, SessionDirection, Site
@@ -90,7 +91,10 @@ def _stable_id(name: str) -> Any:
 
 
 def demo_topology() -> tuple[Site, Bay, list[Camera]]:
-    site = Site(id=_stable_id("site.demo-bakery"), name="Bakery Industrial Site")
+    # local time zone: tally sheets are written in wall-clock time and matched against it
+    site = Site(
+        id=_stable_id("site.demo-bakery"), name="Bakery Industrial Site", timezone="Africa/Harare"
+    )
     bay = Bay(id=_stable_id("bay.poc"), site_id=site.id, name="Loading Bay")
     cameras = [
         Camera(
@@ -114,6 +118,7 @@ class Container:
     audit: Any
     setting_store: Any
     acknowledgements: Any
+    tally: Any
     zones: Any
     incidents: Any
     badges: Any
@@ -298,6 +303,26 @@ class Container:
     def list_acknowledgements(self) -> ListAcknowledgements:
         return ListAcknowledgements(self.acknowledgements, self.clock)
 
+    async def save_tally_sheets_uc(self) -> SaveTallySheets:
+        return SaveTallySheets(
+            self.tally,
+            self.sessions,
+            self.bays,
+            self.sites,
+            await self.reconcile_session_uc(),
+            self.clock,
+        )
+
+    async def rematch_tally_sheets_uc(self) -> RematchTallySheets:
+        return RematchTallySheets(
+            self.tally,
+            self.sessions,
+            self.bays,
+            self.sites,
+            await self.reconcile_session_uc(),
+            self.clock,
+        )
+
     @property
     def approve_session(self) -> ApproveSession:
         return ApproveSession(self.sessions, self.events, self.clock)
@@ -403,6 +428,9 @@ async def build_container(settings: Settings) -> Container:
         audit = PostgresAuditLog(pg_sessionmaker)
         setting_store = PostgresSettingsStore(pg_sessionmaker)
         acknowledgements = PostgresAcknowledgementStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.tally_postgres import PostgresTallySheetStore
+
+        tally: Any = PostgresTallySheetStore(pg_sessionmaker)
         users = PostgresUserStore(pg_sessionmaker)
         from ivaas.adapters.persistence.security_postgres import (
             PostgresBadgeLog,
@@ -423,6 +451,9 @@ async def build_container(settings: Settings) -> Container:
         audit = InMemoryAuditLog()
         setting_store = InMemorySettingsStore()
         acknowledgements = InMemoryAcknowledgementStore()
+        from ivaas.adapters.persistence.tally_postgres import InMemoryTallySheetStore
+
+        tally = InMemoryTallySheetStore()
         users = InMemoryUserStore()
         from ivaas.adapters.persistence.security_postgres import (
             InMemoryBadgeLog,
@@ -471,6 +502,7 @@ async def build_container(settings: Settings) -> Container:
         audit=audit,
         setting_store=setting_store,
         acknowledgements=acknowledgements,
+        tally=tally,
         zones=zones,
         incidents=incidents,
         badges=badges,

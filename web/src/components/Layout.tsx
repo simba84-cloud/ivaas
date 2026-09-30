@@ -4,7 +4,9 @@ import {
   Bell,
   Camera,
   ClipboardCheck,
+  ClipboardList,
   ScrollText,
+  Target,
   SlidersHorizontal,
   Users,
   FileVideo,
@@ -77,6 +79,8 @@ const NAV = [
       { to: "/security", label: "Security", icon: ShieldAlert, incidents: true },
       { to: "/live", label: "Live View", icon: MonitorPlay },
       { to: "/sessions", label: "Reconciliation", icon: ClipboardCheck },
+      { to: "/tally", label: "Tally Sheets", icon: ClipboardList, operatorOnly: true },
+      { to: "/accuracy", label: "Accuracy", icon: Target },
     ],
   },
   {
@@ -100,7 +104,14 @@ const NAV = [
 const visible = (me: Me | undefined) =>
   NAV.map((g) => ({
     ...g,
-    items: g.items.filter((i) => !("adminOnly" in i && i.adminOnly) || !!me?.roles.includes("admin")),
+    items: g.items
+      .filter((i) => !("adminOnly" in i && i.adminOnly) || !!me?.roles.includes("admin"))
+      // entering counts is an operator's job; a viewer would only meet a refusal
+      .filter(
+        (i) =>
+          !("operatorOnly" in i && i.operatorOnly) ||
+          !!me?.roles.some((r) => r === "operator" || r === "admin"),
+      ),
   })).filter((g) => g.items.length);
 
 /** Unacknowledged faults and warnings at this bay; pulses while any is critical. */

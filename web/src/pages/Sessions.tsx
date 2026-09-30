@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronRight, ShieldCheck, X } from "lucide-react";
 import { Fragment, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useScope } from "../api/scope";
 import type { ApprovalReason, Session, SessionStatus } from "../api/types";
@@ -127,7 +128,11 @@ function ApproveCell({ session, isAdmin }: { session: Session; isAdmin: boolean 
   );
 }
 
-function VerifyCell({ session, canOperate }: { session: Session; canOperate: boolean }) {
+/**
+ * The manual count. Operators enter it blind, from the tally sheet; typing a figure in
+ * here, beside the AI's, is an admin's correction path only.
+ */
+function VerifyCell({ session, canCorrect }: { session: Session; canCorrect: boolean }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [value, setValue] = useState("");
@@ -147,7 +152,12 @@ function VerifyCell({ session, canOperate }: { session: Session; canOperate: boo
   if (session.status === "open") return <span className="text-xs text-faint">In progress</span>;
   if (session.manual_count !== null)
     return <span className="num text-sm">{session.manual_count.toLocaleString()}</span>;
-  if (!canOperate) return <span className="text-xs text-faint">Awaiting count</span>;
+  if (!canCorrect)
+    return (
+      <Link to="/tally" className="text-xs text-faint underline-offset-2 hover:text-ink hover:underline">
+        Awaiting tally sheet
+      </Link>
+    );
 
   const n = Number(value);
   const valid = value !== "" && Number.isInteger(n) && n >= 0;
@@ -184,7 +194,6 @@ function VerifyCell({ session, canOperate }: { session: Session; canOperate: boo
 }
 
 export default function Sessions({ me }: { me: Me | undefined }) {
-  const canOperate = hasRole(me, "operator");
   const isAdmin = hasRole(me, "admin");
   const [filter, setFilter] = useState<SessionStatus | "all">("all");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -205,7 +214,7 @@ export default function Sessions({ me }: { me: Me | undefined }) {
     <>
       <PageHeader
         title="Reconciliation"
-        subtitle="AI count against the manual count, per truck. Type the manual count to verify a load; an admin signs off any load that disputes."
+        subtitle="AI count against the manual count, per truck. Manual counts come from the tally sheets; an admin signs off any load that disputes."
         actions={
           mean !== null ? (
             <div className="text-right">
@@ -273,7 +282,7 @@ export default function Sessions({ me }: { me: Me | undefined }) {
                     <td className="td text-muted">{dateTime(s.opened_at)}</td>
                     <td className="td num text-right font-semibold">{s.ai_count.toLocaleString()}</td>
                     <td className="td text-right">
-                      <VerifyCell session={s} canOperate={canOperate} />
+                      <VerifyCell session={s} canCorrect={isAdmin} />
                     </td>
                     <td className="td">
                       <VarianceBar variance={s.variance} manual={s.manual_count} />

@@ -12,6 +12,8 @@ import {
   CameraOff,
   CheckCircle2,
   ClipboardCheck,
+  ClipboardList,
+  ClipboardX,
   FileVideo,
   LogIn,
   KeyRound,
@@ -77,6 +79,16 @@ const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon; tone: stri
   incident_resolved: { label: "Resolved an incident", icon: BadgeCheck, tone: "text-good bg-good/10" },
   person_enrolled: { label: "Enrolled a face", icon: ScanFace, tone: "text-warn bg-warn/10" },
   person_removed: { label: "Removed an enrolled face", icon: UserMinus, tone: "text-bad bg-bad/10" },
+  tally_sheet_saved: {
+    label: "Entered a tally sheet",
+    icon: ClipboardList,
+    tone: "text-accent bg-accent-tint",
+  },
+  tally_conflict: {
+    label: "Tally sheet disagrees with the recorded count",
+    icon: ClipboardX,
+    tone: "text-warn bg-warn/10",
+  },
 };
 
 const WINDOWS = [

@@ -28,6 +28,8 @@ import Security from "./pages/Security";
 import Cameras from "./pages/Cameras";
 import Command from "./pages/Command";
 import Dashboard from "./pages/Dashboard";
+import TallyReport from "./pages/TallyReport";
+import TallySheets from "./pages/TallySheets";
 import LiveView from "./pages/LiveView";
 import Login from "./pages/Login";
 import Sessions from "./pages/Sessions";
@@ -110,6 +112,8 @@ export default function App() {
           <Route path="/security" element={<Security me={me.data} />} />
           <Route path="/live" element={<LiveView />} />
           <Route path="/sessions" element={<Sessions me={me.data} />} />
+          <Route path="/tally" element={<TallySheets />} />
+          <Route path="/accuracy" element={<TallyReport />} />
           <Route path="/cameras" element={<Cameras me={me.data} />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/settings" element={<Settings />} />

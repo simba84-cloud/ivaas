@@ -318,7 +318,10 @@ async def build_postgres_repositories(
             await db.execute(
                 insert(SiteRow)
                 .values(id=site.id, name=site.name, timezone=site.timezone)
-                .on_conflict_do_update(index_elements=[SiteRow.id], set_={"name": site.name})
+                .on_conflict_do_update(
+                    index_elements=[SiteRow.id],
+                    set_={"name": site.name, "timezone": site.timezone},
+                )
             )
             await db.execute(
                 insert(BayRow)
