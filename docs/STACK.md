@@ -34,6 +34,7 @@ see the [README](../README.md).
 | Roles | Scoped bindings (platform / partner / tenant / site / bay), matrix in `domain/rbac.py` |
 | Edge nodes | Enrolled with a single-use token; authenticate with `X-IVaaS-Node`, bound to one site; heartbeat and pulled config (`/api/v1/edge/*`) |
 | Fleet register | Trucks per tenant; plate reads matched with OCR-confusion folding (`domain/plates.py`, `domain/fleet.py`) |
+| Manifests and balances | Dispatch manifests matched to loads; exceptions per mismatch, missing or unexpected truck; balances from counts of record (`domain/manifests.py`) |
 | Evidence clips | MediaMTX records evidence cameras (30 min buffer); the node cuts clips via its playback server and uploads them; kept per tenant (default 90 days) |
 | Models (OTA) | Registered versions in object storage with SHA-256; nodes verify, cache by digest and swap in place; rollback per node (`/api/v1/models`) |
 | Secrets at rest | `cryptography` (Fernet, key in `IVAAS_SECRETS_KEY`) |

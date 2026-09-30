@@ -46,6 +46,7 @@ from ivaas.application.cameras import (
     RegisterCamera,
     RemoveCamera,
 )
+from ivaas.application.manifests import ReconcileManifests
 from ivaas.application.overview import OperationsOverview, Overview
 from ivaas.application.provisioning import ProvisionTenant
 from ivaas.application.security import (
@@ -74,6 +75,7 @@ from ivaas.domain.platform_settings import (
     AUTO_OPEN_DIRECTION,
     BADGE_GRACE_MINUTES,
     FACE_RECOGNITION,
+    MANIFEST_TOLERANCE,
     RECONCILE_TOLERANCE,
 )
 from ivaas.domain.rbac import LEGACY_ROLES, Role, RoleBinding
@@ -181,6 +183,8 @@ class Container:
     ml_models: Any
     evidence: Any
     fleet: Any
+    manifests: Any
+    exceptions: Any
     users: Any
     hasher: Any
     audit: Any
@@ -347,6 +351,19 @@ class Container:
     @property
     def user_admin(self) -> UserAdmin:
         return UserAdmin(self.users, self.hasher, self.clock)
+
+    async def reconcile_manifests_uc(self) -> ReconcileManifests:
+        tolerance = await self.effective(MANIFEST_TOLERANCE, 0)
+        return ReconcileManifests(
+            self.manifests,
+            self.exceptions,
+            self.sessions,
+            self.bays,
+            self.sites,
+            self.events,
+            self.clock,
+            tolerance=int(tolerance),
+        )
 
     @property
     def provision_tenant(self) -> ProvisionTenant:
@@ -554,6 +571,13 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.fleet_postgres import PostgresFleetStore
 
         fleet: Any = PostgresFleetStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.manifests_postgres import (
+            PostgresExceptionStore,
+            PostgresManifestStore,
+        )
+
+        manifests: Any = PostgresManifestStore(pg_sessionmaker)
+        exceptions: Any = PostgresExceptionStore(pg_sessionmaker)
         audit = PostgresAuditLog(pg_sessionmaker)
         setting_store = PostgresSettingsStore(pg_sessionmaker)
         acknowledgements = PostgresAcknowledgementStore(pg_sessionmaker)
@@ -594,6 +618,13 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.fleet_postgres import InMemoryFleetStore
 
         fleet = PerTenant(InMemoryFleetStore)
+        from ivaas.adapters.persistence.manifests_postgres import (
+            InMemoryExceptionStore,
+            InMemoryManifestStore,
+        )
+
+        manifests = PerTenant(InMemoryManifestStore)
+        exceptions = PerTenant(InMemoryExceptionStore)
         audit = PerTenant(InMemoryAuditLog)
         setting_store = PerTenant(InMemorySettingsStore)
         acknowledgements = PerTenant(InMemoryAcknowledgementStore)
@@ -680,6 +711,8 @@ async def build_container(settings: Settings) -> Container:
         ml_models=ml_models,
         evidence=evidence,
         fleet=fleet,
+        manifests=manifests,
+        exceptions=exceptions,
         users=users,
         hasher=hasher,
         audit=audit,

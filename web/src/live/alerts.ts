@@ -37,6 +37,7 @@ export function useAlerts() {
   const acks = useQuery({ queryKey: ["alert-acks"], queryFn: api.acknowledgements });
   const nodes = useQuery({ queryKey: ["edge-nodes"], queryFn: api.edgeNodes, refetchInterval: 30_000 });
   const siteId = bay?.site_id;
+  const exceptions = useQuery({ queryKey: ["exceptions", "open"], queryFn: () => api.exceptions("open") });
 
   const byKey = new Map((acks.data ?? []).map((a) => [a.key, a]));
   const all: Alert[] = attention({
@@ -45,6 +46,7 @@ export function useAlerts() {
     sessions: sessions.data,
     insights: overview.data?.insights,
     nodes: nodes.data?.filter((n) => n.site_id === siteId),
+    openExceptions: exceptions.data?.length,
   }).map((a) => ({ ...a, ack: byKey.get(a.key) }));
 
   const active = all.filter((a) => !a.ack);

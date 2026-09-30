@@ -19,6 +19,7 @@ from conftest import login, make_client
 from fastapi.routing import APIRoute
 
 from ivaas.domain.analysis import AnalysisJob
+from ivaas.domain.manifests import ExceptionKind, ManifestException
 from ivaas.domain.rbac import Role, RoleBinding
 from ivaas.domain.security import EnrolledPerson, Incident, IncidentKind
 from ivaas.domain.tenancy import BAKERS_INN_ID, ISOLATION_TEST_ID, ScopeType
@@ -71,6 +72,7 @@ BODIES: dict[tuple[str, str], object] = {
     ("POST", "/api/v1/sessions/{session_id}/vehicle"): {"plate": "B 999 ZZ"},
     ("POST", "/api/v1/sessions/{session_id}/override"): {"count": 1, "reason": "double_counted"},
     ("PUT", "/api/v1/fleet/{vehicle_id}"): {"plate": "B 999 ZZ"},
+    ("POST", "/api/v1/exceptions/{exception_id}/resolve"): {"note": "looked"},
     ("GET", "/api/v1/edge/models/{model_id}/file"): "node",
 }
 
@@ -113,12 +115,14 @@ def world():
         incident = Incident(UUID(bay["id"]), UUID(camera["id"]), IncidentKind.INTRUSION, now, 0.9)
         person = EnrolledPerson("Ann", "E1", "consent-1", "admin", now, (0.1,) * 128)
         job = AnalysisJob(UUID(bay["id"]), "a.mp4", "k", "admin", now)
+        exception = ManifestException(ExceptionKind.NOT_SEEN, now.date(), now, plate="AAA 111")
 
         async def seed_a():
             with tenant_context(BAKERS_INN_ID):
                 await container.incidents.save(incident)
                 await container.people.save(person)
                 await container.jobs.save(job)
+                await container.exceptions.save(exception)
                 key = f"tenants/{BAKERS_INN_ID}/uploads/{job.id}/a.mp4"
                 await container.objects.put(key, b"secret video", "video/mp4")
             with system_context():
@@ -170,6 +174,7 @@ def world():
             "node_id": node["node_id"],
             "model_id": model["id"],
             "vehicle_id": vehicle["id"],
+            "exception_id": str(exception.id),
         }
         b = login(c, "b-all", B_PASSWORD)
         b_site = c.get("/api/v1/sites", headers=b).json()[0]["id"]
