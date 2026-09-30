@@ -11,15 +11,14 @@ Pure Python, like the rest of the domain.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
-from difflib import SequenceMatcher
 from enum import StrEnum
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from ivaas.domain.models import LoadingSession, SessionDirection
+from ivaas.domain.plates import normalize_plate, plate_similarity
 
 #: the paper form says LOAD / RETURN; sessions say loading / offloading
 SHEET_DIRECTIONS = {"LOAD": SessionDirection.LOADING, "RETURN": SessionDirection.OFFLOADING}
@@ -121,23 +120,6 @@ def parse_direction(value: str) -> SessionDirection:
         return SHEET_DIRECTIONS[value.strip().upper()]
     except KeyError:
         raise InvalidTallySheetError("direction must be LOAD or RETURN") from None
-
-
-# OCR and handwriting confuse these; compare in one canonical alphabet.
-_CONFUSABLE = str.maketrans(
-    {"O": "0", "Q": "0", "D": "0", "I": "1", "L": "1", "Z": "2", "S": "5", "B": "8", "G": "6"}
-)
-
-
-def normalize_plate(text: str | None) -> str:
-    return re.sub(r"[^A-Z0-9]", "", (text or "").upper())
-
-
-def plate_similarity(a: str | None, b: str | None) -> float:
-    a, b = normalize_plate(a).translate(_CONFUSABLE), normalize_plate(b).translate(_CONFUSABLE)
-    if not a or not b:
-        return 0.0
-    return SequenceMatcher(None, a, b).ratio()
 
 
 def match_session(
