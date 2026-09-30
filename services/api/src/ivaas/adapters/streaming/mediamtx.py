@@ -24,16 +24,18 @@ class MediaMtxGateway:
         await self._client.aclose()
 
     @staticmethod
-    def _config(source: StreamSource) -> dict:
+    def _config(source: StreamSource, record: bool = False) -> dict:
+        # recording keeps the rolling evidence buffer the edge node cuts clips from
         if source.is_push:
-            return {"source": "publisher"}
+            return {"source": "publisher", "record": record}
         # Pull only while someone is watching or analysing: a 16-camera bay of 4K
-        # streams should not saturate the uplink when nobody is looking.
-        return {"source": source.url, "sourceOnDemand": True}
+        # streams should not saturate the uplink when nobody is looking. An evidence
+        # camera is read continuously by the pipeline, so it is recorded continuously.
+        return {"source": source.url, "sourceOnDemand": True, "record": record}
 
-    async def provision(self, stream_path: str, source: StreamSource) -> None:
+    async def provision(self, stream_path: str, source: StreamSource, record: bool = False) -> None:
         name = quote(stream_path, safe="/")
-        body = self._config(source)
+        body = self._config(source, record)
         try:
             r = await self._client.post(f"/v3/config/paths/add/{name}", json=body)
             if r.status_code == 400 and "already exists" in r.text:
@@ -42,7 +44,9 @@ class MediaMtxGateway:
         except httpx.HTTPError as exc:
             # never echo `body`: it carries the camera credentials
             raise StreamGatewayError(f"media gateway rejected path '{stream_path}': {exc}") from exc
-        log.info("provisioned %s (%s)", stream_path, source.protocol)
+        log.info(
+            "provisioned %s (%s%s)", stream_path, source.protocol, ", recorded" if record else ""
+        )
 
     async def live_paths(self) -> set[str]:
         try:
@@ -51,6 +55,14 @@ class MediaMtxGateway:
         except httpx.HTTPError as exc:
             raise StreamGatewayError(f"media gateway unreachable: {exc}") from exc
         return {p["name"] for p in r.json().get("items", []) if p.get("ready")}
+
+    async def configured_paths(self) -> dict[str, bool]:
+        try:
+            r = await self._client.get("/v3/config/paths/list", params={"itemsPerPage": 1000})
+            r.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise StreamGatewayError(f"media gateway unreachable: {exc}") from exc
+        return {p["name"]: bool(p.get("record")) for p in r.json().get("items", [])}
 
     async def remove(self, stream_path: str) -> None:
         name = quote(stream_path, safe="/")
@@ -67,13 +79,24 @@ class NullStreamGateway:
 
     def __init__(self) -> None:
         self.paths: dict[str, StreamSource] = {}
+        self.recorded: set[str] = set()
         self.live: set[str] = set()
 
-    async def provision(self, stream_path: str, source: StreamSource) -> None:
+    async def provision(self, stream_path: str, source: StreamSource, record: bool = False) -> None:
         self.paths[stream_path] = source
+        if record:
+            self.recorded.add(stream_path)
 
     async def remove(self, stream_path: str) -> None:
         self.paths.pop(stream_path, None)
 
     async def live_paths(self) -> set[str]:
         return set(self.live)  # tests set this directly
+
+    async def configured_paths(self) -> dict[str, bool]:
+        return {p: p in self.recorded for p in self.paths}
+
+    def forget_everything(self) -> None:
+        """What a media server restart does to paths added through its API."""
+        self.paths.clear()
+        self.recorded.clear()

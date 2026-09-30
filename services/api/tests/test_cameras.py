@@ -118,6 +118,35 @@ async def test_mediamtx_gateway_adds_then_patches_and_tolerates_missing_delete()
 
 
 @pytest.mark.asyncio
+async def test_only_evidence_cameras_are_recorded():
+    """Recording every 4K stream would fill the edge disk; chokepoint and LPR are evidence."""
+    import json
+
+    bodies = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies[request.url.path.rsplit("/", 1)[-1]] = json.loads(request.content)
+        return httpx.Response(200)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://mtx:9997")
+    gw = MediaMtxGateway("http://mtx:9997", client=http)
+    await gw.provision("bay/choke", StreamSource(None), record=True)
+    await gw.provision("bay/overhead", StreamSource("rtsp://10.0.0.3/s"))
+    assert bodies["choke"] == {"source": "publisher", "record": True}
+    assert bodies["overhead"]["record"] is False
+
+
+def test_registering_a_camera_records_it_only_if_its_role_is_evidence(client):
+    bay = client.get("/api/v1/bays").json()[0]["id"]
+    gateway = client.app.state.container.gateway
+    for name, role in (("Evidence choke", "chokepoint"), ("Wide overhead", "overhead")):
+        r = client.post(f"/api/v1/bays/{bay}/cameras", json={"name": name, "role": role})
+        assert r.status_code == 201, r.text
+    recorded = {p.rsplit("/", 1)[-1] for p in gateway.recorded}
+    assert "evidence-choke" in recorded and "wide-overhead" not in recorded
+
+
+@pytest.mark.asyncio
 async def test_mediamtx_errors_never_leak_credentials():
     http = httpx.AsyncClient(
         transport=httpx.MockTransport(lambda r: httpx.Response(500, text="boom")),
@@ -239,3 +268,25 @@ async def test_camera_status_follows_what_the_gateway_receives():
     assert changed["offline"] == 1
     assert (await repo.get(cams[0].id)).status is CameraStatus.OFFLINE
     assert (await repo.get(cams[0].id)).last_seen_at is not None  # history kept
+
+
+def test_paths_a_media_server_restart_forgot_are_put_back_recorded_as_before(client):
+    container = client.app.state.container
+    gateway = container.gateway
+    bay = client.get("/api/v1/bays").json()[0]["id"]
+    client.post(f"/api/v1/bays/{bay}/cameras", json={"name": "Restart choke", "role": "chokepoint"})
+    before = dict(gateway.paths)
+    gateway.forget_everything()  # the media server restarted
+
+    from ivaas.domain.tenancy import BAKERS_INN_ID
+    from ivaas.tenancy import tenant_context
+
+    async def ensure():
+        with tenant_context(BAKERS_INN_ID):
+            return await container.ensure_stream_paths()
+
+    restored = client.portal.call(ensure)
+    assert restored == len(before)
+    assert set(gateway.paths) == set(before)
+    assert any(p.endswith("restart-choke") for p in gateway.recorded)
+    assert client.portal.call(ensure) == 0  # nothing to do once they match

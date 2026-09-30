@@ -40,7 +40,12 @@ from ivaas.application.alerts import AcknowledgeAlert, ListAcknowledgements
 from ivaas.application.analysis import RunNextJob, SubmitVideo
 from ivaas.application.analytics import AnalyticsTools
 from ivaas.application.assistant import AskAssistant
-from ivaas.application.cameras import RefreshCameraStatus, RegisterCamera, RemoveCamera
+from ivaas.application.cameras import (
+    EnsureStreamPaths,
+    RefreshCameraStatus,
+    RegisterCamera,
+    RemoveCamera,
+)
 from ivaas.application.overview import OperationsOverview, Overview
 from ivaas.application.provisioning import ProvisionTenant
 from ivaas.application.security import (
@@ -174,6 +179,7 @@ class Container:
     edge: Any
     ingest: Any
     ml_models: Any
+    evidence: Any
     users: Any
     hasher: Any
     audit: Any
@@ -288,7 +294,22 @@ class Container:
 
     @property
     def register_camera(self) -> RegisterCamera:
-        return RegisterCamera(self.bays, self.cameras, self.gateway, self.events)
+        return RegisterCamera(
+            self.bays,
+            self.cameras,
+            self.gateway,
+            self.events,
+            evidence_roles=frozenset(CameraRole(r) for r in self.settings.evidence_roles),
+        )
+
+    @property
+    def ensure_stream_paths(self) -> EnsureStreamPaths:
+        return EnsureStreamPaths(
+            self.bays,
+            self.cameras,
+            self.gateway,
+            evidence_roles=frozenset(CameraRole(r) for r in self.settings.evidence_roles),
+        )
 
     @property
     def refresh_camera_status(self) -> RefreshCameraStatus:
@@ -517,6 +538,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.ml_models_postgres import PostgresModelRegistry
 
         ml_models: Any = PostgresModelRegistry(pg_sessionmaker)
+        from ivaas.adapters.persistence.evidence_postgres import PostgresEvidenceStore
+
+        evidence: Any = PostgresEvidenceStore(pg_sessionmaker)
         audit = PostgresAuditLog(pg_sessionmaker)
         setting_store = PostgresSettingsStore(pg_sessionmaker)
         acknowledgements = PostgresAcknowledgementStore(pg_sessionmaker)
@@ -551,6 +575,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.ml_models_postgres import InMemoryModelRegistry
 
         ml_models = PerTenant(InMemoryModelRegistry)
+        from ivaas.adapters.persistence.evidence_postgres import InMemoryEvidenceStore
+
+        evidence = PerTenant(InMemoryEvidenceStore)
         audit = PerTenant(InMemoryAuditLog)
         setting_store = PerTenant(InMemorySettingsStore)
         acknowledgements = PerTenant(InMemoryAcknowledgementStore)
@@ -635,6 +662,7 @@ async def build_container(settings: Settings) -> Container:
         edge=edge,
         ingest=ingest,
         ml_models=ml_models,
+        evidence=evidence,
         users=users,
         hasher=hasher,
         audit=audit,

@@ -30,6 +30,23 @@ hls: no
 rtmp: no
 srt: no
 
+# Evidence clips (proposal M2). The API switches recording on for the cameras whose
+# video is evidence (chokepoint and LPR by default: IVAAS_EVIDENCE_ROLES), not for all
+# of them: 17 4K streams would need hundreds of GB even for a short buffer. What is
+# recorded here is a rolling buffer on the edge node; the node cuts a few seconds
+# around each count out of it through the playback server and uploads only those.
+playback: yes
+playbackAddress: :9996
+pathDefaults:
+  record: no
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4
+  # a clip can be cut this soon after the moment it shows
+  recordPartDuration: 1s
+  recordSegmentDuration: 1m
+  # the buffer: long enough for an upload backlog to catch up, short enough for the disk
+  recordDeleteAfter: 30m
+
 paths:
   # Accepts any publisher under bay-poc/*, so recorded footage can be replayed with:
   #   ffmpeg -re -stream_loop -1 -i clip.mp4 -c copy -f rtsp rtsp://localhost:8554/bay-poc/chokepoint-1

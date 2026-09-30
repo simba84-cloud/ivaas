@@ -71,7 +71,9 @@ services:
     image: bluenviron/mediamtx:latest
     environment:
       MTX_WEBRTCADDITIONALHOSTS: ${IVAAS_MEDIA_HOST:-localhost}
-    volumes: [./deploy/mediamtx/mediamtx.yml:/mediamtx.yml:ro]
+    volumes:
+      - ./deploy/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - mediarecordings:/recordings  # rolling evidence buffer (30 min), see mediamtx.yml
     ports:
       - "8554:8554" # RTSP in/out
       - "8889:8889" # WebRTC (WHEP) players used by the portal
@@ -179,6 +181,8 @@ services:
       # once enrolled (see README), the node's own credential lives here and replaces
       # both the key above and pipeline.json: configuration comes from the API
       IVAAS_NODE_FILE: /var/lib/ivaas/node.json
+      # the media server's playback API, where the node cuts evidence clips from
+      IVAAS_PLAYBACK_URL: http://mediamtx:9996
     volumes:
       - ./models:/models:ro
       - ./deploy/pipeline/pipeline.json:/config/pipeline.json:ro
@@ -200,6 +204,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  mediarecordings:
   pgdata:
   natsdata:
   miniodata:

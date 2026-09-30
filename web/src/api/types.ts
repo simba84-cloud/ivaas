@@ -206,7 +206,7 @@ export interface EditableSetting {
   key: string;
   label: string;
   help: string;
-  kind: "percent" | "minutes" | "choice" | "text";
+  kind: "percent" | "minutes" | "days" | "choice" | "text";
   choices: string[];
   minimum: number | null;
   maximum: number | null;
@@ -468,4 +468,20 @@ export interface EnrollmentToken {
   site_id: string;
   bay_id: string | null;
   expires_at: string;
+}
+
+/** A few seconds of video around a count, kept with the load for the retention period. */
+export interface EvidenceClip {
+  id: string;
+  session_id: string | null;
+  camera_id: string;
+  kind: "crossing" | "plate";
+  started_at: string;
+  ended_at: string;
+  seconds: number;
+  size_bytes: number;
+  sha256: string;
+  expires_at: string;
+  /** signed and short-lived: plays in a <video> tag without a token */
+  url: string;
 }

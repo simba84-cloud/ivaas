@@ -36,6 +36,8 @@ class RegisterCamera:
     cameras: _CameraStore
     gateway: StreamGateway
     events: EventPublisher
+    #: roles whose video is evidence: recorded at the edge so clips can be cut from it
+    evidence_roles: frozenset[CameraRole] = frozenset()
 
     async def __call__(
         self, bay_id: UUID, name: str, role: CameraRole, source_url: str | None
@@ -50,7 +52,7 @@ class RegisterCamera:
 
         camera = Camera(uuid4(), bay_id, name, role, stream_path, source=source)
         # Gateway first: if the media server rejects it we have stored nothing.
-        await self.gateway.provision(stream_path, source)
+        await self.gateway.provision(stream_path, source, record=role in self.evidence_roles)
         await self.cameras.save(camera)
         await self.events.publish(
             SUBJECT_CAMERA_REGISTERED,
@@ -72,6 +74,33 @@ class RemoveCamera:
         await self.gateway.remove(camera.stream_path)
         await self.cameras.delete(camera_id)
         await self.events.publish(SUBJECT_CAMERA_REMOVED, {"id": str(camera_id)})
+
+
+@dataclass
+class EnsureStreamPaths:
+    """Make the media gateway hold every camera's path, recorded if it is evidence.
+
+    Paths added through the gateway's API live in its memory: a restart of the media
+    server forgets them all, and every camera would stay dark until someone
+    registered it again. This puts back whatever is missing, and corrects the
+    recording flag, from the cameras IVaaS knows. Runs at startup and on a timer.
+    """
+
+    bays: BayReader
+    cameras: _CameraStore
+    gateway: StreamGateway
+    evidence_roles: frozenset[CameraRole] = frozenset()
+
+    async def __call__(self) -> int:
+        configured = await self.gateway.configured_paths()
+        restored = 0
+        for bay in await self.bays.list_all():
+            for camera in await self.cameras.list_for_bay(bay.id):
+                record = camera.role in self.evidence_roles
+                if configured.get(camera.stream_path) != record:
+                    await self.gateway.provision(camera.stream_path, camera.source, record=record)
+                    restored += 1
+        return restored
 
 
 @dataclass

@@ -25,6 +25,7 @@ import type {
   Direction,
   EdgeNode,
   EnrollmentToken,
+  EvidenceClip,
   Session,
   Site,
   Overview,
@@ -67,6 +68,8 @@ export const api = {
     }),
   revokeNode: (nodeId: string) =>
     request<void>(`/api/v1/edge/nodes/${nodeId}`, { method: "DELETE" }),
+  sessionEvidence: (sessionId: string) =>
+    request<EvidenceClip[]>(`/api/v1/sessions/${sessionId}/evidence`),
   rollBackNode: (nodeId: string) =>
     request<EdgeNode>(`/api/v1/edge/nodes/${nodeId}/rollback`, { method: "POST" }),
   tallySheets: () => request<TallySheet[]>("/api/v1/tally/sheets"),

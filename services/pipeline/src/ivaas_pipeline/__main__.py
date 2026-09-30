@@ -49,7 +49,9 @@ import os
 import sys
 import threading
 
-from ivaas_pipeline.adapters import fleet, models
+import httpx
+
+from ivaas_pipeline.adapters import evidence, fleet, models
 from ivaas_pipeline.adapters.delivery import SpooledDelivery
 from ivaas_pipeline.adapters.http_sink import HttpCrossingSink, HttpPlateSink
 from ivaas_pipeline.adapters.onnx_layers import OnnxLayerCounter
@@ -190,12 +192,29 @@ def main() -> int:
         headers=auth,
         background=True,  # counting threads never wait on the network
     )
-    sink = FusingSink(
-        TimeWindowFuser(),
-        HttpCrossingSink(
-            delivery, cfg["bay_id"], camera_ids, forward_means=cfg.get("forward_means", "loading")
-        ),
+    crossing_sink = HttpCrossingSink(
+        delivery, cfg["bay_id"], camera_ids, forward_means=cfg.get("forward_means", "loading")
     )
+    # Evidence: an enrolled node near a media server cuts a clip around each count
+    # from the evidence cameras' recording and uploads it (adapters/evidence.py).
+    recorder = None
+    playback_url = os.environ.get("IVAAS_PLAYBACK_URL")
+    camera_uris = {c["key"]: c["uri"] for c in all_cameras if "://" in c.get("uri", "")}
+    if identity is not None and playback_url:
+        spool = os.environ.get("IVAAS_EVIDENCE_SPOOL", "/var/lib/ivaas/evidence")
+        recorder = evidence.EvidenceRecorder(httpx.Client(base_url=playback_url, timeout=30), spool)
+        uploader = evidence.EvidenceUploader(identity.client(timeout=120), spool, cfg["bay_id"])
+        threading.Thread(
+            target=evidence.run_forever,
+            args=(recorder, uploader, threading.Event()),
+            name="evidence",
+            daemon=True,
+        ).start()
+        crossing_sink = evidence.EvidenceSink(
+            crossing_sink, recorder, "crossing", camera_ids, camera_uris
+        )
+        log.info("evidence clips from %s, spooled in %s", playback_url, spool)
+    sink = FusingSink(TimeWindowFuser(), crossing_sink)
 
     # Models: a local path, or a registered version fetched, verified and cached by
     # digest. Every model-backed part sits behind a Swappable, so a new model can be
@@ -258,6 +277,10 @@ def main() -> int:
         from ivaas_pipeline.adapters.fast_alpr_reader import FastAlprPlateReader
 
         plate_sink = HttpPlateSink(delivery, cfg["bay_id"], camera_ids)
+        if recorder is not None:
+            plate_sink = evidence.EvidenceSink(
+                plate_sink, recorder, "plate", camera_ids, camera_uris
+            )
         for cam in cfg["lpr_cameras"]:
             lpr = LprPipeline(
                 source=open_source(cam, metrics),

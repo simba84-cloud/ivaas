@@ -67,6 +67,7 @@ BODIES: dict[tuple[str, str], object] = {
     ("DELETE", "/api/v1/edge/nodes/{node_id}"): None,
     ("PUT", "/api/v1/edge/nodes/{node_id}/config"): {"model": {"path": "/models/x.onnx"}},
     ("POST", "/api/v1/edge/nodes/{node_id}/rollback"): None,
+    ("GET", "/api/v1/sessions/{session_id}/evidence"): None,
     ("GET", "/api/v1/edge/models/{model_id}/file"): "node",
 }
 

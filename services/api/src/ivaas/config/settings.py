@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     seed_demo_data: bool = True
     # empty = no media server (dev): cameras are stored but no stream is provisioned
     mediamtx_api_url: str = ""
+    # cameras whose video is evidence: recorded at the edge, clips cut around each count
+    evidence_roles: list[str] = ["chokepoint", "lpr"]
     # where the API reads a camera's stream for a still frame (drawing security zones)
     media_rtsp_url: str = "rtsp://localhost:8554"
     # Fernet keys for camera credentials at rest, newest first. Generate one with
