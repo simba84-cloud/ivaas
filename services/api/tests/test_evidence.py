@@ -139,3 +139,31 @@ def test_uploads_are_checked(rig):
 def test_people_cannot_upload_evidence(rig):
     c, admin, _, bay, cam, _, _ = rig
     assert clip(c, admin, bay, cam).status_code == 403
+
+
+def test_the_nodes_own_uploader_delivers_to_this_api(rig, tmp_path):
+    """The pipeline's spool-and-upload code against the real endpoint (contract test)."""
+    import json as _json
+
+    from ivaas_pipeline.adapters.evidence import EvidenceUploader
+
+    c, admin, node, bay, cam, session, _ = rig
+    start = datetime.now(UTC)
+    (tmp_path / "clip1.mp4").write_bytes(MP4)
+    (tmp_path / "clip1.json").write_text(
+        _json.dumps(
+            {
+                "api_camera_id": cam["id"],
+                "kind": "crossing",
+                "started_at": start.isoformat(),
+                "ended_at": (start + timedelta(seconds=8)).isoformat(),
+                "event_id": str(uuid4()),
+            }
+        )
+    )
+    c.headers.pop("Authorization", None)
+    c.headers.update(node)
+    assert EvidenceUploader(c, tmp_path, bay["id"]).drain()
+    assert list(tmp_path.iterdir()) == []
+    shown = c.get(f"/api/v1/sessions/{session['id']}/evidence", headers=admin).json()
+    assert len(shown) == 1 and shown[0]["size_bytes"] == len(MP4)
