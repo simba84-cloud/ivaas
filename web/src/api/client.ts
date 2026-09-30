@@ -27,6 +27,7 @@ import type {
   EnrollmentToken,
   EvidenceClip,
   Balance,
+  FiledReport,
   FleetImport,
   ManifestException,
   ManifestImport,
@@ -74,6 +75,19 @@ export const api = {
     }),
   revokeNode: (nodeId: string) =>
     request<void>(`/api/v1/edge/nodes/${nodeId}`, { method: "DELETE" }),
+  reports: () => request<FiledReport[]>("/api/v1/reports"),
+  /** Any day's report, built now; fetched with the token and handed back as a file. */
+  dailyReport: async (siteId: string, day: string, format: "pdf" | "csv"): Promise<Blob> => {
+    const token = getToken();
+    const res = await fetch(`/api/v1/reports/daily?site_id=${siteId}&day=${day}&format=${format}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail ?? `${res.status} ${res.statusText}`);
+    }
+    return res.blob();
+  },
   balances: (by: "truck" | "route" | "day", days: number) =>
     request<Balance[]>(`/api/v1/balances?by=${by}&days=${days}`),
   exceptions: (status: "open" | "resolved") =>

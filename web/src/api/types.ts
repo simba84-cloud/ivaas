@@ -576,3 +576,14 @@ export interface ManifestImport {
   errors: string[];
   exceptions_raised: number;
 }
+
+/** A daily report filed each morning for the day before. Links are signed and expire. */
+export interface FiledReport {
+  site_id: string;
+  site: string;
+  day: string;
+  loads: number;
+  generated_at: string;
+  pdf_url: string;
+  csv_url: string;
+}
