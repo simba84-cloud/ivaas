@@ -49,6 +49,7 @@ from ivaas.application.cameras import (
 from ivaas.application.manifests import ReconcileManifests
 from ivaas.application.overview import OperationsOverview, Overview
 from ivaas.application.provisioning import ProvisionTenant
+from ivaas.application.reports import BuildDailyReport, FileDailyReports
 from ivaas.application.security import (
     EnrolPerson,
     RecordBadge,
@@ -185,6 +186,7 @@ class Container:
     fleet: Any
     manifests: Any
     exceptions: Any
+    reports: Any
     users: Any
     hasher: Any
     audit: Any
@@ -363,6 +365,33 @@ class Container:
             self.events,
             self.clock,
             tolerance=int(tolerance),
+        )
+
+    async def build_daily_report_uc(self) -> BuildDailyReport:
+        target = float(await self.effective(RECONCILE_TOLERANCE, self.settings.reconcile_tolerance))
+        return BuildDailyReport(
+            self.tenants,
+            self.sites,
+            self.bays,
+            self.sessions,
+            self.exceptions,
+            self.fleet,
+            self.clock,
+            target=target,
+            tenant_id=current_tenant(),
+        )
+
+    async def file_daily_reports_uc(self) -> FileDailyReports:
+        from ivaas.adapters.reports import to_csv, to_pdf
+
+        return FileDailyReports(
+            await self.build_daily_report_uc(),
+            self.sites,
+            self.reports,
+            self.objects,
+            self.clock,
+            render_pdf=to_pdf,
+            render_csv=to_csv,
         )
 
     @property
@@ -578,6 +607,9 @@ async def build_container(settings: Settings) -> Container:
 
         manifests: Any = PostgresManifestStore(pg_sessionmaker)
         exceptions: Any = PostgresExceptionStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.reports_postgres import PostgresReportStore
+
+        reports: Any = PostgresReportStore(pg_sessionmaker)
         audit = PostgresAuditLog(pg_sessionmaker)
         setting_store = PostgresSettingsStore(pg_sessionmaker)
         acknowledgements = PostgresAcknowledgementStore(pg_sessionmaker)
@@ -625,6 +657,9 @@ async def build_container(settings: Settings) -> Container:
 
         manifests = PerTenant(InMemoryManifestStore)
         exceptions = PerTenant(InMemoryExceptionStore)
+        from ivaas.adapters.persistence.reports_postgres import InMemoryReportStore
+
+        reports = PerTenant(InMemoryReportStore)
         audit = PerTenant(InMemoryAuditLog)
         setting_store = PerTenant(InMemorySettingsStore)
         acknowledgements = PerTenant(InMemoryAcknowledgementStore)
@@ -713,6 +748,7 @@ async def build_container(settings: Settings) -> Container:
         fleet=fleet,
         manifests=manifests,
         exceptions=exceptions,
+        reports=reports,
         users=users,
         hasher=hasher,
         audit=audit,

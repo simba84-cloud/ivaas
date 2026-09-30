@@ -4,6 +4,7 @@ import {
   Bell,
   Camera,
   Cpu,
+  FileText,
   FileWarning,
   Scale,
   Truck,
@@ -92,6 +93,7 @@ const NAV = [
   {
     group: "Analysis",
     items: [
+      { to: "/reports", label: "Daily Reports", icon: FileText, needs: "report.export" },
       { to: "/analysis", label: "Video Analysis", icon: FileVideo },
       { to: "/assistant", label: "Assistant", icon: Sparkles },
     ],

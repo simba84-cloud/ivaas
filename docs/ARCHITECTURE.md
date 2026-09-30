@@ -167,6 +167,26 @@ a container holding a shared key.
   sweep. Nothing is raised twice. A correction or a late truck closes the exception it
   caused, and says so. Resolving needs a note and never changes a count.
 
+## 2a-iv. Daily reports (M6)
+
+- **What the report holds.** One site's day, in site time:
+  - loads, crates dispatched, returned and outstanding, from counts of record;
+  - accuracy against the tally sheets, measured on the AI count, never on a correction;
+  - manifest exceptions;
+  - what people corrected;
+  - every load.
+  It is built by `domain/reports.py` from the records the portal shows. A day with no
+  reconciled tally sheet says it has no accuracy figure, rather than 0%.
+- **Formats.** The CSV has one row per load, for spreadsheets and ERP imports. The
+  PDF (ReportLab) is for people. The renderers live in `adapters/reports.py` and are
+  injected into the use case.
+- **Filed every morning.** After 06:00 site time, the idle sweep files yesterday's
+  report once per site. Both files go to object storage under the tenant's prefix and
+  are listed at `GET /api/v1/reports`, with signed links.
+- **On demand.** Any day is available at `GET /api/v1/reports/daily?site_id&day&format`.
+  Both routes need `report.export`, which operators do not have. Another tenant's site
+  is a 404.
+
 ## 2b. Analysis assistant
 
 ```

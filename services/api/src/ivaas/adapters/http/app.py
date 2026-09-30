@@ -34,6 +34,7 @@ from ivaas.adapters.http.fleet_routes import add_fleet_routes
 from ivaas.adapters.http.manifest_routes import add_manifest_routes
 from ivaas.adapters.http.model_routes import add_model_routes
 from ivaas.adapters.http.platform_routes import add_platform_routes
+from ivaas.adapters.http.report_routes import add_report_routes
 from ivaas.adapters.http.schemas import (
     AcknowledgeIn,
     AcknowledgementOut,
@@ -167,6 +168,12 @@ async def _sweep_tenant(container: Container, slug: str) -> None:
             log.info("%s: exception raised: %s %s", slug, e.kind.value, e.plate or "")
     except Exception:
         log.exception("%s: manifest reconciliation failed", slug)
+    try:
+        # yesterday's daily report, once, after the morning starts at each site
+        for filed in await (await container.file_daily_reports_uc())():
+            log.info("%s: filed the daily report for %s", slug, filed.day)
+    except Exception:
+        log.exception("%s: filing daily reports failed", slug)
     try:
         removed = await sweep_expired(container)
         if removed:
@@ -1226,6 +1233,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_evidence_routes(app, get_container, audit)
     add_fleet_routes(app, get_container, audit)
     add_manifest_routes(app, get_container, audit)
+    add_report_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}")
     async def get_object(
