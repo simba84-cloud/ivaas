@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ivaas.domain.fleet import MATCH_THRESHOLD
 from ivaas.domain.models import LoadingSession, SessionDirection, SessionStatus
@@ -103,6 +103,14 @@ class ManifestException:
             raise ManifestError("say how it was resolved")
         self.status = ExceptionStatus.RESOLVED
         self.resolved_by, self.resolved_at, self.resolution_note = by, at, note.strip()
+
+
+def site_tz(name: str | None) -> ZoneInfo:
+    """A site's time zone; UTC when it has none or names one that does not exist."""
+    try:
+        return ZoneInfo(name or "UTC")
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
 
 
 def local_day(moment: datetime, tz: ZoneInfo) -> date:

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from ivaas.domain.manifests import (
     ExceptionKind,
@@ -23,6 +23,7 @@ from ivaas.domain.manifests import (
     local_day,
     match_line,
     settled,
+    site_tz,
 )
 from ivaas.domain.models import LoadingSession
 
@@ -41,13 +42,6 @@ def exception_payload(e: ManifestException) -> dict:
         "counted": e.counted,
         "session_id": str(e.session_id) if e.session_id else None,
     }
-
-
-def _tz(name: str | None) -> ZoneInfo:
-    try:
-        return ZoneInfo(name or "UTC")
-    except ZoneInfoNotFoundError:
-        return ZoneInfo("UTC")
 
 
 @dataclass
@@ -69,7 +63,7 @@ class ReconcileManifests:
         recent = await self.sessions.list_recent(since=now - self.lookback, limit=5000)
         by_id = {s.id: s for s in recent}
         site_of = {b.id: b.site_id for b in await self.bays.list_all()}
-        tz_of = {s.id: _tz(s.timezone) for s in await self.sites.list_all()}
+        tz_of = {s.id: site_tz(s.timezone) for s in await self.sites.list_all()}
         lines: list[ManifestLine] = await self.lines.since(
             (now - self.lookback).date() - timedelta(days=1)
         )

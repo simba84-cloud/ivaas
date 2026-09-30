@@ -7,10 +7,9 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any
 from uuid import UUID, uuid4
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ivaas.domain.fleet import identification
-from ivaas.domain.manifests import local_day
+from ivaas.domain.manifests import local_day, site_tz
 from ivaas.domain.models import NotFoundError
 from ivaas.domain.reports import DailyReport, build_daily
 from ivaas.tenancy import object_key
@@ -33,13 +32,6 @@ class StoredReport:
         self.id = self.id or uuid4()
 
 
-def _tz(name: str | None) -> ZoneInfo:
-    try:
-        return ZoneInfo(name or "UTC")
-    except ZoneInfoNotFoundError:
-        return ZoneInfo("UTC")
-
-
 @dataclass
 class BuildDailyReport:
     tenants: Any
@@ -56,7 +48,7 @@ class BuildDailyReport:
         site = await self.sites.get(site_id)
         if site is None:
             raise NotFoundError(f"site {site_id} not found")
-        tz = _tz(site.timezone)
+        tz = site_tz(site.timezone)
         start = datetime.combine(day, time.min, tz)
         bay_ids = {b.id for b in await self.bays.list_for_site(site_id)}
         loads = [
@@ -99,7 +91,7 @@ class FileDailyReports:
         filed = []
         now = self.clock.now()
         for site in await self.sites.list_all():
-            tz = _tz(site.timezone)
+            tz = site_tz(site.timezone)
             local = now.astimezone(tz)
             if local.time() < FILE_AFTER:
                 continue

@@ -40,6 +40,7 @@ from ivaas.application.alerts import AcknowledgeAlert, ListAcknowledgements
 from ivaas.application.analysis import RunNextJob, SubmitVideo
 from ivaas.application.analytics import AnalyticsTools
 from ivaas.application.assistant import AskAssistant
+from ivaas.application.balances import BalanceQuery
 from ivaas.application.cameras import (
     EnsureStreamPaths,
     RefreshCameraStatus,
@@ -367,6 +368,9 @@ class Container:
             tolerance=int(tolerance),
         )
 
+    def balance_query(self) -> BalanceQuery:
+        return BalanceQuery(self.sessions, self.bays, self.sites, self.manifests, self.clock)
+
     async def build_daily_report_uc(self) -> BuildDailyReport:
         target = float(await self.effective(RECONCILE_TOLERANCE, self.settings.reconcile_tolerance))
         return BuildDailyReport(
@@ -476,12 +480,23 @@ class Container:
     def approve_session(self) -> ApproveSession:
         return ApproveSession(self.sessions, self.events, self.clock)
 
-    @property
-    def ask_assistant(self) -> AskAssistant | None:
+    async def analytics_tools(self) -> AnalyticsTools:
+        daily = await self.build_daily_report_uc()
+        return AnalyticsTools(
+            self.sessions,
+            self.cameras,
+            self.bays,
+            self.sites,
+            self.clock,
+            balances=self.balance_query(),
+            daily=daily,
+            target=daily.target,
+        )
+
+    async def ask_assistant_uc(self) -> AskAssistant | None:
         if self.chat_model is None:
             return None
-        tools = AnalyticsTools(self.sessions, self.cameras, self.bays, self.clock)
-        return AskAssistant(self.chat_model, tools, self.clock)
+        return AskAssistant(self.chat_model, await self.analytics_tools(), self.clock)
 
     async def aclose(self) -> None:
         for closer in self._closers:

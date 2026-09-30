@@ -11,6 +11,7 @@ so isolation cannot be forgotten for it.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime
 from uuid import UUID, uuid4
 
@@ -24,6 +25,7 @@ from ivaas.domain.rbac import Role, RoleBinding
 from ivaas.domain.security import EnrolledPerson, Incident, IncidentKind
 from ivaas.domain.tenancy import BAKERS_INN_ID, ISOLATION_TEST_ID, ScopeType
 from ivaas.domain.users import User
+from ivaas.ports.assistant import ChatMessage, ToolCall
 from ivaas.tenancy import system_context, tenant_context
 
 A_SERVICE = {"X-IVaaS-Key": "dev-pipeline-key"}
@@ -335,3 +337,103 @@ def test_the_tenant_cannot_be_chosen_by_the_client(world):
     sneaky = {**a, "X-Tenant-Id": str(ISOLATION_TEST_ID), "X-IVaaS-Tenant": "isolation-test"}
     names = {s["name"] for s in c.get(f"/api/v1/sites?tenant={uuid4()}", headers=sneaky).json()}
     assert names == {"Bakery Industrial Site"}
+
+
+class _Scripted:
+    """A model that calls the tools it is told to, then says it is done. What it was
+    shown is everything the assistant would let a real model read."""
+
+    def __init__(self, calls):
+        self.calls, self.seen = list(calls), []
+
+    async def complete(self, messages, tools):
+        self.seen.extend(m.content for m in messages if m.role == "tool")
+        if self.calls:  # all in one turn, as a model may; the loop allows few turns
+            calls = tuple(ToolCall(f"c{i}", n, a) for i, (n, a) in enumerate(self.calls))
+            self.calls = []
+            return ChatMessage("assistant", tool_calls=calls)
+        return ChatMessage("assistant", "done")
+
+
+def test_tenant_bs_assistant_learns_nothing_of_tenant_as(world):
+    """T6.5: B asks about A's trucks, A's site and A's day, and gets none of it."""
+    c, a, b, ids = world
+    lpr = next(
+        x["id"]
+        for x in c.get(f"/api/v1/bays/{ids['bay_id']}/cameras", headers=a).json()
+        if x["role"] == "lpr"
+    )
+    read = {"bay_id": ids["bay_id"], "camera_id": lpr, "plate": "AAA 111", "confidence": 0.9}
+    read["read_at"] = datetime.now(UTC).isoformat()
+    assert c.post("/api/v1/ingest/plates", json=read, headers=A_SERVICE).status_code < 300
+    a_site = c.get("/api/v1/sites", headers=a).json()[0]["name"]
+    a_names = [a_site, "AAA 111", "AAA111"] + [
+        x["name"] for x in c.get(f"/api/v1/bays/{ids['bay_id']}/cameras", headers=a).json()
+    ]
+    today = date.today().isoformat()
+    model = _Scripted(
+        [
+            ("list_sessions", {"plate": "AAA 111", "days": 90}),
+            ("list_sessions", {"days": 90}),
+            ("daily_report", {"site": a_site, "day": today}),
+            ("daily_report", {"day": today}),
+            ("balances", {"by": "truck", "days": 90}),
+            ("balances", {"by": "day", "days": 90}),
+            ("balances", {"by": "route", "days": 90}),
+            ("accuracy_report", {"days": 90}),
+            ("camera_health", {}),
+        ]
+    )
+    c.app.state.container.chat_model = model
+    r = c.post(
+        "/api/v1/assistant/chat",
+        json={"messages": [{"role": "user", "content": "Tell me about truck AAA 111."}]},
+        headers=b,
+    )
+    assert r.status_code == 200, r.text
+    assert len(r.json()["tools_used"]) == 9 and len(model.seen) == 9
+    seen = "\n".join(model.seen)
+    for value in a_names + [v for k, v in ids.items() if k != "username"]:
+        assert value not in seen, ("the assistant showed B tenant A's", value)
+    # A's site is not "someone else's": to B it does not exist, like a made-up one
+    named = json.loads(model.seen[2])
+    assert named["error"] == "no site by that name" and a_site not in named["sites"]
+    # and A, asking the same, does see its own truck: the test would notice a blind tool
+    model = _Scripted([("list_sessions", {"plate": "AAA 111", "days": 90})])
+    c.app.state.container.chat_model = model
+    c.post(
+        "/api/v1/assistant/chat", json={"messages": [{"role": "user", "content": "?"}]}, headers=a
+    )
+    assert "AAA 111" in model.seen[0]
+
+
+def test_a_role_held_at_one_site_cannot_ask_the_assistant_about_the_tenant(world):
+    """Totals across a tenant include sites a site-bound role may not see, so the
+    assistant needs its permission across the whole tenant (safe by default)."""
+    c, a, _, ids = world
+    container = c.app.state.container
+    now = datetime.now(UTC)
+
+    async def seed():
+        with system_context():
+            await container.users.save(
+                User(
+                    username="a-site-manager",
+                    display_name="A, one site",
+                    password_hash=container.hasher.hash(B_PASSWORD),
+                    tenant_id=BAKERS_INN_ID,
+                    bindings=[RoleBinding(Role.SITE_MANAGER, ScopeType.SITE, UUID(ids["site_id"]))],
+                    created_at=now,
+                    password_changed_at=now,
+                )
+            )
+
+    c.portal.call(seed)
+    container.chat_model = _Scripted([])
+    one_site = login(c, "a-site-manager", B_PASSWORD)
+    r = c.post(
+        "/api/v1/assistant/chat",
+        json={"messages": [{"role": "user", "content": "hi"}]},
+        headers=one_site,
+    )
+    assert r.status_code == 403
