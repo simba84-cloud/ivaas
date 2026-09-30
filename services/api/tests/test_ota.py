@@ -145,3 +145,17 @@ def test_models_are_invisible_to_other_tenants():
         admin, other = login(c, "admin"), login(c, "b-admin")
         upload(c, admin)
         assert c.get("/api/v1/models", headers=other).json() == []
+
+
+def test_the_nodes_own_cache_fetches_and_verifies_from_this_api(rig, tmp_path):
+    """The pipeline's model cache against the real endpoint, as a contract test."""
+    from ivaas_pipeline.adapters.models import ModelCache
+
+    c, admin, _, node, v1, _ = rig
+    configure(c, admin, node, v1["id"])
+    c.headers.pop("Authorization", None)
+    c.headers.update(node_headers(node))
+    cfg = c.get("/api/v1/edge/config").json()
+    path = ModelCache(c, tmp_path).resolve(cfg["model"])
+    with open(path, "rb") as fh:
+        assert fh.read() == V1
