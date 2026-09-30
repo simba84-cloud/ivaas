@@ -27,6 +27,7 @@ import Alerts from "./pages/Alerts";
 import Security from "./pages/Security";
 import Cameras from "./pages/Cameras";
 import EdgeNodes from "./pages/EdgeNodes";
+import Fleet from "./pages/Fleet";
 import Command from "./pages/Command";
 import Dashboard from "./pages/Dashboard";
 import TallyReport from "./pages/TallyReport";
@@ -117,6 +118,7 @@ export default function App() {
           <Route path="/accuracy" element={<TallyReport />} />
           <Route path="/cameras" element={<Cameras me={me.data} />} />
           <Route path="/edge" element={<EdgeNodes me={me.data} />} />
+          <Route path="/fleet" element={<Fleet me={me.data} />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/users" element={<Users me={me.data?.subject ?? ""} />} />

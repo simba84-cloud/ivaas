@@ -72,6 +72,45 @@ export interface Session {
   approved_at: string | null;
   approval_reason: ApprovalReason | null;
   approval_note: string | null;
+  vehicle_id?: string | null;
+  /** the plate exactly as the camera read it */
+  plate_read?: string | null;
+  identification?: Identification;
+  identified_by?: "lpr" | "operator" | null;
+  /** a person's correction; ai_count is never changed */
+  override_count?: number | null;
+  override_reason?: OverrideReason | null;
+  override_note?: string | null;
+  override_by?: string | null;
+  override_at?: string | null;
+  count_of_record?: number;
+}
+
+/** How sure the platform is which truck a load was. */
+export type Identification = "registered" | "unregistered" | "unidentified" | "unchecked";
+
+export type OverrideReason =
+  | "person_or_forklift"
+  | "double_counted"
+  | "missed_by_camera"
+  | "camera_blocked"
+  | "damaged_removed"
+  | "other";
+
+export interface Vehicle {
+  id: string;
+  plate: string;
+  fleet_number: string;
+  operator: string;
+  notes: string;
+  active: boolean;
+  created_at: string | null;
+}
+
+export interface FleetImport {
+  added: number;
+  updated: number;
+  errors: string[];
 }
 
 export interface Summary {
@@ -157,7 +196,17 @@ export type AuditAction =
   | "tally_sheet_saved"
   | "tally_conflict"
   | "tenant_provisioned"
-  | "role_bound";
+  | "role_bound"
+  | "edge_token_created"
+  | "node_enrolled"
+  | "node_revoked"
+  | "node_config_changed"
+  | "node_rolled_back"
+  | "model_uploaded"
+  | "vehicle_saved"
+  | "fleet_imported"
+  | "session_identified"
+  | "count_overridden";
 
 export interface AuditEntry {
   id: string;

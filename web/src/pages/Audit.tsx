@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   BadgeCheck,
+  Cpu,
   Building2,
   BellRing,
   Eraser,
@@ -92,6 +93,16 @@ const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon; tone: stri
   },
   tenant_provisioned: { label: "Provisioned this tenant", icon: Building2, tone: "text-brand bg-brand-tint" },
   role_bound: { label: "Scoped a role", icon: UserCog, tone: "text-warn bg-warn/10" },
+  edge_token_created: { label: "Created an edge enrollment token", icon: KeyRound, tone: "text-brand bg-brand-tint" },
+  node_enrolled: { label: "Enrolled an edge node", icon: Cpu, tone: "text-good bg-good/10" },
+  node_revoked: { label: "Revoked an edge node", icon: Cpu, tone: "text-bad bg-bad/10" },
+  node_config_changed: { label: "Changed an edge node's configuration", icon: SlidersHorizontal, tone: "text-warn bg-warn/10" },
+  node_rolled_back: { label: "Rolled an edge node back", icon: SlidersHorizontal, tone: "text-warn bg-warn/10" },
+  model_uploaded: { label: "Registered a model version", icon: Boxes, tone: "text-brand bg-brand-tint" },
+  vehicle_saved: { label: "Saved a truck", icon: Truck, tone: "text-brand bg-brand-tint" },
+  fleet_imported: { label: "Imported the fleet register", icon: Truck, tone: "text-brand bg-brand-tint" },
+  session_identified: { label: "Said which truck a load was", icon: Truck, tone: "text-warn bg-warn/10" },
+  count_overridden: { label: "Corrected a count", icon: PenTool, tone: "text-warn bg-warn/10" },
 };
 
 const WINDOWS = [
@@ -113,10 +124,21 @@ function Detail({ entry }: { entry: AuditEntry }) {
   } else if (entry.action === "session_approved") {
     if (d.reason) parts.push(String(d.reason).replace(/_/g, " "));
     if (d.variance !== undefined) parts.push(`variance ${Number(d.variance) > 0 ? "+" : ""}${d.variance}`);
-  } else if (Array.isArray(d.before) || Array.isArray(d.after)) {
-    // a role change reads as what it was and what it became
-    const roles = (v: unknown) => (Array.isArray(v) && v.length ? v.join(", ") : "none");
-    parts.push(`${roles(d.before)} → ${roles(d.after)}`.replace(/_/g, " "));
+  } else if ("before" in d || "after" in d) {
+    // a change reads as what it was and what it became
+    const show = (v: unknown): string => {
+      if (v === null || v === undefined || v === "") return "none";
+      if (Array.isArray(v)) return v.length ? v.join(", ") : "none";
+      if (typeof v === "object") {
+        return Object.entries(v as Record<string, unknown>)
+          .filter(([k, x]) => !k.endsWith("_id") && x !== null)
+          .map(([k, x]) => `${k.replace(/_/g, " ")} ${x}`)
+          .join(", ") || "none";
+      }
+      return String(v);
+    };
+    parts.push(`${show(d.before)} → ${show(d.after)}`.replace(/_/g, " "));
+    if (d.reason) parts.push(String(d.reason).replace(/_/g, " "));
   } else {
     for (const [k, v] of Object.entries(d)) {
       // ids and alert keys mean nothing to a person reading this; the note shows below
