@@ -268,3 +268,25 @@ async def test_camera_status_follows_what_the_gateway_receives():
     assert changed["offline"] == 1
     assert (await repo.get(cams[0].id)).status is CameraStatus.OFFLINE
     assert (await repo.get(cams[0].id)).last_seen_at is not None  # history kept
+
+
+def test_paths_a_media_server_restart_forgot_are_put_back_recorded_as_before(client):
+    container = client.app.state.container
+    gateway = container.gateway
+    bay = client.get("/api/v1/bays").json()[0]["id"]
+    client.post(f"/api/v1/bays/{bay}/cameras", json={"name": "Restart choke", "role": "chokepoint"})
+    before = dict(gateway.paths)
+    gateway.forget_everything()  # the media server restarted
+
+    from ivaas.domain.tenancy import BAKERS_INN_ID
+    from ivaas.tenancy import tenant_context
+
+    async def ensure():
+        with tenant_context(BAKERS_INN_ID):
+            return await container.ensure_stream_paths()
+
+    restored = client.portal.call(ensure)
+    assert restored == len(before)
+    assert set(gateway.paths) == set(before)
+    assert any(p.endswith("restart-choke") for p in gateway.recorded)
+    assert client.portal.call(ensure) == 0  # nothing to do once they match

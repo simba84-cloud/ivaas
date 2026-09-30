@@ -40,7 +40,12 @@ from ivaas.application.alerts import AcknowledgeAlert, ListAcknowledgements
 from ivaas.application.analysis import RunNextJob, SubmitVideo
 from ivaas.application.analytics import AnalyticsTools
 from ivaas.application.assistant import AskAssistant
-from ivaas.application.cameras import RefreshCameraStatus, RegisterCamera, RemoveCamera
+from ivaas.application.cameras import (
+    EnsureStreamPaths,
+    RefreshCameraStatus,
+    RegisterCamera,
+    RemoveCamera,
+)
 from ivaas.application.overview import OperationsOverview, Overview
 from ivaas.application.provisioning import ProvisionTenant
 from ivaas.application.security import (
@@ -294,6 +299,15 @@ class Container:
             self.cameras,
             self.gateway,
             self.events,
+            evidence_roles=frozenset(CameraRole(r) for r in self.settings.evidence_roles),
+        )
+
+    @property
+    def ensure_stream_paths(self) -> EnsureStreamPaths:
+        return EnsureStreamPaths(
+            self.bays,
+            self.cameras,
+            self.gateway,
             evidence_roles=frozenset(CameraRole(r) for r in self.settings.evidence_roles),
         )
 

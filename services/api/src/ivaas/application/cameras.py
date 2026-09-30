@@ -77,6 +77,33 @@ class RemoveCamera:
 
 
 @dataclass
+class EnsureStreamPaths:
+    """Make the media gateway hold every camera's path, recorded if it is evidence.
+
+    Paths added through the gateway's API live in its memory: a restart of the media
+    server forgets them all, and every camera would stay dark until someone
+    registered it again. This puts back whatever is missing, and corrects the
+    recording flag, from the cameras IVaaS knows. Runs at startup and on a timer.
+    """
+
+    bays: BayReader
+    cameras: _CameraStore
+    gateway: StreamGateway
+    evidence_roles: frozenset[CameraRole] = frozenset()
+
+    async def __call__(self) -> int:
+        configured = await self.gateway.configured_paths()
+        restored = 0
+        for bay in await self.bays.list_all():
+            for camera in await self.cameras.list_for_bay(bay.id):
+                record = camera.role in self.evidence_roles
+                if configured.get(camera.stream_path) != record:
+                    await self.gateway.provision(camera.stream_path, camera.source, record=record)
+                    restored += 1
+        return restored
+
+
+@dataclass
 class RefreshCameraStatus:
     """Mark cameras online/offline from what the media gateway is actually receiving.
 

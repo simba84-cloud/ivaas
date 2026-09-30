@@ -26,6 +26,10 @@ class StreamGateway(Protocol):
         """Stream paths currently receiving video, whatever their source."""
         ...
 
+    async def configured_paths(self) -> dict[str, bool]:
+        """Every path the gateway knows, and whether it is recorded."""
+        ...
+
 
 @dataclass(frozen=True)
 class DiscoveredDevice:

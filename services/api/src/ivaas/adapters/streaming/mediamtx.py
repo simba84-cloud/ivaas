@@ -56,6 +56,14 @@ class MediaMtxGateway:
             raise StreamGatewayError(f"media gateway unreachable: {exc}") from exc
         return {p["name"] for p in r.json().get("items", []) if p.get("ready")}
 
+    async def configured_paths(self) -> dict[str, bool]:
+        try:
+            r = await self._client.get("/v3/config/paths/list", params={"itemsPerPage": 1000})
+            r.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise StreamGatewayError(f"media gateway unreachable: {exc}") from exc
+        return {p["name"]: bool(p.get("record")) for p in r.json().get("items", [])}
+
     async def remove(self, stream_path: str) -> None:
         name = quote(stream_path, safe="/")
         try:
@@ -84,3 +92,11 @@ class NullStreamGateway:
 
     async def live_paths(self) -> set[str]:
         return set(self.live)  # tests set this directly
+
+    async def configured_paths(self) -> dict[str, bool]:
+        return {p: p in self.recorded for p in self.paths}
+
+    def forget_everything(self) -> None:
+        """What a media server restart does to paths added through its API."""
+        self.paths.clear()
+        self.recorded.clear()

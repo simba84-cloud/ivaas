@@ -179,9 +179,22 @@ async def _sweep_tenant(container: Container, slug: str) -> None:
 
 
 async def _refresh_camera_status(container: Container, every_s: float = 10.0) -> None:
+    passes = 0
     while True:
+        # every minute (and at startup): put back camera paths a media-server restart lost
+        ensure = passes % 6 == 0
+        passes += 1
         for tenant in await _each_tenant(container):
             with tenant_context(tenant.id):
+                if ensure:
+                    try:
+                        restored = await container.ensure_stream_paths()
+                        if restored:
+                            log.warning(
+                                "%s: re-provisioned %d camera path(s)", tenant.slug, restored
+                            )
+                    except Exception:
+                        log.exception("%s: could not reconcile camera paths", tenant.slug)
                 try:
                     changed = await container.refresh_camera_status()
                     if changed["offline"]:
