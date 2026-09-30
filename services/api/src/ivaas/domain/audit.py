@@ -49,6 +49,10 @@ class AuditAction(StrEnum):
     TALLY_CONFLICT = "tally_conflict"
     TENANT_PROVISIONED = "tenant_provisioned"
     ROLE_BOUND = "role_bound"
+    EDGE_TOKEN_CREATED = "edge_token_created"
+    NODE_ENROLLED = "node_enrolled"
+    NODE_REVOKED = "node_revoked"
+    NODE_CONFIG_CHANGED = "node_config_changed"
 
 
 @dataclass(frozen=True)

@@ -23,15 +23,16 @@ class SpooledDelivery:
     def __init__(
         self,
         api_url: str,
-        api_key: str,
+        api_key: str | None,
         spool_path: str | Path,
         *,
         max_spool: int = 100_000,
         client: httpx.Client | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
-        self._client = client or httpx.Client(
-            base_url=api_url, timeout=5.0, headers={"X-IVaaS-Key": api_key}
-        )
+        # an enrolled node authenticates as itself; an unenrolled one with the shared key
+        auth = headers if headers is not None else {"X-IVaaS-Key": api_key or ""}
+        self._client = client or httpx.Client(base_url=api_url, timeout=5.0, headers=auth)
         self._spool_path = Path(spool_path)
         self._max_spool = max_spool
         self._lock = threading.Lock()
@@ -70,6 +71,11 @@ class SpooledDelivery:
             return False
         if r.status_code >= 500:
             log.warning("API error %s; item spooled", r.status_code)
+            return False
+        if r.status_code == 401:
+            # Not a bad event: this node's credential was refused (revoked, or the node
+            # was re-enrolled). Keep it; enrolling again replays the spool as the new node.
+            log.error("API refused this node's credential; item spooled until it is enrolled again")
             return False
         if r.status_code >= 400:
             # our bug or a config error: retrying cannot help, so log loudly and drop

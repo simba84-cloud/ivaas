@@ -15,6 +15,10 @@ frames, which is what puts the count at risk.
 
 from __future__ import annotations
 
+import threading
+import time
+from collections import deque
+
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, start_http_server
 
 # processing time buckets: a GPU frame is tens of ms, a CPU frame hundreds
@@ -51,11 +55,18 @@ class PrometheusMetrics:
         self._reconnects = Counter(
             "ivaas_pipeline_stream_reconnects", "Times the stream was reopened", ["camera"], **kw
         )
+        # for the heartbeat: recent frame times and the last lag, per camera
+        self._lock = threading.Lock()
+        self._recent: dict[str, deque[float]] = {}
+        self._last_lag: dict[str, float] = {}
 
     def processed(self, camera_id: str, seconds: float, lag: float) -> None:
         self._seconds.labels(camera_id).observe(seconds)
         self._lag.labels(camera_id).set(lag)
         self._processed.labels(camera_id).inc()
+        with self._lock:
+            self._recent.setdefault(camera_id, deque(maxlen=600)).append(time.monotonic())
+            self._last_lag[camera_id] = lag
 
     def dropped(self, camera_id: str, frames: int) -> None:
         if frames > 0:
@@ -67,6 +78,25 @@ class PrometheusMetrics:
         if up and before is False:  # the first open is not a reconnect
             self._reconnects.labels(camera_id).inc()
         self._was_up[camera_id] = up
+
+    def snapshot(self, window_s: float = 60.0) -> dict[str, dict]:
+        """Per camera: open or not, frames processed per second lately, last lag.
+
+        A camera that has never opened is reported as disconnected, not omitted:
+        the fleet view must see a camera that never came up.
+        """
+        now = time.monotonic()
+        with self._lock:
+            cameras = set(self._was_up) | set(self._recent)
+            out = {}
+            for cam in sorted(cameras):
+                recent = [t for t in self._recent.get(cam, ()) if now - t <= window_s]
+                out[cam] = {
+                    "connected": bool(self._was_up.get(cam, False)),
+                    "fps": round(len(recent) / window_s, 2),
+                    "lag_s": round(self._last_lag[cam], 3) if cam in self._last_lag else None,
+                }
+        return out
 
 
 def serve(port: int) -> None:

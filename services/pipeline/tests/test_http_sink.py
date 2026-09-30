@@ -70,6 +70,20 @@ def test_client_errors_are_dropped_not_retried_forever(tmp_path):
     assert d.pending == 0
 
 
+def test_a_refused_credential_keeps_the_counts_for_the_next_enrolment(tmp_path):
+    """401 is not a bad event: the node was revoked or re-enrolled. Dropping would lose
+    real crates; keeping them lets the node, enrolled again, deliver them in order."""
+    d = delivery(tmp_path, lambda r: httpx.Response(401, json={"detail": "invalid"}))
+    HttpCrossingSink(d, "bay", CAMS).emit(crossing(1))
+    HttpCrossingSink(d, "bay", CAMS).emit(crossing(2))
+    assert d.pending == 2
+
+    api = FakeApi()
+    again = delivery(tmp_path, api.handler)  # restarted with a working credential
+    again.flush()
+    assert [r["track_id"] for r in api.received] == [1, 2]
+
+
 def test_spool_is_bounded(tmp_path):
     api = FakeApi()
     api.up = False

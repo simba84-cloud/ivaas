@@ -32,6 +32,7 @@ see the [README](../README.md).
 | Auth | Local accounts (Argon2id via `argon2-cffi`) or OIDC; JWTs via PyJWT |
 | Tenancy | Postgres row-level security on every tenant table; app runs as `ivaas_app` with `app.tenant_id` set per transaction (ADR 0001) |
 | Roles | Scoped bindings (platform / partner / tenant / site / bay), matrix in `domain/rbac.py` |
+| Edge nodes | Enrolled with a single-use token; authenticate with `X-IVaaS-Node`, bound to one site; heartbeat and pulled config (`/api/v1/edge/*`) |
 | Secrets at rest | `cryptography` (Fernet, key in `IVAAS_SECRETS_KEY`) |
 | Metrics | `prometheus-client`, exposed at `/metrics` |
 | Health | `GET /healthz` |

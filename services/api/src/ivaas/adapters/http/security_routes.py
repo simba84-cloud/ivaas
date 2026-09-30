@@ -38,7 +38,7 @@ from ivaas.adapters.http.schemas import (
     ZoneIn,
     ZoneOut,
 )
-from ivaas.adapters.http.scope import require_bay, require_camera
+from ivaas.adapters.http.scope import require_bay, require_bay_camera, require_camera
 from ivaas.domain.audit import AuditAction
 from ivaas.domain.models import NotFoundError
 from ivaas.domain.rbac import Permission as P
@@ -52,6 +52,7 @@ from ivaas.domain.security import (
     Zone,
 )
 from ivaas.ports.auth import Principal
+from ivaas.tenancy import current_tenant
 
 if TYPE_CHECKING:
     from ivaas.config.container import Container
@@ -271,11 +272,14 @@ def add_security_routes(
     @app.post(
         "/api/v1/ingest/incidents",
         response_model=IncidentOut | None,
-        dependencies=[Depends(require(P.INGEST_WRITE))],
+        dependencies=[Depends(require(P.INGEST_WRITE, scoped=True))],
     )
     async def ingest_incident(
-        body: IncidentIn, c: Container = Depends(get_container)
+        body: IncidentIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
     ) -> IncidentOut | None:
+        await require_bay_camera(c, principal, P.INGEST_WRITE, body.bay_id, body.camera_id)
         snapshot = None
         if body.snapshot_jpeg_b64:
             try:
@@ -390,7 +394,7 @@ def add_security_routes(
     async def security_status(c: Container = Depends(get_container)) -> SecurityStatusOut:
         now = c.clock.now()
         recent = await c.badges.between(now - timedelta(hours=24), now)
-        edge = c.edge_security
+        edge = c.edge_security.get(current_tenant())  # this tenant's node, never another's
         return SecurityStatusOut(
             face_recognition=await c.face_recognition_on(),
             face_models_installed=c.face_encoder is not None,
@@ -403,15 +407,19 @@ def add_security_routes(
     @app.get(
         "/api/v1/pipeline/security",
         response_model=PipelineSecurityOut,
-        dependencies=[Depends(require(P.INGEST_WRITE))],
+        dependencies=[Depends(require(P.INGEST_WRITE, scoped=True))],
     )
     async def pipeline_security(
-        bay_id: UUID, capabilities: str = "", c: Container = Depends(get_container)
+        bay_id: UUID,
+        capabilities: str = "",
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
     ) -> PipelineSecurityOut:
         """Zones for the bay's cameras with whether each is armed now, and the face
         gallery only while face recognition is switched on. The edge node also says
         what it can detect, which the portal shows rather than assumes."""
-        c.edge_security = {
+        await require_bay(c, principal, P.INGEST_WRITE, bay_id)
+        c.edge_security[current_tenant()] = {
             "reported_at": c.clock.now(),
             "detectors": sorted({d for d in capabilities.split(",") if d}),
         }

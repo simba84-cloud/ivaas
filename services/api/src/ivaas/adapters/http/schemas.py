@@ -920,3 +920,113 @@ class TallyReportOut(BaseModel):
     #: |sum(AI) - sum(sheets)| / sum(sheets) over reconciled sheets
     aggregate_error: float | None
     rows: list[TallyReportRow]
+
+
+# --- edge nodes ------------------------------------------------------------------------
+
+
+class EnrollmentTokenIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    bay_id: UUID | None = None
+    ttl_hours: int = Field(default=24, ge=1, le=72)
+
+
+class EnrollmentTokenOut(BaseModel):
+    """Shown once. The platform keeps only a digest and cannot show it again."""
+
+    token: str
+    name: str
+    site_id: UUID
+    bay_id: UUID | None
+    expires_at: datetime
+
+
+class EnrollIn(BaseModel):
+    token: str = Field(min_length=1, max_length=200)
+    hostname: str = Field(default="", max_length=120)
+    version: str = Field(default="", max_length=40)
+
+
+class EnrolledOut(BaseModel):
+    """The node's credential, shown once, to the node itself."""
+
+    node_id: UUID
+    credential: str
+    name: str
+    site_id: UUID
+    bay_id: UUID | None
+
+
+class CameraReportIn(BaseModel):
+    api_camera_id: str = Field(max_length=64)
+    connected: bool
+    fps: float | None = Field(default=None, ge=0, le=1000)
+    lag_s: float | None = Field(default=None, ge=0)
+
+
+class HeartbeatIn(BaseModel):
+    version: str = Field(default="", max_length=40)
+    config_version: str | None = Field(default=None, max_length=16)
+    uptime_s: float = Field(default=0, ge=0)
+    spool_pending: int = Field(default=0, ge=0)
+    cameras: list[CameraReportIn] = Field(default=[], max_length=64)
+
+
+class HeartbeatOut(BaseModel):
+    #: what the node should be running; a different value means fetch the config again
+    config_version: str
+
+
+class EdgeCameraIn(BaseModel):
+    api_camera_id: UUID
+    key: str | None = Field(default=None, max_length=64)
+    line: list[tuple[float, float]] | None = Field(default=None, min_length=2, max_length=2)
+    zone: list[float] | None = Field(default=None, min_length=4, max_length=4)
+    stride: int = Field(default=1, ge=1, le=60)
+    frames: Literal["latest", "all"] | None = None
+
+
+class EdgeModelIn(BaseModel):
+    path: str = Field(min_length=1, max_length=300)
+    arch: Literal["rtdetr", "yolo"] = "rtdetr"
+
+
+class EdgeConfigIn(BaseModel):
+    """What the node runs: the same shape as pipeline.json, minus anything the API knows."""
+
+    model: EdgeModelIn
+    layers_model: str | None = Field(default=None, max_length=300)
+    forward_means: Literal["loading", "offloading"] = "loading"
+    count: Literal["stack", "crate"] = "stack"
+    cameras: list[EdgeCameraIn] = Field(default=[], max_length=32)
+    lpr_cameras: list[EdgeCameraIn] = Field(default=[], max_length=8)
+
+
+class NodeCameraOut(BaseModel):
+    api_camera_id: str
+    name: str | None
+    connected: bool
+    fps: float | None
+    lag_s: float | None
+
+
+class EdgeNodeOut(BaseModel):
+    id: UUID
+    name: str
+    hostname: str
+    site_id: UUID
+    bay_id: UUID | None
+    status: str
+    #: never_seen, online, stale, offline or revoked; never assumed healthy
+    health: str
+    enrolled_at: datetime
+    last_seen_at: datetime | None
+    version: str | None
+    uptime_s: float | None
+    spool_pending: int | None
+    cameras: list[NodeCameraOut]
+    config: dict
+    config_version: str
+    applied_config_version: str | None
+    #: null until the node has reported which config it runs
+    config_drift: bool | None

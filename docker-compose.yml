@@ -176,6 +176,9 @@ services:
     environment:
       IVAAS_API_URL: http://api:8000
       IVAAS_API_KEY: ${IVAAS_PIPELINE_KEY:-change-me-pipeline-key}
+      # once enrolled (see README), the node's own credential lives here and replaces
+      # both the key above and pipeline.json: configuration comes from the API
+      IVAAS_NODE_FILE: /var/lib/ivaas/node.json
     volumes:
       - ./models:/models:ro
       - ./deploy/pipeline/pipeline.json:/config/pipeline.json:ro

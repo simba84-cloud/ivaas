@@ -1,6 +1,11 @@
 """Composition root for the edge node.
 
-Configured by a JSON file (IVAAS_PIPELINE_CONFIG, default /config/pipeline.json):
+An enrolled node (see adapters/fleet.py; `python -m ivaas_pipeline enroll ...`)
+fetches its configuration from the API, in the shape below, authenticates as itself,
+reports a heartbeat, and restarts onto a new configuration when one is set.
+
+A node that has not been enrolled is configured by a JSON file (IVAAS_PIPELINE_CONFIG,
+default /config/pipeline.json) and authenticates with the shared IVAAS_API_KEY:
 
 {
   "api_url": "http://api:8000",
@@ -44,6 +49,7 @@ import os
 import sys
 import threading
 
+from ivaas_pipeline.adapters import fleet
 from ivaas_pipeline.adapters.delivery import SpooledDelivery
 from ivaas_pipeline.adapters.http_sink import HttpCrossingSink, HttpPlateSink
 from ivaas_pipeline.adapters.onnx_layers import OnnxLayerCounter
@@ -72,7 +78,9 @@ def open_source(cam: dict, metrics: PipelineMetrics) -> FrameSource:
     return kind(cam["key"], cam["uri"], stride=cam.get("stride", 1), metrics=metrics)
 
 
-def start_security(cfg, security, api_url, delivery, camera_ids, metrics) -> list[threading.Thread]:
+def start_security(
+    cfg, security, api_url, delivery, camera_ids, metrics, auth
+) -> list[threading.Thread]:
     import httpx
 
     from ivaas_pipeline.security_runner import (
@@ -84,9 +92,7 @@ def start_security(cfg, security, api_url, delivery, camera_ids, metrics) -> lis
 
     cams = security["cameras"]
     feed = SecurityConfigFeed(
-        httpx.Client(
-            base_url=api_url, timeout=5.0, headers={"X-IVaaS-Key": os.environ["IVAAS_API_KEY"]}
-        ),
+        httpx.Client(base_url=api_url, timeout=5.0, headers=auth),
         cfg["bay_id"],
         {c["api_camera_id"]: c["key"] for c in cams},
         capabilities=tuple(
@@ -145,13 +151,29 @@ def start_security(cfg, security, api_url, delivery, camera_ids, metrics) -> lis
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    path = os.environ.get("IVAAS_PIPELINE_CONFIG", "/config/pipeline.json")
-    try:
-        with open(path) as fh:
-            cfg = json.load(fh)
-    except FileNotFoundError:
-        log.error("pipeline config not found at %s (see module docstring for the format)", path)
-        return 2
+    if sys.argv[1:2] == ["enroll"]:
+        return fleet.main(sys.argv[2:])
+
+    identity = fleet.load_identity(os.environ.get("IVAAS_NODE_FILE", fleet.DEFAULT_NODE_FILE))
+    if identity is not None:
+        try:
+            cfg = fleet.fetch_config(identity.client())
+        except fleet.EnrollmentError as exc:
+            log.error("%s; enroll again with a new token", exc)
+            return 2
+        auth = identity.headers
+        api_url = identity.api_url
+        log.info("enrolled node %s, configuration %s", identity.name, cfg["config_version"])
+    else:
+        path = os.environ.get("IVAAS_PIPELINE_CONFIG", "/config/pipeline.json")
+        try:
+            with open(path) as fh:
+                cfg = json.load(fh)
+        except FileNotFoundError:
+            log.error("pipeline config not found at %s (see module docstring for the format)", path)
+            return 2
+        auth = {"X-IVaaS-Key": os.environ["IVAAS_API_KEY"]}  # never in the config file
+        api_url = os.environ.get("IVAAS_API_URL", cfg["api_url"])
 
     metrics = PrometheusMetrics()
     port = int(os.environ.get("IVAAS_METRICS_PORT", "9102"))
@@ -161,11 +183,11 @@ def main() -> int:
     security = cfg.get("security") or {}
     all_cameras = cfg["cameras"] + cfg.get("lpr_cameras", []) + security.get("cameras", [])
     camera_ids = {c["key"]: c["api_camera_id"] for c in all_cameras}
-    api_url = os.environ.get("IVAAS_API_URL", cfg["api_url"])
     delivery = SpooledDelivery(
         api_url,
-        os.environ["IVAAS_API_KEY"],  # never in the config file
+        None,
         os.environ.get("IVAAS_SPOOL_PATH", "/var/lib/ivaas/events.spool"),
+        headers=auth,
     )
     sink = FusingSink(
         TimeWindowFuser(),
@@ -227,10 +249,31 @@ def main() -> int:
             log.info("started LPR pipeline for %s -> %s", cam["key"], cam["uri"])
 
     if security.get("cameras"):
-        threads += start_security(cfg, security, api_url, delivery, camera_ids, metrics)
+        threads += start_security(cfg, security, api_url, delivery, camera_ids, metrics, auth)
 
-    for t in threads:
-        t.join()
+    if identity is None:
+        for t in threads:
+            t.join()
+        return 0
+
+    # An enrolled node reports in, and exits cleanly when its configuration changes;
+    # the container restarts it onto the new one. Events are spooled to disk as they
+    # happen, so nothing counted is lost across the restart.
+    stop, replaced = threading.Event(), threading.Event()
+    heartbeat = fleet.Heartbeat(
+        identity.client(),
+        config_version=cfg["config_version"],
+        cameras=metrics.snapshot,
+        camera_ids=camera_ids,
+        spool_pending=lambda: delivery.pending,
+        on_new_config=lambda _version: replaced.set(),
+    )
+    threading.Thread(
+        target=heartbeat.run_forever, args=(stop,), name="heartbeat", daemon=True
+    ).start()
+    replaced.wait()
+    stop.set()
+    log.info("configuration changed; restarting onto it")
     return 0
 
 

@@ -69,6 +69,35 @@ Nothing downstream of the media gateway knows what kind of camera it is looking 
 Not covered: cameras that expose *only* a proprietary cloud/P2P protocol and no RTSP/ONVIF
 (some consumer devices). Those need the vendor's NVR or a bridge in front of them.
 
+## 2a'. Edge nodes: enrollment, fleet health, pulled configuration (M2)
+
+The machine at a site that decodes the cameras and counts is an *enrolled node*, not
+a container holding a shared key.
+
+- **Enrollment.** An admin creates a token in the portal (Configure → Edge Nodes) for
+  one site and optionally one bay. It is single-use, expires within 72 h, and is shown
+  once; only its SHA-256 digest is stored. On the node:
+  `python -m ivaas_pipeline enroll --api <url> --token <token>`. The node receives its
+  own credential, also shown once and kept in `IVAAS_NODE_FILE` (mode 0600). Expired,
+  used and forged tokens all get the same 401.
+- **A node speaks only for its site.** `X-IVaaS-Node` authenticates it as the
+  `integration` role bound to that site, looked up on every request, so revoking takes
+  effect at once. Ingest checks that the bay is in scope and the camera belongs to it:
+  a node at one depot cannot post counts, plates or incidents for another (404, nothing
+  recorded). The shared `IVAAS_SERVICE_API_KEYS` still works, tenant-wide, for nodes
+  not yet enrolled.
+- **Fleet health comes from heartbeats** (every 30 s): version, uptime, spool backlog,
+  and per camera whether the node is reading it. Health is derived, never assumed:
+  `never_seen`, `online` (≤90 s), `stale`, `offline` (>5 min), `revoked`. The portal
+  raises an alert for an offline or never-seen node and for a camera a running node
+  cannot read.
+- **Configuration is pulled.** The desired pipeline config lives on the node record,
+  validated to its site and one bay, and is served in `pipeline.json`'s shape with each
+  camera's stream address filled in. The node learns of a new version from the
+  heartbeat's answer, exits cleanly and is restarted onto it by Docker; events are
+  spooled to disk, so nothing counted is lost across the restart. An unenrolled node
+  still runs from `pipeline.json`.
+
 ## 2b. Analysis assistant
 
 ```
@@ -302,3 +331,11 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
    login; a separate login role with its own credential is the GA step. Provisioning is
    idempotent for retries, not for two simultaneous first calls with one key. There is
    no break-glass, SSO federation, platform console or partner console yet (M8).
+12. **Edge gaps (M2, first slice).** Node credentials are bearer secrets over HTTPS,
+   not mTLS client certificates; mTLS comes with TLS termination on the POC network.
+   A new configuration restarts the node rather than being applied stream by stream,
+   and there is no model OTA or rollback (T2.6), no 17-stream simulator or GPU load
+   report (T2.3), no evidence clips, and no broker-level ACL (events reach NATS through
+   the API, which enforces the site binding). Two nodes redeeming one token at the same
+   instant are not prevented by the schema. The portal has no config editor yet: the
+   node config is set with `PUT /api/v1/edge/nodes/{id}/config`.

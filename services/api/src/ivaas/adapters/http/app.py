@@ -28,6 +28,7 @@ from ivaas.adapters.http.auth import (
     require,
     websocket_principal,
 )
+from ivaas.adapters.http.edge_routes import add_edge_routes
 from ivaas.adapters.http.platform_routes import add_platform_routes
 from ivaas.adapters.http.schemas import (
     AcknowledgeIn,
@@ -75,6 +76,7 @@ from ivaas.adapters.http.schemas import (
 )
 from ivaas.adapters.http.scope import (
     require_bay,
+    require_bay_camera,
     require_camera,
     require_session,
     require_site,
@@ -460,12 +462,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/cameras/{camera_id}/heartbeat",
         status_code=204,
-        dependencies=[Depends(require(P.INGEST_WRITE))],
+        dependencies=[Depends(require(P.INGEST_WRITE, scoped=True))],
     )
-    async def heartbeat(camera_id: UUID, c: Container = Depends(get_container)) -> Response:
-        camera = await c.cameras.get(camera_id)
-        if camera is None:
-            raise HTTPException(404, f"camera {camera_id} not found")
+    async def heartbeat(
+        camera_id: UUID,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> Response:
+        camera = await require_camera(c, principal, P.INGEST_WRITE, camera_id)
         camera.mark_seen(c.clock.now())
         await c.cameras.save(camera)
         return Response(status_code=204)
@@ -594,11 +598,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/ingest/crossings",
         response_model=SessionOut | None,
-        dependencies=[Depends(require(P.INGEST_WRITE))],
+        dependencies=[Depends(require(P.INGEST_WRITE, scoped=True))],
     )
     async def ingest_crossing(
-        body: CrossingIn, c: Container = Depends(get_container)
+        body: CrossingIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
     ) -> SessionOut | None:
+        # a node speaks for its own site and its own cameras, nothing else
+        await require_bay_camera(c, principal, P.INGEST_WRITE, body.bay_id, body.camera_id)
         CROSSINGS.labels(body.direction.value).inc(body.crates)
         crossing = CrateCrossing(
             track_id=body.track_id,
@@ -614,11 +622,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/v1/ingest/plates",
         response_model=SessionOut | None,
-        dependencies=[Depends(require(P.INGEST_WRITE))],
+        dependencies=[Depends(require(P.INGEST_WRITE, scoped=True))],
     )
     async def ingest_plate(
-        body: PlateReadIn, c: Container = Depends(get_container)
+        body: PlateReadIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
     ) -> SessionOut | None:
+        await require_bay_camera(c, principal, P.INGEST_WRITE, body.bay_id, body.camera_id)
         PLATES.inc()
         read = PlateRead(body.plate.upper(), body.confidence, body.camera_id, body.read_at)
         record = await c.record_plate_uc()
@@ -1155,6 +1166,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_security_routes(app, get_container, audit)
     add_tally_routes(app, get_container, audit)
     add_platform_routes(app, get_container, audit)
+    add_edge_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}")
     async def get_object(

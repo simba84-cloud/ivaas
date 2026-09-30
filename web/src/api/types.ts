@@ -423,3 +423,44 @@ export interface TallyReport {
   aggregate_error: number | null;
   rows: TallyReportRow[];
 }
+
+/** Proposal M2: an edge node's health is derived from its heartbeats, never assumed. */
+export type NodeHealth = "never_seen" | "online" | "stale" | "offline" | "revoked";
+
+export interface EdgeNodeCamera {
+  api_camera_id: string;
+  name: string | null;
+  connected: boolean;
+  fps: number | null;
+  lag_s: number | null;
+}
+
+export interface EdgeNode {
+  id: string;
+  name: string;
+  hostname: string;
+  site_id: string;
+  bay_id: string | null;
+  status: "active" | "revoked";
+  health: NodeHealth;
+  enrolled_at: string;
+  last_seen_at: string | null;
+  version: string | null;
+  uptime_s: number | null;
+  spool_pending: number | null;
+  cameras: EdgeNodeCamera[];
+  config: Record<string, unknown>;
+  config_version: string;
+  applied_config_version: string | null;
+  /** null until the node has said which configuration it runs */
+  config_drift: boolean | null;
+}
+
+/** Shown once: the platform keeps only a digest. */
+export interface EnrollmentToken {
+  token: string;
+  name: string;
+  site_id: string;
+  bay_id: string | null;
+  expires_at: string;
+}
