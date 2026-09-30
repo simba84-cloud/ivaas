@@ -105,3 +105,15 @@ describe("edge node alerts", () => {
     expect(attention({ ...base, nodes: [edgeNode({ health: "revoked", status: "revoked" })] })).toEqual([]);
   });
 });
+
+describe("edge node model alerts", () => {
+  const base = { cameras: [camera({ status: "online" })], mediaUp: true, sessions: [], insights: [] };
+  it("warns when a node refused a new model, and says it is still counting", () => {
+    const [item] = attention({
+      ...base,
+      nodes: [edgeNode({ model_error: "stacks v2: checksum mismatch; kept stacks v1" })],
+    });
+    expect(item).toMatchObject({ severity: "warn", title: "Edge node Loading bay edge refused a new model" });
+    expect(item.detail).toMatch(/still counting with the model it had/);
+  });
+});

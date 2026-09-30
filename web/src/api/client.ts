@@ -67,6 +67,8 @@ export const api = {
     }),
   revokeNode: (nodeId: string) =>
     request<void>(`/api/v1/edge/nodes/${nodeId}`, { method: "DELETE" }),
+  rollBackNode: (nodeId: string) =>
+    request<EdgeNode>(`/api/v1/edge/nodes/${nodeId}/rollback`, { method: "POST" }),
   tallySheets: () => request<TallySheet[]>("/api/v1/tally/sheets"),
   tallyReport: () => request<TallyReport>("/api/v1/tally/report"),
   enterTallySheet: (body: TallySheetInput) =>

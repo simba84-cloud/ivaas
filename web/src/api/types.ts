@@ -454,6 +454,11 @@ export interface EdgeNode {
   applied_config_version: string | null;
   /** null until the node has said which configuration it runs */
   config_drift: boolean | null;
+  /** what the node says it runs, by role (detector, layers) */
+  models?: Record<string, { name?: string; version?: string; sha256?: string; path?: string }>;
+  /** the last model the node refused to switch to, and why; it kept the one it had */
+  model_error?: string | null;
+  can_roll_back?: boolean;
 }
 
 /** Shown once: the platform keeps only a digest. */
