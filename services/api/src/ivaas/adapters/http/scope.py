@@ -70,6 +70,16 @@ async def require_bay_camera(
         raise NotFoundError(f"camera {camera_id} not found")
 
 
+async def first_time(c: Any, event_id: UUID | None, kind: str) -> bool:
+    """False for an edge event already applied (a replay after a crash); True otherwise.
+
+    Events without an id come from callers that predate the ledger and are applied.
+    """
+    if event_id is None:
+        return True
+    return await c.ingest.claim(event_id, kind, c.clock.now())
+
+
 async def visible_bays(c: Any, principal: Principal, permission: Permission) -> list[Any]:
     """The tenant's bays the caller holds `permission` for."""
     return [

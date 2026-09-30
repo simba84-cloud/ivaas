@@ -75,6 +75,7 @@ from ivaas.adapters.http.schemas import (
     UserOut,
 )
 from ivaas.adapters.http.scope import (
+    first_time,
     require_bay,
     require_bay_camera,
     require_camera,
@@ -126,6 +127,7 @@ log = logging.getLogger(__name__)
 
 CROSSINGS = Counter("ivaas_crate_crossings_total", "Crate crossings ingested", ["direction"])
 PLATES = Counter("ivaas_plate_reads_total", "LPR plate reads ingested")
+REPLAYS = Counter("ivaas_ingest_replays_total", "Edge events received again and skipped", ["kind"])
 
 
 async def _each_tenant(container: Container) -> list:
@@ -155,6 +157,11 @@ async def _sweep_tenant(container: Container, slug: str) -> None:
                 )
         except Exception:  # a failing sweep must not kill the API
             log.exception("%s: idle-session sweep failed", slug)
+    try:
+        # a node replays at most its spool; a fortnight is far beyond any outage it survives
+        await container.ingest.prune(container.clock.now() - timedelta(days=14))
+    except Exception:
+        log.exception("%s: ingest ledger prune failed", slug)
     try:
         # a sheet entered while its truck was still loading reconciles once it has left
         for sheet in await (await container.rematch_tally_sheets_uc())():
@@ -607,7 +614,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> SessionOut | None:
         # a node speaks for its own site and its own cameras, nothing else
         await require_bay_camera(c, principal, P.INGEST_WRITE, body.bay_id, body.camera_id)
-        CROSSINGS.labels(body.direction.value).inc(body.crates)
+        if not await first_time(c, body.event_id, "crossing"):
+            REPLAYS.labels("crossing").inc()
+            session = await c.sessions.get_open_for_bay(body.bay_id)
+            return SessionOut.of(session) if session else None
         crossing = CrateCrossing(
             track_id=body.track_id,
             camera_id=body.camera_id,
@@ -616,7 +626,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             crossed_at=body.crossed_at,
             crates=body.crates,
         )
-        session = await c.record_crossing(body.bay_id, crossing)
+        try:
+            session = await c.record_crossing(body.bay_id, crossing)
+        except Exception:
+            if body.event_id is not None:  # not applied: a retry must not be refused
+                await c.ingest.release(body.event_id)
+            raise
+        CROSSINGS.labels(body.direction.value).inc(body.crates)
         return SessionOut.of(session) if session else None
 
     @app.post(
@@ -630,10 +646,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         c: Container = Depends(get_container),
     ) -> SessionOut | None:
         await require_bay_camera(c, principal, P.INGEST_WRITE, body.bay_id, body.camera_id)
-        PLATES.inc()
+        if not await first_time(c, body.event_id, "plate"):
+            REPLAYS.labels("plate").inc()
+            session = await c.sessions.get_open_for_bay(body.bay_id)
+            return SessionOut.of(session) if session else None
         read = PlateRead(body.plate.upper(), body.confidence, body.camera_id, body.read_at)
         record = await c.record_plate_uc()
-        session = await record(body.bay_id, read)
+        try:
+            session = await record(body.bay_id, read)
+        except Exception:
+            if body.event_id is not None:
+                await c.ingest.release(body.event_id)
+            raise
+        PLATES.inc()
         return SessionOut.of(session) if session else None
 
     # dashboard -----------------------------------------------------------
