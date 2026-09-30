@@ -329,7 +329,7 @@ export default function Dashboard({ me }: { me: Me | undefined }) {
 
       {/* the bay, and what needs attention */}
       <div className="mt-3 grid gap-3 xl:grid-cols-3">
-        <section className="card-lift overflow-hidden xl:col-span-2">
+        <section aria-label="Live bay" className="card-lift overflow-hidden xl:col-span-2">
           <LiveBay
             camera={bayCam}
             count={active ? active.ai_count : null}
