@@ -299,7 +299,12 @@ class ConfigApplier:
                 )
             except Exception as exc:  # checksum, download, load or inference: all refuse
                 self._failed.add(version)
-                self.model_error = f"{label(new.get('model'))}: {exc}; kept {old}"
+                # bounded: the API caps it, and an over-long runtime error must not make
+                # the whole heartbeat rejected (the node would then look offline)
+                reason = str(exc)
+                if len(reason) > 300:
+                    reason = reason[:297] + "..."
+                self.model_error = f"{label(new.get('model'))}: {reason}; kept {old}"
                 log.exception("model switch refused: %s", self.model_error)
                 return
             self.current, self.model_error = new, None

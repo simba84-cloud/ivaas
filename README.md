@@ -54,6 +54,16 @@ docker compose --profile edge up -d pipeline  # fetches its config from the API
 Set the node's configuration with `PUT /api/v1/edge/nodes/{id}/config`; the node
 picks it up within a minute. Its health, cameras and backlog show on the Edge Nodes page.
 
+To ship a new model, register it once and point the node at it. The node verifies it
+and swaps it in without restarting a stream; Roll back on the Edge Nodes page undoes it:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/models -H "Authorization: Bearer $TOKEN" \
+  -F name=stacks -F version=v3 -F meta="$(cat models/stacks-v3.json)" \
+  -F file=@models/stacks-v3.onnx
+# then in the node's config: "model": {"version_id": "<id from the response>"}
+```
+
 Uploaded-video analysis runs in its own `worker` container, not in the API: a
 36-minute clip saturates every core it is given for over an hour, and that must not
 compete with the portal's requests. The two are the same image with the same

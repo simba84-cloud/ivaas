@@ -211,3 +211,15 @@ def test_real_models_are_fetched_verified_loaded_and_swapped(tmp_path):
     assert detector.inner is not before and layers.inner is not None
     assert Path(cache.resolve(v2)).read_bytes() == d2  # the verified copy, not the source
     models.smoke_test_detector(detector)  # the swapped-in model infers
+
+
+def test_a_long_runtime_error_is_bounded_so_the_heartbeat_is_never_rejected(tmp_path):
+    long = "x" * 5000
+
+    def make(path):
+        raise RuntimeError(long)
+
+    new = {"config_version": "c2", "model": ref(V2, "v2"), "cameras": []}
+    a, *_ = applier(tmp_path, new, make=make)
+    a.apply()
+    assert len(a.status()["model_error"]) < 400  # the API accepts up to 500

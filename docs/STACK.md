@@ -33,6 +33,7 @@ see the [README](../README.md).
 | Tenancy | Postgres row-level security on every tenant table; app runs as `ivaas_app` with `app.tenant_id` set per transaction (ADR 0001) |
 | Roles | Scoped bindings (platform / partner / tenant / site / bay), matrix in `domain/rbac.py` |
 | Edge nodes | Enrolled with a single-use token; authenticate with `X-IVaaS-Node`, bound to one site; heartbeat and pulled config (`/api/v1/edge/*`) |
+| Models (OTA) | Registered versions in object storage with SHA-256; nodes verify, cache by digest and swap in place; rollback per node (`/api/v1/models`) |
 | Secrets at rest | `cryptography` (Fernet, key in `IVAAS_SECRETS_KEY`) |
 | Metrics | `prometheus-client`, exposed at `/metrics` |
 | Health | `GET /healthz` |
