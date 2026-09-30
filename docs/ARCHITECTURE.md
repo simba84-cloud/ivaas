@@ -113,6 +113,18 @@ a container holding a shared key.
   - Measured on the dev stack with 2 simulated cameras: a switch took 9–10 s including
     an 80 MB download, a rollback 46 s end to end (5.8 s of it the swap; the rest is the
     wait for the next heartbeat), all with 0 stream reconnects.
+- **Evidence clips.** MediaMTX keeps a rolling 30-minute recording of the evidence
+  cameras only (chokepoint and LPR, `IVAAS_EVIDENCE_ROLES`). For each counted crossing
+  or plate read, the node cuts 3 s before to 5 s after from that recording through the
+  playback server, without re-encoding. Counts close together share a clip.
+  - Clips wait in a disk-bounded spool until the API has them, then are filed under the
+    load that covered them. They are kept for the tenant's "Evidence clips are kept for"
+    setting (90 days by default), then deleted, video first. The portal plays them from
+    each load on Reconciliation, over signed links.
+  - Sizing: [evidence-sizing.md](evidence-sizing.md).
+  - Paths added through MediaMTX's API live only in its memory, so the API puts back
+    any camera path, and its recording flag, that the media server has lost. This runs
+    every minute and at startup.
 
 ## 2b. Analysis assistant
 
@@ -349,8 +361,7 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
    no break-glass, SSO federation, platform console or partner console yet (M8).
 12. **Edge gaps (M2, first slice).** Node credentials are bearer secrets over HTTPS,
    not mTLS client certificates; mTLS comes with TLS termination on the POC network.
-   A configuration change other than a model restarts the node. There are no evidence
-   clips, and no broker-level
+   A configuration change other than a model restarts the node. There is no broker-level
    ACL (events reach NATS through the API, which enforces the site binding). The stream
    simulator, T2.3 load report and T2.4/T2.5 drills exist (`deploy/simulator/`), but
    the T2.3 figures themselves must come from a run on the GPU edge node: the dev
