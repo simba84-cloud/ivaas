@@ -324,9 +324,11 @@ which §4.2 does not grant them.
 | Pipeline stages | pure-function tests on synthetic stacks/tracks; decode tests for ONNX adapters | `services/pipeline/tests` |
 | Golden footage | the real ONNX models on a 45 s real clip against a frozen result; a retrained model or a counter tweak that changes the count fails here. Models come from the `models-v1` GitHub release (`deploy/fetch-models.sh`). | `services/pipeline/tests/test_golden.py`, `make test-golden` |
 | Frontend | Vitest + Testing Library + MSW: real API client against scripted responses, pages rendered from fixtures | `web/src/**/*.test.tsx` |
-| Everything | `make test`; GitHub Actions runs lint + tests + build per service on every push | `Makefile`, `.github/workflows/ci.yml` |
+| End to end (T6.1, T6.7) | Playwright drives the real portal (Vite) against the real API, run in memory on port 8010 so it never meets a compose stack. A site manager signs in and chooses a password, opens a load on the live bay, and watches the count arrive over the WebSocket as an edge key posts a plate and crossings. They end the load, then download the day's CSV and PDF, and the CSV must carry that load. This runs on a desktop and at tablet width (820 px). At tablet width, every page in the site manager's navigation must open with its heading in view and no horizontal scroll. | `web/e2e`, `make test-e2e` |
+| Everything | `make test`; GitHub Actions runs lint + tests + build per service, and the end-to-end suite, on every push | `Makefile`, `.github/workflows/ci.yml` |
 
-Not yet: a Playwright login→upload→report smoke against the compose stack.
+The end-to-end suite runs without Postgres, NATS or MediaMTX. The same repository suite
+covers the Postgres paths, and the camera wall shows "No signal" by design.
 
 ## 3. SOLID, concretely
 

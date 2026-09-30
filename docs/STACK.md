@@ -15,7 +15,7 @@ see the [README](../README.md).
 | Routing | React Router 6 |
 | Auth (OIDC mode) | `oidc-client-ts` against Keycloak |
 | Charts / motion / icons | Recharts, Framer Motion, Lucide |
-| Tests | Vitest, Testing Library, MSW (API mocking), jsdom |
+| Tests | Vitest, Testing Library, MSW (API mocking), jsdom; Playwright (Chromium) end to end against the real API |
 | Production image | `node:22-alpine` build → `nginx:1.27-alpine` serving `dist/` (`web/nginx.conf`) |
 
 ## Backend — `services/api/`
@@ -81,6 +81,7 @@ adapters to ports.
 make test          # everything; this is what "green" means
 make test-api-fast # API without Docker
 make test-golden   # real models on a real clip (slow; needs models/)
+make test-e2e      # portal + API in a browser (once: cd web && npx playwright install chromium)
 make lint          # ruff + tsc
 make ci            # lint, test, build
 ```
