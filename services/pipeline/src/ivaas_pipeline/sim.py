@@ -168,6 +168,7 @@ def inject(args: argparse.Namespace) -> dict:
     deadline = time.monotonic() + args.drain_timeout
     while delivery.pending and time.monotonic() < deadline:
         time.sleep(1)
+    delivery.close()
     counted = None
     for s in node.get("/api/v1/sessions", params={"bay_id": bay, "limit": 50}).json():
         if s.get("plate") == plate:

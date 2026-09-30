@@ -62,9 +62,12 @@ class SpooledDelivery:
         self._background = background
         self._max_backoff = max_backoff_s
         self._wake = threading.Event()
+        self._stopping = threading.Event()
+        self._sender: threading.Thread | None = None
         if background:
             self._wake.set()  # deliver anything replayed from disk straight away
-            threading.Thread(target=self._run, name="delivery", daemon=True).start()
+            self._sender = threading.Thread(target=self._run, name="delivery", daemon=True)
+            self._sender.start()
 
     @property
     def pending(self) -> int:
@@ -90,13 +93,22 @@ class SpooledDelivery:
     def _run(self) -> None:
         """The sender: drain in order, back off while the API is unreachable."""
         backoff = 1.0
-        while True:
+        while not self._stopping.is_set():
             self._wake.wait(timeout=backoff)
             self._wake.clear()
+            if self._stopping.is_set():
+                return
             if self._drain():
                 backoff = 1.0
             elif self._queue:
                 backoff = min(backoff * 2, self._max_backoff)
+
+    def close(self, timeout: float = 5.0) -> None:
+        """Stop the sender. Anything undelivered stays in the spool for the next start."""
+        self._stopping.set()
+        self._wake.set()
+        if self._sender is not None:
+            self._sender.join(timeout)
 
     def _drain(self) -> bool:
         """Deliver until empty or a transient failure. The HTTP call runs outside the

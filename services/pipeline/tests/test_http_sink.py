@@ -185,5 +185,6 @@ def test_in_the_background_a_black_holed_api_never_holds_up_counting(tmp_path):
     deadline = time.monotonic() + 5
     while d.pending and time.monotonic() < deadline:
         time.sleep(0.02)
+    d.close()
     assert d.pending == 0
     assert received == list(range(20)), "delivered out of order or with losses"
