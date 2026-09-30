@@ -151,6 +151,8 @@ class EdgeNode:
     last_report: dict[str, Any] = field(default_factory=dict)
     #: the desired pipeline configuration; the node applies it
     config: dict[str, Any] = field(default_factory=dict)
+    #: the configuration before the last change: what a rollback restores
+    previous_config: dict[str, Any] | None = None
     revoked_at: datetime | None = None
     tenant_id: UUID | None = None
     id: UUID = field(default_factory=uuid4)
@@ -179,6 +181,21 @@ class EdgeNode:
 
     def authenticates(self, secret: str) -> bool:
         return self.status is NodeStatus.ACTIVE and matches(secret, self.credential_hash)
+
+    def set_config(self, config: dict[str, Any]) -> bool:
+        """Adopt a new configuration, keeping the current one for a rollback.
+        False when nothing changed (and nothing is kept)."""
+        if config == self.config:
+            return False
+        self.previous_config = dict(self.config) if self.config else None
+        self.config = dict(config)
+        return True
+
+    def rollback(self) -> None:
+        """Back to the configuration before the last change. Rolling back twice returns."""
+        if not self.previous_config:
+            raise EdgeError("this node has no earlier configuration to roll back to")
+        self.config, self.previous_config = dict(self.previous_config), dict(self.config)
 
     def revoke(self, now: datetime) -> None:
         self.status, self.revoked_at = NodeStatus.REVOKED, now

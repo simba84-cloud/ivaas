@@ -100,7 +100,18 @@ export function attention({
         detail: "It was enrolled but no heartbeat has arrived. Check that its pipeline is running.",
         at: Date.parse(n.enrolled_at),
       });
-    } else if (n.health === "online") {
+    }
+    if (n.model_error && n.health !== "revoked") {
+      items.push({
+        // one per refused model: the message names the version it refused
+        key: alertKey("node-model", n.id, n.model_error),
+        severity: "warn",
+        title: `Edge node ${n.name} refused a new model`,
+        detail: `${n.model_error}. It is still counting with the model it had.`,
+        at: last,
+      });
+    }
+    if (n.health === "online") {
       for (const c of n.cameras.filter((x) => !x.connected)) {
         items.push({
           key: alertKey("node-cam", n.id, c.api_camera_id, today()),

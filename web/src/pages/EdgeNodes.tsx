@@ -134,12 +134,33 @@ function NewNode({ onDone }: { onDone: (t: EnrollmentToken) => void }) {
   );
 }
 
-function Row({ node, index, canManage }: { node: EdgeNode; index: number; canManage: boolean }) {
+/** "stacks v2" for a registered model, the file name for one on the node's disk. */
+function modelName(m: NonNullable<EdgeNode["models"]>[string] | undefined) {
+  if (!m) return null;
+  return m.name ? `${m.name} ${m.version}` : (m.path ?? "").split("/").pop() || null;
+}
+
+function Row({
+  node,
+  index,
+  canManage,
+  canCalibrate,
+}: {
+  node: EdgeNode;
+  index: number;
+  canManage: boolean;
+  canCalibrate: boolean;
+}) {
   const qc = useQueryClient();
   const revoke = useMutation({
     mutationFn: () => api.revokeNode(node.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["edge-nodes"] }),
   });
+  const rollBack = useMutation({
+    mutationFn: () => api.rollBackNode(node.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["edge-nodes"] }),
+  });
+  const running = modelName(node.models?.detector);
   const h = HEALTH[node.health];
   const down = node.cameras.filter((c) => !c.connected);
   return (
@@ -192,8 +213,24 @@ function Row({ node, index, canManage }: { node: EdgeNode; index: number; canMan
         ) : (
           <span className="text-good">Current ({node.config_version})</span>
         )}
+        {running && <div className="mt-1 text-muted">Model: {running}</div>}
+        {node.model_error && (
+          <div role="alert" className="mt-1 max-w-xs text-bad">
+            Refused a new model: {node.model_error}
+          </div>
+        )}
       </td>
       <td className="td text-right">
+        {canCalibrate && node.status === "active" && node.can_roll_back && (
+          <button
+            className="btn-ghost btn-sm"
+            disabled={rollBack.isPending}
+            onClick={() => rollBack.mutate()}
+            title="Return to the configuration and model before the last change"
+          >
+            Roll back
+          </button>
+        )}
         {canManage && node.status === "active" && (
           <button
             className="btn-ghost btn-sm text-bad"
@@ -252,7 +289,13 @@ export default function EdgeNodes({ me }: { me: Me | undefined }) {
               </thead>
               <tbody>
                 {rows.map((n, i) => (
-                  <Row key={n.id} node={n} index={i} canManage={canManage} />
+                  <Row
+                    key={n.id}
+                    node={n}
+                    index={i}
+                    canManage={canManage}
+                    canCalibrate={can(me, "device.calibrate")}
+                  />
                 ))}
               </tbody>
             </table>

@@ -51,6 +51,7 @@ class EdgeNodeRow(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_report: Mapped[Any] = mapped_column(JSONB)
     config: Mapped[Any] = mapped_column(JSONB)
+    previous_config: Mapped[Any] = mapped_column(JSONB, nullable=True)
     config_version: Mapped[str] = mapped_column(String(16))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -80,6 +81,7 @@ _NODE_FIELDS = (
     "last_seen_at",
     "last_report",
     "config",
+    "previous_config",
     "revoked_at",
 )
 

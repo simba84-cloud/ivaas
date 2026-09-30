@@ -49,7 +49,7 @@ import os
 import sys
 import threading
 
-from ivaas_pipeline.adapters import fleet
+from ivaas_pipeline.adapters import fleet, models
 from ivaas_pipeline.adapters.delivery import SpooledDelivery
 from ivaas_pipeline.adapters.http_sink import HttpCrossingSink, HttpPlateSink
 from ivaas_pipeline.adapters.onnx_layers import OnnxLayerCounter
@@ -197,10 +197,35 @@ def main() -> int:
         ),
     )
 
+    # Models: a local path, or a registered version fetched, verified and cached by
+    # digest. Every model-backed part sits behind a Swappable, so a new model can be
+    # switched in later without reopening a stream (adapters/models.py).
+    cache = models.ModelCache(
+        identity.client(timeout=120) if identity else None,
+        os.environ.get("IVAAS_MODEL_CACHE", models.DEFAULT_CACHE),
+    )
+    arch = cfg["model"].get("arch", "rtdetr")
+
+    def make_detector(path: str):
+        if arch == "rtdetr":
+            return OnnxRtDetrDetector(path)
+        return OnnxYoloDetector(path, cfg["model"]["labels"])
+
+    try:
+        detector_path = cache.resolve(cfg["model"])
+        layers_ref = models.layers_ref(cfg)
+        layers_path = cache.resolve(layers_ref) if layers_ref else None
+    except models.ModelFetchError as exc:
+        log.error("cannot get this node's model: %s", exc)
+        return 2
+    detector_slots: list[models.Swappable] = []
+    layer_slots: list[models.Swappable] = []
+
     threads = []
     for cam in cfg["cameras"]:
-        if cfg.get("layers_model"):
-            layers = OnnxLayerCounter(cfg["layers_model"])
+        if layers_path:
+            layers = models.Swappable(OnnxLayerCounter(layers_path))
+            layer_slots.append(layers)
         else:
             ratio = tuple(cam.get("pitch_to_width", (0.12, 0.45)))  # per-camera calibration
             layers = PeriodicityLayerCounter(pitch_to_width=ratio)
@@ -213,15 +238,12 @@ def main() -> int:
                 counter = StackCrossingCounter(line, layers)
             else:
                 counter = LineCrossingCounter(line)
+        detector_slots.append(models.Swappable(make_detector(detector_path)))
         pipeline = CameraPipeline(
             source=open_source(cam, metrics),
             preprocessor=OpenCvPreprocessor(),
             # one session per camera thread: ONNX Runtime sessions are not shared across them
-            detector=(
-                OnnxRtDetrDetector(cfg["model"]["path"])
-                if cfg["model"].get("arch", "rtdetr") == "rtdetr"
-                else OnnxYoloDetector(cfg["model"]["path"], cfg["model"]["labels"])
-            ),
+            detector=detector_slots[-1],
             tracker=IouTracker(),
             counter=counter,
             sink=sink,
@@ -257,17 +279,32 @@ def main() -> int:
             t.join()
         return 0
 
-    # An enrolled node reports in, and exits cleanly when its configuration changes;
-    # the container restarts it onto the new one. Events are spooled to disk as they
-    # happen, so nothing counted is lost across the restart.
+    # An enrolled node reports in. A new model is switched in place; any other change
+    # exits cleanly and the container restarts the node onto it. Events are spooled to
+    # disk as they happen, so nothing counted is lost across a restart.
     stop, replaced = threading.Event(), threading.Event()
+    heartbeat: fleet.Heartbeat | None = None
+    applier = models.ConfigApplier(
+        current=cfg,
+        fetch=lambda: fleet.fetch_config(identity.client(), wait_s=10),
+        switcher=models.ModelSwitcher(
+            cache,
+            make_detector,
+            OnnxLayerCounter if layers_path else None,
+        ),
+        detectors=detector_slots,
+        layers=layer_slots,
+        adopt=lambda version: heartbeat.adopt(version) if heartbeat else None,
+        restart=replaced.set,
+    )
     heartbeat = fleet.Heartbeat(
         identity.client(),
         config_version=cfg["config_version"],
         cameras=metrics.snapshot,
         camera_ids=camera_ids,
         spool_pending=lambda: delivery.pending,
-        on_new_config=lambda _version: replaced.set(),
+        on_new_config=applier.on_new_version,
+        status=applier.status,
     )
     threading.Thread(
         target=heartbeat.run_forever, args=(stop,), name="heartbeat", daemon=True

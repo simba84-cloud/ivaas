@@ -135,6 +135,7 @@ class Heartbeat:
         spool_pending: Callable[[], int],
         on_new_config: Callable[[str], None],
         every_s: float = 30.0,
+        status: Callable[[], dict] | None = None,
     ) -> None:
         self._client = client
         self._version = config_version
@@ -142,11 +143,17 @@ class Heartbeat:
         self._pending = spool_pending
         self._on_new = on_new_config
         self._every = every_s
+        self._status = status or dict
         self._started = time.monotonic()
+
+    def adopt(self, config_version: str) -> None:
+        """The node now runs this configuration (applied without a restart)."""
+        self._version = config_version
 
     def report(self) -> dict:
         seen = self._cameras()  # one snapshot, so the two halves below agree
         return {
+            **self._status(),  # models running, and any model refused
             "version": VERSION,
             "config_version": self._version,
             "uptime_s": round(time.monotonic() - self._started, 1),

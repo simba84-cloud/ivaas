@@ -4,7 +4,7 @@ from datetime import date, datetime, time
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ivaas.application.overview import Overview, Severity, Trend
 from ivaas.domain.alerts import AlertAcknowledgement
@@ -975,6 +975,10 @@ class HeartbeatIn(BaseModel):
     uptime_s: float = Field(default=0, ge=0)
     spool_pending: int = Field(default=0, ge=0)
     cameras: list[CameraReportIn] = Field(default=[], max_length=64)
+    #: what runs, by role: {"detector": {"name", "version", "sha256"}, "layers": {...}}
+    models: dict = Field(default={})
+    #: set when the node refused a new model and kept the one it had
+    model_error: str | None = Field(default=None, max_length=500)
 
 
 class HeartbeatOut(BaseModel):
@@ -992,8 +996,18 @@ class EdgeCameraIn(BaseModel):
 
 
 class EdgeModelIn(BaseModel):
-    path: str = Field(min_length=1, max_length=300)
+    """A model the node already has on disk (`path`), or a registered version it
+    downloads and verifies (`version_id`). Exactly one."""
+
+    path: str | None = Field(default=None, min_length=1, max_length=300)
+    version_id: UUID | None = None
     arch: Literal["rtdetr", "yolo"] = "rtdetr"
+
+    @model_validator(mode="after")
+    def _one_source(self) -> EdgeModelIn:
+        if (self.path is None) == (self.version_id is None):
+            raise ValueError("give the model either a path or a version_id")
+        return self
 
 
 class EdgeConfigIn(BaseModel):
@@ -1001,6 +1015,8 @@ class EdgeConfigIn(BaseModel):
 
     model: EdgeModelIn
     layers_model: str | None = Field(default=None, max_length=300)
+    #: a registered layer-counting model, instead of `layers_model`'s path
+    layers_model_id: UUID | None = None
     forward_means: Literal["loading", "offloading"] = "loading"
     count: Literal["stack", "crate"] = "stack"
     cameras: list[EdgeCameraIn] = Field(default=[], max_length=32)
@@ -1035,3 +1051,34 @@ class EdgeNodeOut(BaseModel):
     applied_config_version: str | None
     #: null until the node has reported which config it runs
     config_drift: bool | None
+    #: what the node says it runs, by role: {"detector": {name, version, sha256}, ...}
+    models: dict = {}
+    #: the last model the node refused to switch to, and why; it kept the one it had
+    model_error: str | None = None
+    can_roll_back: bool = False
+
+
+class ModelVersionOut(BaseModel):
+    id: UUID
+    name: str
+    version: str
+    sha256: str
+    size_bytes: int
+    meta: dict
+    notes: str
+    created_by: str
+    created_at: datetime
+
+    @staticmethod
+    def of(m) -> ModelVersionOut:
+        return ModelVersionOut(
+            id=m.id,
+            name=m.name,
+            version=m.version,
+            sha256=m.sha256,
+            size_bytes=m.size_bytes,
+            meta=m.meta,
+            notes=m.notes,
+            created_by=m.created_by,
+            created_at=m.created_at,
+        )

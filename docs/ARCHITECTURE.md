@@ -97,6 +97,22 @@ a container holding a shared key.
   heartbeat's answer, exits cleanly and is restarted onto it by Docker; events are
   spooled to disk, so nothing counted is lost across the restart. An unenrolled node
   still runs from `pipeline.json`.
+- **Models over the air (T2.6).** A model version is registered once
+  (`POST /api/v1/models`): the ONNX file is hashed as it streams into object storage,
+  and its labels and input size are kept with it. Versions are immutable. A node config
+  names a version, and the node fetches it through a node-only endpoint.
+  - The node checks the SHA-256 and size before using a byte, and caches the model by
+    digest.
+  - It loads the new model and runs it once on a blank frame beside the old one, for
+    every camera. Only if all of them succeed is it swapped in, between two frames. No
+    stream reopens.
+  - A download, checksum, load or inference failure is refused: the node keeps
+    counting with the model it had and reports why, and the portal raises an alert.
+  - The API keeps each node's previous config. `POST /api/v1/edge/nodes/{id}/rollback`
+    restores it; a second rollback undoes the first.
+  - Measured on the dev stack with 2 simulated cameras: a switch took 9–10 s including
+    an 80 MB download, a rollback 46 s end to end (5.8 s of it the swap; the rest is the
+    wait for the next heartbeat), all with 0 stream reconnects.
 
 ## 2b. Analysis assistant
 
@@ -333,8 +349,8 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
    no break-glass, SSO federation, platform console or partner console yet (M8).
 12. **Edge gaps (M2, first slice).** Node credentials are bearer secrets over HTTPS,
    not mTLS client certificates; mTLS comes with TLS termination on the POC network.
-   A new configuration restarts the node rather than being applied stream by stream,
-   and there is no model OTA or rollback (T2.6), no evidence clips, and no broker-level
+   A configuration change other than a model restarts the node. There are no evidence
+   clips, and no broker-level
    ACL (events reach NATS through the API, which enforces the site binding). The stream
    simulator, T2.3 load report and T2.4/T2.5 drills exist (`deploy/simulator/`), but
    the T2.3 figures themselves must come from a run on the GPU edge node: the dev

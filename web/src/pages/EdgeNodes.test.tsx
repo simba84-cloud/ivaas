@@ -90,3 +90,35 @@ describe("edge nodes", () => {
     expect(revoked).toHaveBeenCalled();
   });
 });
+
+describe("edge node models", () => {
+  it("shows the model running, a refused switch, and rolls back", async () => {
+    api([
+      edgeNode({
+        models: { detector: { name: "stacks", version: "v1", sha256: "abc" } },
+        model_error: "stacks v2: checksum mismatch; kept stacks v1",
+        can_roll_back: true,
+      }),
+    ]);
+    const rolled = vi.fn();
+    server.use(
+      http.post("/api/v1/edge/nodes/n1/rollback", () => {
+        rolled();
+        return HttpResponse.json(edgeNode());
+      }),
+    );
+    show();
+    const row = (await screen.findByText("Loading bay edge")).closest("tr") as HTMLElement;
+    expect(within(row).getByText("Model: stacks v1")).toBeInTheDocument();
+    expect(within(row).getByRole("alert")).toHaveTextContent(/checksum mismatch; kept stacks v1/);
+    await userEvent.click(within(row).getByRole("button", { name: "Roll back" }));
+    expect(rolled).toHaveBeenCalled();
+  });
+
+  it("offers no rollback without an earlier configuration, or to those who cannot calibrate", async () => {
+    api([edgeNode({ can_roll_back: false })]);
+    show();
+    await screen.findByText("Loading bay edge");
+    expect(screen.queryByRole("button", { name: "Roll back" })).not.toBeInTheDocument();
+  });
+});

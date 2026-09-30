@@ -53,6 +53,8 @@ class AuditAction(StrEnum):
     NODE_ENROLLED = "node_enrolled"
     NODE_REVOKED = "node_revoked"
     NODE_CONFIG_CHANGED = "node_config_changed"
+    NODE_ROLLED_BACK = "node_rolled_back"
+    MODEL_UPLOADED = "model_uploaded"
 
 
 @dataclass(frozen=True)
