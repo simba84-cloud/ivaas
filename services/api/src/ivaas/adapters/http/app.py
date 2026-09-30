@@ -31,6 +31,7 @@ from ivaas.adapters.http.auth import (
 from ivaas.adapters.http.edge_routes import add_edge_routes
 from ivaas.adapters.http.evidence_routes import add_evidence_routes, sweep_expired
 from ivaas.adapters.http.fleet_routes import add_fleet_routes
+from ivaas.adapters.http.manifest_routes import add_manifest_routes
 from ivaas.adapters.http.model_routes import add_model_routes
 from ivaas.adapters.http.platform_routes import add_platform_routes
 from ivaas.adapters.http.schemas import (
@@ -160,6 +161,12 @@ async def _sweep_tenant(container: Container, slug: str) -> None:
                 )
         except Exception:  # a failing sweep must not kill the API
             log.exception("%s: idle-session sweep failed", slug)
+    try:
+        # loads close, plates get filled in, counts get corrected: keep exceptions current
+        for e in await (await container.reconcile_manifests_uc())():
+            log.info("%s: exception raised: %s %s", slug, e.kind.value, e.plate or "")
+    except Exception:
+        log.exception("%s: manifest reconciliation failed", slug)
     try:
         removed = await sweep_expired(container)
         if removed:
@@ -1218,6 +1225,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_model_routes(app, get_container, audit)
     add_evidence_routes(app, get_container, audit)
     add_fleet_routes(app, get_container, audit)
+    add_manifest_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}")
     async def get_object(

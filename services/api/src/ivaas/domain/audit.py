@@ -59,6 +59,8 @@ class AuditAction(StrEnum):
     FLEET_IMPORTED = "fleet_imported"
     SESSION_IDENTIFIED = "session_identified"
     COUNT_OVERRIDDEN = "count_overridden"
+    MANIFEST_IMPORTED = "manifest_imported"
+    EXCEPTION_RESOLVED = "exception_resolved"
 
 
 @dataclass(frozen=True)

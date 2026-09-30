@@ -19,6 +19,7 @@ FACE_RECOGNITION = "face_recognition"
 FACE_RECOGNITION_BASIS = "face_recognition_basis"
 BADGE_GRACE_MINUTES = "badge_grace_minutes"
 EVIDENCE_RETENTION_DAYS = "evidence_retention_days"
+MANIFEST_TOLERANCE = "manifest_tolerance_crates"
 
 #: the value a setting has when nobody has changed it (the environment supplies the rest)
 DEFAULTS = {
@@ -27,6 +28,8 @@ DEFAULTS = {
     BADGE_GRACE_MINUTES: 10.0,
     # confirmed for Bakers Inn: crate-leakage disputes are raised within 90 days
     EVIDENCE_RETENTION_DAYS: 90.0,
+    # a manifest states exact crates: any difference is worth a look, until told otherwise
+    MANIFEST_TOLERANCE: 0.0,
 }
 
 
@@ -35,7 +38,7 @@ class EditableSetting:
     key: str
     label: str
     help: str
-    kind: str  # "percent" | "minutes" | "days" | "choice" | "text"
+    kind: str  # "percent" | "minutes" | "days" | "crates" | "choice" | "text"
     choices: tuple[str, ...] = ()
     minimum: float | None = None
     maximum: float | None = None
@@ -92,6 +95,17 @@ EDITABLE: tuple[EditableSetting, ...] = (
         kind="days",
         minimum=7,
         maximum=3650,
+    ),
+    EditableSetting(
+        key=MANIFEST_TOLERANCE,
+        label="A load differing from its manifest by more than",
+        help=(
+            "Raises an exception for a person to look at, with the load's video. "
+            "0 flags every difference."
+        ),
+        kind="crates",
+        minimum=0,
+        maximum=500,
     ),
     EditableSetting(
         key=FACE_RECOGNITION_BASIS,
