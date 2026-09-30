@@ -69,10 +69,22 @@ between one node and two.
 
 The drill pauses the API, which looks like a black-holed WAN to the node, and keeps
 it paused for the given time. It then unpauses the API and waits for the node's spool
-to drain.
+to drain. It checks two things:
 
-It passes when every event counted during the outage arrives with none dropped. The
-API's ingest ledger skips any event resent after a crash, so nothing is counted twice.
+- **The pipeline's own spool.** Whatever the footage counted during the outage must be
+  delivered afterwards, with nothing dropped.
+- **Synthetic crossings.** `python -m ivaas_pipeline.sim inject` sends crossings as the
+  node across the outage, through the same spool and sender. The crates the API counts
+  must equal the crates sent, exactly.
+
+The synthetic crossings mean the drill always has events at risk, even when the footage
+produces few counts. A drill in which nothing was counted is reported inconclusive,
+never passed.
+
+A black-holed link does produce duplicates. Requests in flight when the link dies time
+out on the node and are sent again, but the API applies the originals when it wakes.
+The API's ingest ledger skips the repeats. Its `ivaas_ingest_replays_total` metric shows
+how many there were.
 
 **T2.5, a camera unplugged.**
 

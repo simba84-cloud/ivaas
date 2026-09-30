@@ -9,7 +9,8 @@
 # the machine faking the cameras. Encoding 17 live 4K streams would saturate any CPU.
 #
 # Defaults match the POC's cameras: 4K (3840x2160) at 15 fps, H.264 with a keyframe
-# every second (a new reader can start decoding within a second).
+# every second (a new reader can start decoding within a second) and no B-frames,
+# as IP cameras send.
 set -euo pipefail
 CLIP="${1:?usage: prepare.sh <clip.mp4> [WIDTHxHEIGHT] [FPS]}"
 SIZE="${2:-3840x2160}"
@@ -19,5 +20,5 @@ mkdir -p "$(dirname "$OUT")"
 exec ffmpeg -hide_banner -loglevel warning -y -i "$CLIP" \
   -vf "scale=${SIZE/x/:}:flags=bicubic,fps=${FPS}" \
   -c:v libx264 -preset medium -profile:v high -pix_fmt yuv420p \
-  -g "$FPS" -keyint_min "$FPS" -sc_threshold 0 -an \
+  -g "$FPS" -keyint_min "$FPS" -sc_threshold 0 -bf 0 -an \
   -movflags +faststart "$OUT"

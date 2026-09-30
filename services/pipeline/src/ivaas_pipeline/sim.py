@@ -5,6 +5,13 @@ cameras from recorded footage, before the real cameras exist.
         --node <node id> --out /sim/streams.txt
     python -m ivaas_pipeline.sim teardown --api http://api:8000 --bay <bay id>
 
+`inject` sends synthetic events *as the enrolled node*, through the same spool and
+background sender the pipeline uses: a plate read (which opens a session at an idle
+bay) and then crossings, one every few seconds. It waits for its spool to drain and
+reads back what the API counted. The outage drill runs it across the outage, so the
+drill has events to lose even when the footage produces few counts. It exercises
+delivery, not counting.
+
 `setup` registers the POC's camera array (16 volumetric + 1 LPR, section 4.1 of the
 scope) as push cameras named "Sim ...", writes their stream paths for the publisher
 (deploy/simulator/publish.sh), and, given an enrolled node, sets that node's
@@ -118,6 +125,64 @@ def teardown(client: httpx.Client, args: argparse.Namespace) -> int:
     return removed
 
 
+def inject(args: argparse.Namespace) -> dict:
+    """Send `count` crossings as this node, then report what the API counted."""
+    import json
+    import time
+    import uuid
+    from datetime import UTC, datetime
+
+    from ivaas_pipeline.adapters import fleet
+    from ivaas_pipeline.adapters.delivery import SpooledDelivery
+
+    identity = fleet.load_identity(os.environ.get("IVAAS_NODE_FILE", fleet.DEFAULT_NODE_FILE))
+    if identity is None:
+        raise SystemExit("this node is not enrolled")
+    node = identity.client()
+    cfg = fleet.fetch_config(node, wait_s=5)
+    camera = (cfg["cameras"] or cfg["lpr_cameras"])[0]["api_camera_id"]
+    bay = cfg["bay_id"]
+    plate = f"SIM {uuid.uuid4().hex[:4].upper()}"
+    delivery = SpooledDelivery(
+        identity.api_url, None, args.spool, headers=identity.headers, background=True
+    )
+    now = lambda: datetime.now(UTC).isoformat()
+    delivery.send(
+        "/api/v1/ingest/plates",
+        {"bay_id": bay, "camera_id": camera, "plate": plate, "confidence": 0.99, "read_at": now()},
+    )
+    for i in range(args.count):
+        delivery.send(
+            "/api/v1/ingest/crossings",
+            {
+                "bay_id": bay,
+                "camera_id": camera,
+                "track_id": i + 1,
+                "direction": "loading",
+                "crates": args.crates,
+                "confidence": 0.95,
+                "crossed_at": now(),
+            },
+        )
+        time.sleep(args.every)
+    deadline = time.monotonic() + args.drain_timeout
+    while delivery.pending and time.monotonic() < deadline:
+        time.sleep(1)
+    counted = None
+    for s in node.get("/api/v1/sessions", params={"bay_id": bay, "limit": 50}).json():
+        if s.get("plate") == plate:
+            counted = s["ai_count"]
+    result = {
+        "plate": plate,
+        "crossings_sent": args.count,
+        "crates_sent": args.count * args.crates,
+        "still_pending": delivery.pending,
+        "crates_counted": counted,
+    }
+    print(json.dumps(result))
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m ivaas_pipeline.sim")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -133,7 +198,16 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--layers", default="/models/layers-v3.onnx")
     s.add_argument("--stride", type=int, default=1, help="process every n-th frame")
     s.add_argument("--out", default="/sim/streams.txt")
+    j = sub.add_parser("inject", help="synthetic events as this node (for the outage drill)")
+    j.add_argument("--count", type=int, default=20)
+    j.add_argument("--every", type=float, default=3.0, help="seconds between crossings")
+    j.add_argument("--crates", type=int, default=12)
+    j.add_argument("--spool", default="/var/lib/ivaas/inject.spool")
+    j.add_argument("--drain-timeout", type=float, default=900)
     args = parser.parse_args(argv)
+    if args.command == "inject":
+        r = inject(args)
+        return 0 if r["still_pending"] == 0 and r["crates_counted"] == r["crates_sent"] else 1
     client = _signed_in(args.api.rstrip("/"))
     if args.command == "setup":
         setup(client, args)
