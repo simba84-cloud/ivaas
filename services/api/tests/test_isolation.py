@@ -28,6 +28,7 @@ from ivaas.tenancy import system_context, tenant_context
 A_SERVICE = {"X-IVaaS-Key": "dev-pipeline-key"}
 B_SERVICE = {"X-IVaaS-Key": "b-pipeline-key"}
 B_PASSWORD = "b-holds-every-role-2026"
+META = '{"labels": ["stack"], "input_width": 640, "input_height": 640}'
 
 #: Every route that names a resource in its path, and the body a real caller would send.
 #: None: the route takes no body. "service": called by the pipeline, with B's key.
@@ -65,6 +66,8 @@ BODIES: dict[tuple[str, str], object] = {
     ("POST", "/api/v1/sites/{site_id}/enrollment-tokens"): {"name": "B's node"},
     ("DELETE", "/api/v1/edge/nodes/{node_id}"): None,
     ("PUT", "/api/v1/edge/nodes/{node_id}/config"): {"model": {"path": "/models/x.onnx"}},
+    ("POST", "/api/v1/edge/nodes/{node_id}/rollback"): None,
+    ("GET", "/api/v1/edge/models/{model_id}/file"): "node",
 }
 
 #: Path parameters that are not a tenant's resource, and why.
@@ -142,6 +145,12 @@ def world():
             f"/api/v1/sites/{bay['site_id']}/enrollment-tokens", json={"name": "A node"}, headers=a
         ).json()
         node = c.post("/api/v1/edge/enroll", json={"token": made["token"]}).json()
+        model = c.post(
+            "/api/v1/models",
+            data={"name": "stacks", "version": "a1", "meta": META},
+            files={"file": ("m.onnx", b"\x08\x07fake-onnx")},
+            headers=a,
+        ).json()
         ids = {
             "site_id": bay["site_id"],
             "bay_id": bay["id"],
@@ -154,8 +163,15 @@ def world():
             "username": "operator",
             "key:path": object_key,
             "node_id": node["node_id"],
+            "model_id": model["id"],
         }
         b = login(c, "b-all", B_PASSWORD)
+        b_site = c.get("/api/v1/sites", headers=b).json()[0]["id"]
+        b_tok = c.post(
+            f"/api/v1/sites/{b_site}/enrollment-tokens", json={"name": "B node"}, headers=b
+        ).json()["token"]
+        b_node = c.post("/api/v1/edge/enroll", json={"token": b_tok}).json()["credential"]
+        c.b_node = {"X-IVaaS-Node": b_node}  # tenant B's enrolled node, for node-only routes
         yield c, a, b, ids
 
 
@@ -173,8 +189,9 @@ def _call(c, method, path, body, b, ids):
         if "{" + name + "}" in url:
             url, used = url.replace("{" + name + "}", value), value
     assert "{" not in url, f"no id for {path}"
-    headers = B_SERVICE if body == "service" else b
-    payload = None if body in (None, "service") else body
+    callers = {"service": B_SERVICE, "node": getattr(c, "b_node", None)}
+    headers = callers[body] if isinstance(body, str) else b
+    payload = None if body in (None, "service", "node") else body
     r = c.request(method, url, json=payload, headers=headers)
     return r.status_code, r.text.replace(used, "<id>")
 

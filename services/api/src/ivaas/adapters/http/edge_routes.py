@@ -28,7 +28,13 @@ from ivaas.adapters.http.schemas import (
 )
 from ivaas.adapters.http.scope import require_bay, require_site, site_scope
 from ivaas.domain.audit import AuditAction
-from ivaas.domain.edge import TOKEN_PREFIX, EdgeNode, EnrollmentToken, parse_secret
+from ivaas.domain.edge import (
+    TOKEN_PREFIX,
+    EdgeError,
+    EdgeNode,
+    EnrollmentToken,
+    parse_secret,
+)
 from ivaas.domain.models import NotFoundError
 from ivaas.domain.rbac import Permission as P
 from ivaas.ports.auth import Principal
@@ -95,6 +101,9 @@ def add_edge_routes(app: FastAPI, get_container: Callable[[Request], Any], audit
             config_version=node.config_version,
             applied_config_version=report.get("config_version"),
             config_drift=node.config_drift,
+            models=report.get("models") or {},
+            model_error=report.get("model_error"),
+            can_roll_back=bool(node.previous_config),
         )
 
     async def managed_node(c: Any, principal: Principal, node_id: UUID, perm: P) -> EdgeNode:
@@ -208,8 +217,12 @@ def add_edge_routes(app: FastAPI, get_container: Callable[[Request], Any], audit
             bays.add(bay.id)
         if len(bays) > 1 or (node.bay_id and bays - {node.bay_id}):
             raise HTTPException(422, "a node counts one bay; every camera must be in it")
+        for ref in (body.model.version_id, body.layers_model_id):
+            if ref is not None and await c.ml_models.get(ref) is None:
+                raise HTTPException(422, f"model version {ref} is not registered")
         before = node.config_version
-        node.config = body.model_dump(mode="json", exclude_none=True)
+        if not node.set_config(body.model_dump(mode="json", exclude_none=True)):
+            return await node_out(c, node)  # unchanged: nothing to roll back to, no audit
         await c.edge.save_node(node)
         await audit(
             c,
@@ -220,6 +233,50 @@ def add_edge_routes(app: FastAPI, get_container: Callable[[Request], Any], audit
             after=node.config_version,
         )
         return await node_out(c, node)
+
+    @app.post(
+        "/api/v1/edge/nodes/{node_id}/rollback",
+        response_model=EdgeNodeOut,
+        dependencies=[Depends(require(P.DEVICE_CALIBRATE, scoped=True))],
+    )
+    async def roll_back_node(
+        node_id: UUID,
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> EdgeNodeOut:
+        """Back to the configuration (and so the model) before the last change. The node
+        picks it up on its next heartbeat; rolling back again returns to the newer one."""
+        node = await managed_node(c, principal, node_id, P.DEVICE_CALIBRATE)
+        before = node.config_version
+        try:
+            node.rollback()
+        except EdgeError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        await c.edge.save_node(node)
+        await audit(
+            c,
+            principal.name,
+            AuditAction.NODE_ROLLED_BACK,
+            node.name,
+            before=before,
+            after=node.config_version,
+        )
+        return await node_out(c, node)
+
+    async def model_ref(c: Any, model_id: str) -> dict:
+        """Everything the node needs to fetch, verify and load a registered model."""
+        model = await c.ml_models.get(UUID(model_id))
+        if model is None:  # removed since the config was saved
+            raise HTTPException(409, f"model version {model_id} is no longer registered")
+        return {
+            "version_id": str(model.id),
+            "name": model.name,
+            "version": model.version,
+            "sha256": model.sha256,
+            "size_bytes": model.size_bytes,
+            "url": f"/api/v1/edge/models/{model.id}/file",
+            "meta": model.meta,
+        }
 
     # --- nodes: enroll, heartbeat, fetch config --------------------------------------
     @app.post("/api/v1/edge/enroll", response_model=EnrolledOut, status_code=201)
@@ -306,6 +363,11 @@ def add_edge_routes(app: FastAPI, get_container: Callable[[Request], Any], audit
             lpr.append(rendered)
             bays.add(bay)
         bay_id = node.bay_id or (next(iter(bays)) if bays else None)
+        if cfg.get("model", {}).get("version_id"):
+            arch = cfg["model"].get("arch", "rtdetr")
+            cfg["model"] = {**await model_ref(c, cfg["model"]["version_id"]), "arch": arch}
+        if cfg.get("layers_model_id"):
+            cfg["layers_model_ref"] = await model_ref(c, cfg.pop("layers_model_id"))
         return {
             **cfg,
             "configured": True,

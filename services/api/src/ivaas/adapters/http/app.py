@@ -29,6 +29,7 @@ from ivaas.adapters.http.auth import (
     websocket_principal,
 )
 from ivaas.adapters.http.edge_routes import add_edge_routes
+from ivaas.adapters.http.model_routes import add_model_routes
 from ivaas.adapters.http.platform_routes import add_platform_routes
 from ivaas.adapters.http.schemas import (
     AcknowledgeIn,
@@ -1192,6 +1193,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_tally_routes(app, get_container, audit)
     add_platform_routes(app, get_container, audit)
     add_edge_routes(app, get_container, audit)
+    add_model_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}")
     async def get_object(
