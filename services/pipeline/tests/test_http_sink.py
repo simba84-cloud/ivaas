@@ -111,3 +111,79 @@ def test_plates_and_crossings_share_one_ordered_spool(tmp_path):
     d.flush()
     assert [r.get("plate", r.get("track_id")) for r in api.received] == ["ABC 1234", 1]
     assert api.received[0]["camera_id"] == "lpr-uuid"
+
+
+def test_every_event_carries_an_id_that_survives_a_restart(tmp_path):
+    """The id is fixed when the event is spooled, so a resend after a crash is the same
+    event to the API, which skips it rather than counting the crates twice."""
+    api = FakeApi()
+    api.up = False
+    d = delivery(tmp_path, api.handler)
+    HttpCrossingSink(d, "bay", CAMS).emit(crossing(1))
+    spooled = d._queue[0]["body"]["event_id"]
+
+    api.up = True
+    delivery(tmp_path, api.handler).flush()  # the node restarted
+    assert api.received[0]["event_id"] == spooled
+
+
+def test_delivery_metrics_account_for_every_event(tmp_path):
+    from prometheus_client import REGISTRY
+
+    def value(name, **labels):
+        return REGISTRY.get_sample_value(name, labels) or 0.0
+
+    path = "/api/v1/ingest/crossings"
+    before = (
+        value("ivaas_delivery_queued_total", path=path),
+        value("ivaas_delivery_delivered_total", path=path),
+        value("ivaas_delivery_dropped_total", reason="rejected"),
+    )
+    api = FakeApi()
+    d = delivery(tmp_path, api.handler)
+    HttpCrossingSink(d, "bay", CAMS).emit(crossing(1))
+    rejecting = delivery(tmp_path / "b", lambda r: httpx.Response(422))
+    HttpCrossingSink(rejecting, "bay", CAMS).emit(crossing(2))
+    after = (
+        value("ivaas_delivery_queued_total", path=path),
+        value("ivaas_delivery_delivered_total", path=path),
+        value("ivaas_delivery_dropped_total", reason="rejected"),
+    )
+    assert [a - b for a, b in zip(after, before, strict=True)] == [2, 1, 1]
+    assert value("ivaas_delivery_pending") == 0
+
+
+def test_in_the_background_a_black_holed_api_never_holds_up_counting(tmp_path):
+    """A WAN outage that swallows packets must not stall the camera threads: a stalled
+    counter skips frames, and the outage would lose crates instead of delaying them."""
+    import threading
+    import time
+
+    gate = threading.Event()
+    received = []
+
+    def hanging(request: httpx.Request) -> httpx.Response:
+        gate.wait(timeout=10)  # the link is black-holed until the gate opens
+        received.append(json.loads(request.content)["track_id"])
+        return httpx.Response(200, json={})
+
+    d = SpooledDelivery(
+        "http://api",
+        "k",
+        tmp_path / "spool",
+        client=httpx.Client(base_url="http://api", transport=httpx.MockTransport(hanging)),
+        background=True,
+    )
+    sink = HttpCrossingSink(d, "bay", CAMS)
+    started = time.monotonic()
+    for n in range(20):
+        sink.emit(crossing(n))
+    assert time.monotonic() - started < 0.5, "emitting waited on the network"
+    assert d.pending >= 19
+
+    gate.set()  # the link comes back
+    deadline = time.monotonic() + 5
+    while d.pending and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert d.pending == 0
+    assert received == list(range(20)), "delivered out of order or with losses"
