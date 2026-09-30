@@ -174,6 +174,7 @@ class Container:
     edge: Any
     ingest: Any
     ml_models: Any
+    evidence: Any
     users: Any
     hasher: Any
     audit: Any
@@ -517,6 +518,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.ml_models_postgres import PostgresModelRegistry
 
         ml_models: Any = PostgresModelRegistry(pg_sessionmaker)
+        from ivaas.adapters.persistence.evidence_postgres import PostgresEvidenceStore
+
+        evidence: Any = PostgresEvidenceStore(pg_sessionmaker)
         audit = PostgresAuditLog(pg_sessionmaker)
         setting_store = PostgresSettingsStore(pg_sessionmaker)
         acknowledgements = PostgresAcknowledgementStore(pg_sessionmaker)
@@ -551,6 +555,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.ml_models_postgres import InMemoryModelRegistry
 
         ml_models = PerTenant(InMemoryModelRegistry)
+        from ivaas.adapters.persistence.evidence_postgres import InMemoryEvidenceStore
+
+        evidence = PerTenant(InMemoryEvidenceStore)
         audit = PerTenant(InMemoryAuditLog)
         setting_store = PerTenant(InMemorySettingsStore)
         acknowledgements = PerTenant(InMemoryAcknowledgementStore)
@@ -635,6 +642,7 @@ async def build_container(settings: Settings) -> Container:
         edge=edge,
         ingest=ingest,
         ml_models=ml_models,
+        evidence=evidence,
         users=users,
         hasher=hasher,
         audit=audit,

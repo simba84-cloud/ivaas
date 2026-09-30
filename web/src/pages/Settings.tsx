@@ -16,7 +16,8 @@ function Rule({ setting }: { setting: EditableSetting }) {
   const save = useMutation({
     mutationFn: () => {
       const n = Number(draft);
-      const value = setting.kind === "percent" ? n / 100 : setting.kind === "minutes" ? n : draft;
+      const numeric = setting.kind === "minutes" || setting.kind === "days";
+      const value = setting.kind === "percent" ? n / 100 : numeric ? n : draft;
       return api.setSetting(setting.key, value);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
@@ -81,7 +82,7 @@ function Rule({ setting }: { setting: EditableSetting }) {
               onChange={(e) => setDraft(e.target.value)}
             />
             <span className="w-14 text-xs text-muted">
-              {setting.kind === "percent" ? "%" : "minutes"}
+              {setting.kind === "percent" ? "%" : setting.kind}
             </span>
           </>
         )}

@@ -18,9 +18,16 @@ AUTO_OPEN_DIRECTION = "auto_open_direction"
 FACE_RECOGNITION = "face_recognition"
 FACE_RECOGNITION_BASIS = "face_recognition_basis"
 BADGE_GRACE_MINUTES = "badge_grace_minutes"
+EVIDENCE_RETENTION_DAYS = "evidence_retention_days"
 
 #: the value a setting has when nobody has changed it (the environment supplies the rest)
-DEFAULTS = {FACE_RECOGNITION: "off", FACE_RECOGNITION_BASIS: "", BADGE_GRACE_MINUTES: 10.0}
+DEFAULTS = {
+    FACE_RECOGNITION: "off",
+    FACE_RECOGNITION_BASIS: "",
+    BADGE_GRACE_MINUTES: 10.0,
+    # confirmed for Bakers Inn: crate-leakage disputes are raised within 90 days
+    EVIDENCE_RETENTION_DAYS: 90.0,
+}
 
 
 @dataclass(frozen=True)
@@ -28,7 +35,7 @@ class EditableSetting:
     key: str
     label: str
     help: str
-    kind: str  # "percent" | "minutes" | "choice" | "text"
+    kind: str  # "percent" | "minutes" | "days" | "choice" | "text"
     choices: tuple[str, ...] = ()
     minimum: float | None = None
     maximum: float | None = None
@@ -74,6 +81,17 @@ EDITABLE: tuple[EditableSetting, ...] = (
         kind="minutes",
         minimum=1,
         maximum=120,
+    ),
+    EditableSetting(
+        key=EVIDENCE_RETENTION_DAYS,
+        label="Evidence clips are kept for",
+        help=(
+            "Video of each counted load, kept so a disputed count can be checked against "
+            "what the camera saw. Clips older than this are deleted automatically."
+        ),
+        kind="days",
+        minimum=7,
+        maximum=3650,
     ),
     EditableSetting(
         key=FACE_RECOGNITION_BASIS,
