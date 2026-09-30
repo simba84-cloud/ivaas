@@ -16,7 +16,9 @@ class StreamGateway(Protocol):
     ever sees a vendor protocol.
     """
 
-    async def provision(self, stream_path: str, source: StreamSource) -> None: ...
+    async def provision(self, stream_path: str, source: StreamSource, record: bool = False) -> None:
+        """Make the path exist; `record` keeps a rolling evidence buffer of it."""
+        ...
 
     async def remove(self, stream_path: str) -> None: ...
 

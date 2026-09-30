@@ -36,6 +36,8 @@ class RegisterCamera:
     cameras: _CameraStore
     gateway: StreamGateway
     events: EventPublisher
+    #: roles whose video is evidence: recorded at the edge so clips can be cut from it
+    evidence_roles: frozenset[CameraRole] = frozenset()
 
     async def __call__(
         self, bay_id: UUID, name: str, role: CameraRole, source_url: str | None
@@ -50,7 +52,7 @@ class RegisterCamera:
 
         camera = Camera(uuid4(), bay_id, name, role, stream_path, source=source)
         # Gateway first: if the media server rejects it we have stored nothing.
-        await self.gateway.provision(stream_path, source)
+        await self.gateway.provision(stream_path, source, record=role in self.evidence_roles)
         await self.cameras.save(camera)
         await self.events.publish(
             SUBJECT_CAMERA_REGISTERED,

@@ -289,7 +289,13 @@ class Container:
 
     @property
     def register_camera(self) -> RegisterCamera:
-        return RegisterCamera(self.bays, self.cameras, self.gateway, self.events)
+        return RegisterCamera(
+            self.bays,
+            self.cameras,
+            self.gateway,
+            self.events,
+            evidence_roles=frozenset(CameraRole(r) for r in self.settings.evidence_roles),
+        )
 
     @property
     def refresh_camera_status(self) -> RefreshCameraStatus:
