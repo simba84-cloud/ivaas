@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { EvidenceClips } from "../components/EvidenceClips";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronRight, ShieldCheck, X } from "lucide-react";
 import { Fragment, useState } from "react";
@@ -341,6 +342,9 @@ export default function Sessions({ me }: { me: Me | undefined }) {
                               </dd>
                             </div>
                           </dl>
+                          <div className="mt-3 border-t border-line pt-3">
+                            <EvidenceClips sessionId={s.id} />
+                          </div>
                         </td>
                       </motion.tr>
                     )}
