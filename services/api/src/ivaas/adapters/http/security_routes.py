@@ -38,7 +38,12 @@ from ivaas.adapters.http.schemas import (
     ZoneIn,
     ZoneOut,
 )
-from ivaas.adapters.http.scope import require_bay, require_bay_camera, require_camera
+from ivaas.adapters.http.scope import (
+    first_time,
+    require_bay,
+    require_bay_camera,
+    require_camera,
+)
 from ivaas.domain.audit import AuditAction
 from ivaas.domain.models import NotFoundError
 from ivaas.domain.rbac import Permission as P
@@ -288,17 +293,24 @@ def add_security_routes(
                 raise HTTPException(422, "snapshot is not valid base64") from exc
             if snapshot[:2] != b"\xff\xd8":
                 raise HTTPException(422, "snapshot must be a JPEG")
+        if not await first_time(c, body.event_id, "incident"):
+            return None  # already recorded: a replay after the node restarted
         report = await c.report_incident_uc()
-        incident = await report(
-            bay_id=body.bay_id,
-            camera_id=body.camera_id,
-            zone_id=body.zone_id,
-            kind=body.kind,
-            confidence=body.confidence,
-            detected_at=body.detected_at,
-            snapshot=snapshot,
-            detail=body.detail,
-        )
+        try:
+            incident = await report(
+                bay_id=body.bay_id,
+                camera_id=body.camera_id,
+                zone_id=body.zone_id,
+                kind=body.kind,
+                confidence=body.confidence,
+                detected_at=body.detected_at,
+                snapshot=snapshot,
+                detail=body.detail,
+            )
+        except Exception:
+            if body.event_id is not None:  # not recorded: a retry must not be refused
+                await c.ingest.release(body.event_id)
+            raise
         return signed(c, incident) if incident else None
 
     # --- badges ----------------------------------------------------------------------

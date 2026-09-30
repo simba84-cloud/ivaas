@@ -334,8 +334,10 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
 12. **Edge gaps (M2, first slice).** Node credentials are bearer secrets over HTTPS,
    not mTLS client certificates; mTLS comes with TLS termination on the POC network.
    A new configuration restarts the node rather than being applied stream by stream,
-   and there is no model OTA or rollback (T2.6), no 17-stream simulator or GPU load
-   report (T2.3), no evidence clips, and no broker-level ACL (events reach NATS through
-   the API, which enforces the site binding). Two nodes redeeming one token at the same
+   and there is no model OTA or rollback (T2.6), no evidence clips, and no broker-level
+   ACL (events reach NATS through the API, which enforces the site binding). The stream
+   simulator, T2.3 load report and T2.4/T2.5 drills exist (`deploy/simulator/`), but
+   the T2.3 figures themselves must come from a run on the GPU edge node: the dev
+   machine has no GPU and was only used to prove the rig at 2 streams. Two nodes redeeming one token at the same
    instant are not prevented by the schema. The portal has no config editor yet: the
    node config is set with `PUT /api/v1/edge/nodes/{id}/config`.

@@ -299,6 +299,9 @@ class CrossingIn(BaseModel):
     crates: int = Field(default=1, ge=1, le=40, description="crates in the object that crossed")
     confidence: float = Field(ge=0, le=1)
     crossed_at: datetime
+    #: set by the edge node when it spools the event; a replay with the same id is
+    #: acknowledged and skipped, so a crash mid-delivery cannot count crates twice
+    event_id: UUID | None = None
 
 
 class PlateReadIn(BaseModel):
@@ -307,6 +310,7 @@ class PlateReadIn(BaseModel):
     plate: str = Field(min_length=2, max_length=16)
     confidence: float = Field(ge=0, le=1)
     read_at: datetime
+    event_id: UUID | None = None
 
 
 class SummaryOut(BaseModel):
@@ -690,6 +694,7 @@ class IncidentIn(BaseModel):
     #: base64 JPEG; 2 MB decoded
     snapshot_jpeg_b64: str | None = Field(default=None, max_length=2_800_000)
     detail: dict = {}
+    event_id: UUID | None = None
 
 
 class IncidentOut(BaseModel):

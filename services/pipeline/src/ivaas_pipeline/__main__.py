@@ -188,6 +188,7 @@ def main() -> int:
         None,
         os.environ.get("IVAAS_SPOOL_PATH", "/var/lib/ivaas/events.spool"),
         headers=auth,
+        background=True,  # counting threads never wait on the network
     )
     sink = FusingSink(
         TimeWindowFuser(),
