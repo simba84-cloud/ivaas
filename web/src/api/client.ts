@@ -23,6 +23,8 @@ import type {
   DiscoveredDevice,
   DiscoveredStream,
   Direction,
+  EdgeNode,
+  EnrollmentToken,
   Session,
   Site,
   Overview,
@@ -57,6 +59,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   me: () => request<Me>("/api/v1/auth/me"),
+  edgeNodes: () => request<EdgeNode[]>("/api/v1/edge/nodes"),
+  createEnrollmentToken: (siteId: string, name: string, bayId?: string, ttlHours = 24) =>
+    request<EnrollmentToken>(`/api/v1/sites/${siteId}/enrollment-tokens`, {
+      method: "POST",
+      body: JSON.stringify({ name, bay_id: bayId ?? null, ttl_hours: ttlHours }),
+    }),
+  revokeNode: (nodeId: string) =>
+    request<void>(`/api/v1/edge/nodes/${nodeId}`, { method: "DELETE" }),
   tallySheets: () => request<TallySheet[]>("/api/v1/tally/sheets"),
   tallyReport: () => request<TallyReport>("/api/v1/tally/report"),
   enterTallySheet: (body: TallySheetInput) =>

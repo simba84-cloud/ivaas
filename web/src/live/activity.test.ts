@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bay, camera, session } from "../test/fixtures";
+import { bay, camera, edgeNode, session } from "../test/fixtures";
 import { type Known, attention, history, interpret, mergeActivity } from "./activity";
 
 const msg = (subject: string, data: Record<string, unknown>, at = 1_000) => ({ subject, data, at });
@@ -68,5 +68,40 @@ describe("activity", () => {
     const live = interpret(msg("ivaas.session.closed", { id: "s1", bay_id: bay.id, plate: "ABC 1234", ai_count: 42 }, Date.now()), new Map(), bay.id).items;
     const merged = mergeActivity(live, stored);
     expect(merged.filter((i) => i.title.startsWith("Load closed"))).toHaveLength(1);
+  });
+});
+
+describe("edge node alerts", () => {
+  const base = { cameras: [camera({ status: "online" })], mediaUp: true, sessions: [], insights: [] };
+
+  it("raises nothing for a healthy node", () => {
+    expect(attention({ ...base, nodes: [edgeNode()] })).toEqual([]);
+  });
+
+  it("calls a silent node offline, with when it last reported", () => {
+    const [item] = attention({ ...base, nodes: [edgeNode({ health: "offline" })] });
+    expect(item).toMatchObject({ severity: "bad", title: "Edge node Loading bay edge is offline" });
+    expect(item.detail).toMatch(/queued on the node/);
+  });
+
+  it("never treats a node that has not reported as healthy", () => {
+    const [item] = attention({
+      ...base,
+      nodes: [edgeNode({ health: "never_seen", last_seen_at: null, cameras: [] })],
+    });
+    expect(item).toMatchObject({ severity: "warn", title: "Edge node Loading bay edge has never reported" });
+  });
+
+  it("names the camera a running node cannot read", () => {
+    const node = edgeNode({
+      cameras: [{ api_camera_id: "c1", name: "Chokepoint 1", connected: false, fps: 0, lag_s: null }],
+    });
+    const [item] = attention({ ...base, nodes: [node] });
+    expect(item).toMatchObject({ severity: "bad", title: "Loading bay edge cannot read Chokepoint 1", cameraId: "c1" });
+  });
+
+  it("says nothing while nodes are still unknown, and nothing about revoked ones", () => {
+    expect(attention({ ...base, nodes: undefined })).toEqual([]);
+    expect(attention({ ...base, nodes: [edgeNode({ health: "revoked", status: "revoked" })] })).toEqual([]);
   });
 });

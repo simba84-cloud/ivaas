@@ -10,7 +10,7 @@
  * Nothing here estimates or fills in a figure the platform did not send.
  */
 import type { LiveMessage } from "../api/live";
-import type { Camera, Insight, Session } from "../api/types";
+import type { Camera, EdgeNode, Insight, Session } from "../api/types";
 
 /** The accuracy target the dashboard reports against. */
 export const ACCURACY_TARGET = 0.95;
@@ -70,13 +70,49 @@ export function attention({
   mediaUp,
   sessions,
   insights,
+  nodes,
 }: {
   cameras: Camera[] | undefined;
   mediaUp: boolean | undefined;
   sessions: Session[] | undefined;
   insights: Insight[] | undefined;
+  /** this site's edge nodes; undefined while unknown, which raises nothing */
+  nodes?: EdgeNode[];
 }): FeedItem[] {
   const items: FeedItem[] = [];
+
+  for (const n of nodes ?? []) {
+    const last = n.last_seen_at ? Date.parse(n.last_seen_at) : null;
+    if (n.health === "offline" || n.health === "stale") {
+      items.push({
+        // the last report is fixed for as long as the silence lasts
+        key: alertKey("node", n.id, `${n.health}@${n.last_seen_at}`),
+        severity: n.health === "offline" ? "bad" : "warn",
+        title: `Edge node ${n.name} is ${n.health === "offline" ? "offline" : "not reporting"}`,
+        detail: `Last report at ${last ? clock(last) : "an unknown time"}. Counts from its cameras are queued on the node until it reconnects.`,
+        at: last,
+      });
+    } else if (n.health === "never_seen") {
+      items.push({
+        key: alertKey("node", n.id, "never"),
+        severity: "warn",
+        title: `Edge node ${n.name} has never reported`,
+        detail: "It was enrolled but no heartbeat has arrived. Check that its pipeline is running.",
+        at: Date.parse(n.enrolled_at),
+      });
+    } else if (n.health === "online") {
+      for (const c of n.cameras.filter((x) => !x.connected)) {
+        items.push({
+          key: alertKey("node-cam", n.id, c.api_camera_id, today()),
+          severity: "bad",
+          title: `${n.name} cannot read ${c.name ?? "a camera"}`,
+          detail: "The node is running but has no stream from this camera, so it is not counting it.",
+          at: last,
+          cameraId: c.api_camera_id,
+        });
+      }
+    }
+  }
 
   if (cameras && !cameras.length) {
     items.push({

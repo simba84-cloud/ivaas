@@ -1,6 +1,7 @@
 import type {
   AnalysisJob,
   Bay,
+  EdgeNode,
   Camera,
   Overview,
   Session,
@@ -187,3 +188,24 @@ export const meAs = (personas: string[]) => {
     tenant: { id: "t", slug: "bakers-inn", name: "Bakers Inn", status: "trial" },
   };
 };
+
+export const edgeNode = (over: Partial<EdgeNode> = {}): EdgeNode => ({
+  id: "n1",
+  name: "Loading bay edge",
+  hostname: "edge-01",
+  site_id: site.id,
+  bay_id: bay.id,
+  status: "active",
+  health: "online",
+  enrolled_at: "2026-09-30T08:00:00Z",
+  last_seen_at: "2026-09-30T09:00:00Z",
+  version: "0.2.0",
+  uptime_s: 3700,
+  spool_pending: 0,
+  cameras: [{ api_camera_id: "c1", name: "Chokepoint 1", connected: true, fps: 7.5, lag_s: 0.1 }],
+  config: { model: { path: "/models/stacks-v2.onnx" } },
+  config_version: "abc123",
+  applied_config_version: "abc123",
+  config_drift: false,
+  ...over,
+});
