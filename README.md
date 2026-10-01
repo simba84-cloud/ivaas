@@ -16,6 +16,7 @@ to the truck's number plate, reconciled against manual counts (target: >95%).
 | `deploy` | MediaMTX, Prometheus config | MediaMTX, Prometheus, Grafana, MinIO |
 | `docs/ARCHITECTURE.md` | Design, SOLID mapping, scaling path, known gaps | |
 | `docs/STACK.md` | Stack reference: libraries, services, ports, commands | |
+| `docs/BACKUP.md` | Backups every 15 min, the object mirror, the restore drill (RPO/RTO), and how to restore for real | |
 | `docs/INSTALL_DAY.md` | Install day at Bakers Inn: preparation, steps, failures, sign-off; rehearsed by `deploy/install/rehearse.py` | |
 
 Every component is open source (Apache-2.0 / MIT / BSD / PostgreSQL / AGPL for MinIO & Grafana).
