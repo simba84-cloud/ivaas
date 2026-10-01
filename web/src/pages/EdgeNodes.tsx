@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Cpu, KeyRound, Plus, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
+import { NodeConfigEditor } from "../components/NodeConfigEditor";
 import { useScope } from "../api/scope";
 import type { EdgeNode, EnrollmentToken, NodeHealth } from "../api/types";
 import { type Me, can } from "../auth/session";
@@ -160,10 +161,12 @@ function Row({
     mutationFn: () => api.rollBackNode(node.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["edge-nodes"] }),
   });
+  const [configuring, setConfiguring] = useState(false);
   const running = modelName(node.models?.detector);
   const h = HEALTH[node.health];
   const down = node.cameras.filter((c) => !c.connected);
   return (
+    <>
     <MotionRow index={index} className="border-b border-line last:border-0 align-top">
       <td className="td">
         <div className="flex items-center gap-2 font-semibold text-ink">
@@ -221,6 +224,16 @@ function Row({
         )}
       </td>
       <td className="td text-right">
+        {canCalibrate && node.status === "active" && (
+          <button
+            className="btn-ghost btn-sm"
+            aria-expanded={configuring}
+            onClick={() => setConfiguring((o) => !o)}
+            title="Which cameras it counts with, where, and at what stride"
+          >
+            Configure
+          </button>
+        )}
         {canCalibrate && node.status === "active" && node.can_roll_back && (
           <button
             className="btn-ghost btn-sm"
@@ -242,6 +255,14 @@ function Row({
         )}
       </td>
     </MotionRow>
+    {configuring && (
+      <tr className="border-b border-line">
+        <td colSpan={6} className="p-3">
+          <NodeConfigEditor node={node} onClose={() => setConfiguring(false)} />
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 

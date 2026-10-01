@@ -144,9 +144,20 @@ class Rehearsal:
     # --- the day ----------------------------------------------------------------
     def preflight(self) -> None:
         with self.step("1. Preflight") as s:
-            r = self.api.get("/auth/config")
-            if r.status_code != 200:
-                raise Failed(f"the platform does not answer at {self.args.api}")
+
+            def answers():
+                try:
+                    r = self.api.get("/auth/config")
+                except httpx.HTTPError:
+                    return None
+                return r if r.status_code == 200 else None
+
+            try:  # a platform still starting (just rebuilt, say) is given a minute
+                r, waited = self.wait("the platform answering", answers, 60, 3)
+            except Failed:
+                raise Failed(f"the platform does not answer at {self.args.api}") from None
+            if waited > 1:
+                s.note(f"waited {waited:.0f} s for the platform to start")
             server = parsedate_to_datetime(r.headers["date"])
             drift = abs((datetime.now(UTC) - server).total_seconds())
             s.note(f"platform answers; clock difference with this machine {drift:.0f} s")

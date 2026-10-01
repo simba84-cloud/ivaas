@@ -19,8 +19,7 @@ Nothing here can be fixed quickly in a loading bay.
 | ☐ | **Run the T2.3 load report on the node** (`deploy/simulator/README.md`). | It decides between one node and two. The chokepoints need about 10 processed frames a second, because the counter is proven at that rate. |
 | ☐ | **Build the images and fetch the models on the node** (`docker compose --profile edge build pipeline`, `deploy/fetch-models.sh`). | The first build took over 2 minutes in rehearsal, and the bay may have poor internet. |
 | ☐ | **Set the node's clock by NTP.** The rehearsal's preflight warns above 5 s of drift. | Tally sheets are matched to loads by time, and evidence clips are cut by time. |
-| ☐ | **Get the camera list**: IP, ONVIF login, **RTSP URL** and mounting position for each of the 17, and the VLAN they are on. | Registration takes seconds; finding a camera's password on site takes hours. The portal adds cameras by RTSP URL. ONVIF discovery exists only in the API for now (`POST /api/v1/discovery/onvif`, then `/discovery/onvif/streams`). |
-| ☐ | **Prepare the node configuration** (step 4) and a way to send it: an API token for the installer's account, and the JSON below with the camera ids filled in after registration. | The portal shows a node's configuration but cannot edit it yet. The chokepoint line and the strides are set through the API. |
+| ☐ | **Get the camera list**: IP, ONVIF login, **RTSP URL** and mounting position for each of the 17, and the VLAN they are on. | Registration takes seconds; finding a camera's password on site takes hours. The portal's "Find on network" (ONVIF) only sees cameras on the API's own network segment. With the platform hosted away from the site, add cameras by RTSP URL. |
 | ☐ | **Check the network**: the node reaches every camera over RTSP (554) and ONVIF (80/8000), and reaches the platform over HTTPS. | A camera the node cannot reach shows "offline" and nothing more. |
 | ☐ | **Check the platform**: tenant `bakers-inn`, site Bakery Industrial Site (time zone Africa/Harare) and bay Loading Bay exist. | The token is issued for that bay. |
 | ☐ | **Set up accounts.** The installer signs in as Partner Installer for the tenant. Someone with Site Manager access is present for the counting check, because the installer role cannot read counts. **Change every seeded password.** | The Users screen shows seeded passwords in red. |
@@ -40,33 +39,29 @@ Times in brackets are from the rehearsal on 2026-10-01 (a laptop, simulated came
       the same command again must be refused. [1–2 s; refused on reuse]
 3. **Register the 17 devices.**
    1. Go to Configure → Cameras → **Add camera**, once per camera, with its RTSP URL.
+      Where the API shares the cameras' network, **Find on network** (ONVIF) fills the URL in.
    2. Give each camera the role of its position: 4 overhead, 4 side high, 4 side middle,
       2 side low, 2 chokepoint, and 1 LPR.
    3. Expect 17 cameras listed. [17 registered in about 1 s]
-4. **Configure the node.** Send its configuration with
-   `PUT /api/v1/edge/nodes/{node id}/config`; there is no editor in the portal yet. The shape
-   is below, and each camera takes the id it was given in step 3.
+4. **Configure the node.** Go to Configure → Edge Nodes → **Configure** on the node.
+   1. Tick the cameras it counts with.
+   2. Choose how each counts: chokepoints across **a line**, other positions within
+      **a zone**. The LPR camera reads plates.
+   3. Click **Draw** and, on the frame from the camera, click two points across the path
+      the stacks take, for a line, or two opposite corners, for a zone. The coordinates
+      are the camera's own pixels and can also be typed in. A camera that is not
+      streaming has no frame, so its coordinates must be typed.
+   4. Keep **every frame (stride 1) on both chokepoints**. A higher stride saves decoding
+      but loses crossings: at 1 processed frame a second, nothing was counted. The editor
+      warns when a chokepoint is set above 1. Other cameras may read fewer frames if T2.3
+      showed the node is short.
+   5. **Save configuration.**
+   6. Expect the node to show "configuration applied" within a minute. It restarts its
+      pipelines onto the new configuration and keeps the old one for **Roll back**.
+      [Rehearsed: applied in 56 s, every stream reconnected.]
 
-   ```json
-   {
-     "model": {"path": "/models/stacks-v2.onnx", "arch": "rtdetr"},
-     "layers_model": "/models/layers-v3.onnx",
-     "cameras": [
-       {"api_camera_id": "<chokepoint 1>", "line": [[960, 0], [960, 1080]], "stride": 1},
-       {"api_camera_id": "<chokepoint 2>", "line": [[960, 0], [960, 1080]], "stride": 1},
-       {"api_camera_id": "<overhead 1>", "zone": [0, 0, 1920, 1080], "stride": 2}
-     ],
-     "lpr_cameras": [{"api_camera_id": "<lpr>", "stride": 5}]
-   }
-   ```
-
-   - **The chokepoint `line`** is two points, in the camera's own pixels, across the path
-     the stacks take. Take a frame from the chokepoint's live view and read the
-     coordinates off it.
-   - Keep **stride 1 on both chokepoints**. A higher stride saves decoding but loses
-     crossings: at 1 processed frame a second, nothing was counted.
-   - Other cameras may use a higher stride if T2.3 showed the node is short.
-   - Expect the Edge Nodes page to show "configuration applied" within a minute.
+   The same configuration can be sent with `PUT /api/v1/edge/nodes/{node id}/config`, for
+   example to script a second node.
 5. **All streams healthy (T2.5).**
    - Expect every camera "online" on the Cameras page.
    - Expect the node "online" on the Edge Nodes page, with every stream connected at a
@@ -130,9 +125,15 @@ tenant's Test Bay:
   them last. It now uses chokepoints for a reduced rig, so counting is tested.
 - **It also found that "connected" was being taken as "healthy".** Healthy now means a
   working frame rate on every stream.
-- **Install day still depends on the API for two things.** These are the gaps to close
-  before the installer is on site:
-  - ONVIF discovery has endpoints but no portal screen, so cameras are added by RTSP URL.
-  - The node's configuration, including the chokepoint line and the strides, can be read
-    in the portal but only changed through the API. The rehearsal sets a presence zone
-    over the whole frame; the real chokepoints need a line drawn where the stacks cross.
+- **The node configuration had no editor**, so the chokepoint line had to be sent through
+  the API, which is hard to get right in a loading bay. The Edge Nodes page now has one.
+  - A line drawn on a real 1280×720 frame from a streaming camera was applied by the
+    rehearsal node within 56 s.
+  - That node started both chokepoints, one counting at the line and one in a zone, and
+    the LPR camera, with no errors.
+- **The rehearsal node first never restarted** after a configuration change. A node takes
+  up a new configuration by exiting and being restarted onto it, and the rehearsal had
+  turned restarts off. It restarts like the real node now.
+- **Correction:** an earlier version of this record said ONVIF discovery had no portal
+  screen. It has one (Cameras → Add camera → Find on network). Its real limit is that it
+  only reaches cameras on the API's network segment.
