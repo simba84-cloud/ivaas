@@ -1,4 +1,5 @@
 import os
+import tempfile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,7 +10,19 @@ from ivaas.config.settings import Settings
 SERVICE = {"X-IVaaS-Key": "dev-pipeline-key"}
 
 
+#: removed when the run ends; each client gets a folder of its own inside it
+_OBJECTS = tempfile.TemporaryDirectory(prefix="ivaas-tests-")
+
+
+def fresh_objects_dir() -> str:
+    """Where one test app keeps its objects and analysis jobs. Never the default
+    /tmp/ivaas-objects: a local dev API keeps its jobs there, and an app reloads every
+    job it finds at startup and tries to run it."""
+    return tempfile.mkdtemp(dir=_OBJECTS.name)
+
+
 def make_client(**overrides) -> TestClient:
+    overrides.setdefault("objects_dir", fresh_objects_dir())
     settings = Settings(storage="memory", events="memory", **overrides)
     return TestClient(create_app(settings))
 

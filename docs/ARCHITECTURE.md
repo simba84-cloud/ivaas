@@ -349,6 +349,10 @@ which §4.2 does not grant them.
 | End to end (T6.1, T6.7) | Playwright drives the real portal (Vite) against the real API, run in memory on port 8010 so it never meets a compose stack. A site manager signs in and chooses a password, opens a load on the live bay, and watches the count arrive over the WebSocket as an edge key posts a plate and crossings. They end the load, then download the day's CSV and PDF, and the CSV must carry that load. This runs on a desktop and at tablet width (820 px). At tablet width, every page in the site manager's navigation must open with its heading in view and no horizontal scroll. | `web/e2e`, `make test-e2e` |
 | Everything | `make test`; GitHub Actions runs lint + tests + build per service, and the end-to-end suite, on every push | `Makefile`, `.github/workflows/ci.yml` |
 
+Every in-memory test app and the end-to-end API get an object folder of their own, removed
+after the run. The default, `/tmp/ivaas-objects`, belongs to a local dev API, and an app
+reloads and tries to run every analysis job it finds there at startup.
+
 The end-to-end suite runs without Postgres, NATS or MediaMTX. The same repository suite
 covers the Postgres paths, and the camera wall shows "No signal" by design.
 

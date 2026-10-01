@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 import { API_PORT, API_URL, EDGE_KEY, USERS, WEB_PORT } from "./e2e/support";
 
@@ -9,8 +12,13 @@ import { API_PORT, API_URL, EDGE_KEY, USERS, WEB_PORT } from "./e2e/support";
  * browser and one for the tablet checks, each still on a temporary password, and an
  * edge key the tests post crossings with, as a node would.
  */
+// The config is read by every test process; the first makes the folder, the rest
+// inherit it, and the teardown removes it.
+const objectsDir = (process.env.IVAAS_E2E_OBJECTS ??= mkdtempSync(join(tmpdir(), "ivaas-e2e-")));
+
 export default defineConfig({
   testDir: "./e2e",
+  globalTeardown: "./e2e/teardown.ts",
   // one API, one bay: the journeys take turns at it
   workers: 1,
   fullyParallel: false,
@@ -51,6 +59,9 @@ export default defineConfig({
           Object.fromEntries(USERS.map((u) => [u, [`${u}-temporary`, "site_manager"]])),
         ),
         IVAAS_SERVICE_API_KEYS: JSON.stringify({ [EDGE_KEY]: "e2e-edge" }),
+        // a folder of its own: the default holds a local dev API's jobs, and the API
+        // reloads and runs every job it finds there at startup
+        IVAAS_OBJECTS_DIR: objectsDir,
       },
     },
     {

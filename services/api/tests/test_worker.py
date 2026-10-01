@@ -35,8 +35,10 @@ def test_api_does_not_run_the_worker_when_a_separate_one_is_deployed():
 
 
 @pytest.mark.asyncio
-async def test_worker_entrypoint_starts_drains_and_shuts_down_cleanly():
-    settings = Settings(storage="memory", events="memory", objects="local")
+async def test_worker_entrypoint_starts_drains_and_shuts_down_cleanly(tmp_path):
+    settings = Settings(
+        storage="memory", events="memory", objects="local", objects_dir=str(tmp_path)
+    )
     stopping = asyncio.Event()
 
     task = asyncio.create_task(run(settings, stopping=stopping))
