@@ -48,6 +48,7 @@ def session_payload(session: LoadingSession) -> dict:
         "vehicle_id": str(session.vehicle_id) if session.vehicle_id else None,
         "ai_count": session.ai_count,
         "override_count": session.override_count,
+        "count_of_record": session.count_of_record,
         "manual_count": session.manual_count,
         "variance": session.variance,
         "accuracy": session.accuracy,

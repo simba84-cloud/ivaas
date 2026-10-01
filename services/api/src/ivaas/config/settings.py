@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # Fernet keys for camera credentials at rest, newest first. Generate one with
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     secrets_keys: list[str] = []
+    # Webhooks go to public https receivers only. True also allows http and addresses
+    # on the deployment's own network (an ERP on the site LAN): never on a shared host.
+    webhook_allow_private: bool = False
     # Analysis assistant. Any OpenAI-compatible server; empty = assistant disabled.
     llm_url: str = ""
     llm_model: str = "qwen3:8b"  # Apache-2.0 open weights, reliable tool calling

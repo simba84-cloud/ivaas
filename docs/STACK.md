@@ -36,6 +36,7 @@ see the [README](../README.md).
 | Edge nodes | Enrolled with a single-use token; authenticate with `X-IVaaS-Node`, bound to one site; heartbeat and pulled config (`/api/v1/edge/*`) |
 | Fleet register | Trucks per tenant; plate reads matched with OCR-confusion folding (`domain/plates.py`, `domain/fleet.py`) |
 | Manifests and balances | Dispatch manifests matched to loads; exceptions per mismatch, missing or unexpected truck; balances from counts of record (`domain/manifests.py`) |
+| Webhooks | `session.closed`, `exception.raised`; Standard Webhooks signing (HMAC-SHA256), retried on backoff, replayable, sent with httpx (`/api/v1/webhooks`) |
 | Daily reports | PDF via ReportLab, CSV via `csv`; filed after 06:00 site time, and any day on demand (`/api/v1/reports`) |
 | Evidence clips | MediaMTX records evidence cameras (30 min buffer); the node cuts clips via its playback server and uploads them; kept per tenant (default 90 days) |
 | Models (OTA) | Registered versions in object storage with SHA-256; nodes verify, cache by digest and swap in place; rollback per node (`/api/v1/models`) |

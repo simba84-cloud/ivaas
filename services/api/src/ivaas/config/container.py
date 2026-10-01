@@ -71,6 +71,7 @@ from ivaas.application.sessions import (
 from ivaas.application.summarise import SummariseReport
 from ivaas.application.tally import RematchTallySheets, SaveTallySheets
 from ivaas.application.users import UserAdmin
+from ivaas.application.webhooks import DeliverWebhooks, ManageWebhooks, QueueWebhooks
 from ivaas.config.settings import Settings
 from ivaas.domain.models import Bay, Camera, CameraRole, SessionDirection, Site
 from ivaas.domain.platform_settings import (
@@ -189,6 +190,8 @@ class Container:
     manifests: Any
     exceptions: Any
     reports: Any
+    webhooks: Any
+    webhook_sender: Any
     users: Any
     hasher: Any
     audit: Any
@@ -373,6 +376,17 @@ class Container:
     def balance_query(self) -> BalanceQuery:
         return BalanceQuery(self.sessions, self.bays, self.sites, self.manifests, self.clock)
 
+    def queue_webhooks(self) -> QueueWebhooks:
+        return QueueWebhooks(self.webhooks, self.clock)
+
+    def deliver_webhooks_uc(self) -> DeliverWebhooks:
+        return DeliverWebhooks(self.webhooks, self.webhook_sender, self.clock)
+
+    def manage_webhooks(self) -> ManageWebhooks:
+        return ManageWebhooks(
+            self.webhooks, self.clock, allow_private=self.settings.webhook_allow_private
+        )
+
     async def build_daily_report_uc(self) -> BuildDailyReport:
         target = float(await self.effective(RECONCILE_TOLERANCE, self.settings.reconcile_tolerance))
         return BuildDailyReport(
@@ -505,6 +519,16 @@ class Container:
             await closer()
 
 
+class _WebhookSink:
+    """Queues webhook deliveries for events the tenant's endpoints subscribe to."""
+
+    def __init__(self, container: Container) -> None:
+        self._container = container
+
+    async def publish(self, subject: str, payload: dict) -> None:
+        await self._container.queue_webhooks().publish(subject, payload)
+
+
 async def build_container(settings: Settings) -> Container:
     closers: list[Any] = []
     hub = WebSocketHub()
@@ -627,6 +651,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.reports_postgres import PostgresReportStore
 
         reports: Any = PostgresReportStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.webhooks_postgres import PostgresWebhookStore
+
+        webhooks: Any = PostgresWebhookStore(pg_sessionmaker, box)
         audit = PostgresAuditLog(pg_sessionmaker)
         setting_store = PostgresSettingsStore(pg_sessionmaker)
         acknowledgements = PostgresAcknowledgementStore(pg_sessionmaker)
@@ -677,6 +704,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.reports_postgres import InMemoryReportStore
 
         reports = PerTenant(InMemoryReportStore)
+        from ivaas.adapters.persistence.webhooks_postgres import InMemoryWebhookStore
+
+        webhooks = PerTenant(InMemoryWebhookStore)
         audit = PerTenant(InMemoryAuditLog)
         setting_store = PerTenant(InMemorySettingsStore)
         acknowledgements = PerTenant(InMemoryAcknowledgementStore)
@@ -755,7 +785,12 @@ async def build_container(settings: Settings) -> Container:
 
     verifiers["node"] = NodeCredentialVerifier(edge)
 
-    return Container(
+    from ivaas.adapters.webhooks import HttpWebhookSender
+
+    webhook_sender = HttpWebhookSender(allow_private=settings.webhook_allow_private)
+    events = FanoutEventPublisher(sinks)
+    closers.append(webhook_sender.aclose)
+    container = Container(
         settings=settings,
         tenants=tenants,
         edge=edge,
@@ -780,7 +815,7 @@ async def build_container(settings: Settings) -> Container:
         bays=bays,
         cameras=cameras,
         sessions=sessions,
-        events=FanoutEventPublisher(sinks),
+        events=events,
         hub=hub,
         clock=SystemClock(),
         gateway=gateway,
@@ -793,5 +828,10 @@ async def build_container(settings: Settings) -> Container:
         signer=ObjectLinkSigner(settings.object_link_secret),
         objects=objects,
         analyser=PipelineVideoAnalyser(settings.stack_model, settings.layers_model),
+        webhooks=webhooks,
+        webhook_sender=webhook_sender,
         _closers=closers,
     )
+    # read through the container at publish time: its clock and store are the live ones
+    events.add(_WebhookSink(container))
+    return container

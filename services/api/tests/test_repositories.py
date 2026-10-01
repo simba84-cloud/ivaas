@@ -608,3 +608,129 @@ async def test_tally_lists_newest_first_and_unresolved_oldest_first(tally):
     assert [s.sheet_id for s in await store.list_recent()] == ["BI-3", "BI-2", "BI-1", "BI-0"]
     assert [s.sheet_id for s in await store.list_recent(limit=2)] == ["BI-3", "BI-2"]
     assert [s.sheet_id for s in await store.list_unresolved()] == ["BI-1", "BI-3"]
+
+
+# --- webhooks (T6.4) ---------------------------------------------------------------
+@pytest_asyncio.fixture
+async def hooks(request):
+    """-> (store, sessionmaker or None) for the requested backend, empty."""
+    from ivaas.adapters.persistence.webhooks_postgres import (
+        InMemoryWebhookStore,
+        PostgresWebhookStore,
+    )
+
+    if request.param == "memory":
+        yield InMemoryWebhookStore(), None
+        return
+
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+
+    postgres_url = request.getfixturevalue("postgres_url")
+    *_, dispose, sm = await build_postgres_repositories(
+        postgres_url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
+    )
+    box = SecretBox([SecretBox.generate_key()])
+    async with sm.begin() as db:
+        await db.execute(text("DELETE FROM webhook_deliveries"))
+        await db.execute(text("DELETE FROM webhook_endpoints"))
+    yield PostgresWebhookStore(sm, box), sm
+    await dispose()
+
+
+both_hooks = pytest.mark.parametrize(
+    "hooks", ["memory", pytest.param("postgres", marks=pytest.mark.postgres)], indirect=True
+)
+T0 = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
+
+
+def endpoint(**over):
+    from ivaas.domain.webhooks import WebhookEndpoint, new_secret
+
+    fields = dict(
+        url="https://erp.example.com/hooks",
+        events=("session.closed",),
+        secret=new_secret(),
+        created_by="admin",
+        created_at=T0,
+    )
+    return WebhookEndpoint(**{**fields, **over})
+
+
+@both_hooks
+async def test_webhook_endpoint_round_trip_with_the_secret_sealed(hooks):
+    from sqlalchemy import text
+
+    store, sm = hooks
+    e = endpoint(events=("exception.raised", "session.closed"), description="ERP")
+    await store.save_endpoint(e)
+    (back,) = await store.endpoints()
+    assert (back.id, back.url, back.events, back.secret) == (e.id, e.url, e.events, e.secret)
+    if sm is not None:  # the column holds the sealed form, never the secret itself
+        async with sm() as db:
+            raw = (await db.execute(text("SELECT secret FROM webhook_endpoints"))).scalar_one()
+        assert e.secret not in raw and raw
+
+
+@both_hooks
+async def test_deliveries_list_newest_first_and_go_with_their_endpoint(hooks):
+    from ivaas.domain.webhooks import Delivery
+
+    store, _ = hooks
+    e = endpoint()
+    await store.save_endpoint(e)
+    for i in range(3):
+        at = T0 + timedelta(minutes=i)
+        await store.save_delivery(Delivery(e.id, uuid4(), "session.closed", {"n": i}, at))
+    assert [d.payload["n"] for d in await store.deliveries(e.id)] == [2, 1, 0]
+    assert await store.delete_endpoint(e.id) and await store.deliveries(e.id) == []
+    assert not await store.delete_endpoint(e.id)
+
+
+@both_hooks
+async def test_a_claimed_delivery_is_not_due_again_until_its_lease_runs_out(hooks):
+    from ivaas.domain.webhooks import LEASE_S, Delivery, DeliveryStatus
+
+    store, _ = hooks
+    e = endpoint()
+    await store.save_endpoint(e)
+    d = Delivery(e.id, uuid4(), "session.closed", {"x": 1}, T0)
+    await store.save_delivery(d)
+    assert [x.id for x in await store.claim_due(T0)] == [d.id]
+    assert await store.claim_due(T0 + timedelta(seconds=LEASE_S - 1)) == []
+    # the sender died without recording an outcome: it is sent again
+    (again,) = await store.claim_due(T0 + timedelta(seconds=LEASE_S))
+    again.succeeded(T0 + timedelta(seconds=LEASE_S + 1), 204)
+    await store.save_delivery(again)
+    assert await store.claim_due(T0 + timedelta(days=1)) == []
+    assert (await store.delivery(d.id)).status is DeliveryStatus.DELIVERED
+
+
+@pytest.mark.postgres
+async def test_two_senders_never_claim_the_same_webhook_delivery(request):
+    import asyncio
+
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+    from ivaas.adapters.persistence.webhooks_postgres import PostgresWebhookStore
+    from ivaas.domain.webhooks import Delivery
+
+    url = request.getfixturevalue("postgres_url")
+    *_, dispose, sm = await build_postgres_repositories(
+        url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
+    )
+    box = SecretBox([SecretBox.generate_key()])
+    one, two = PostgresWebhookStore(sm, box), PostgresWebhookStore(sm, box)
+    async with sm.begin() as db:
+        await db.execute(text("DELETE FROM webhook_deliveries"))
+        await db.execute(text("DELETE FROM webhook_endpoints"))
+    e = endpoint()
+    await one.save_endpoint(e)
+    for i in range(10):
+        await one.save_delivery(Delivery(e.id, uuid4(), "session.closed", {"n": i}, T0))
+    a, b = await asyncio.gather(one.claim_due(T0, limit=10), two.claim_due(T0, limit=10))
+    ids_a, ids_b = {d.id for d in a}, {d.id for d in b}
+    assert ids_a.isdisjoint(ids_b) and len(ids_a | ids_b) == 10
+    await dispose()

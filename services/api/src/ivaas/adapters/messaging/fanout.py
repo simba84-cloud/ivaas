@@ -21,6 +21,9 @@ class FanoutEventPublisher:
     def __init__(self, sinks: Sequence[EventPublisher]) -> None:
         self._sinks = list(sinks)
 
+    def add(self, sink: EventPublisher) -> None:
+        self._sinks.append(sink)
+
     async def publish(self, subject: str, payload: dict) -> None:
         results = await asyncio.gather(
             *(s.publish(subject, payload) for s in self._sinks), return_exceptions=True
