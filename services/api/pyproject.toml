@@ -35,6 +35,7 @@ dev = [
     "mypy>=1.13",
     "testcontainers[postgres]>=4.8",
     "pypdf>=5",
+    "jsonschema>=4.23",
 ]
 
 [build-system]

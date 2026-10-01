@@ -36,6 +36,7 @@ from ivaas.adapters.persistence.partitioned import PerTenant
 from ivaas.adapters.storage.objects import LocalObjectStore, S3ObjectStore
 from ivaas.adapters.streaming.mediamtx import MediaMtxGateway, NullStreamGateway
 from ivaas.adapters.streaming.onvif import OnvifDiscovery
+from ivaas.adapters.streaming.snapshot import OpenCvFrameGrabber
 from ivaas.application.alerts import AcknowledgeAlert, ListAcknowledgements
 from ivaas.application.analysis import RunNextJob, SubmitVideo
 from ivaas.application.analytics import AnalyticsTools
@@ -95,7 +96,7 @@ from ivaas.domain.users import User
 from ivaas.ports.assistant import ChatModel
 from ivaas.ports.auth import TokenVerifier
 from ivaas.ports.repositories import Clock, EventPublisher
-from ivaas.ports.streaming import CameraDiscovery, StreamGateway
+from ivaas.ports.streaming import CameraDiscovery, FrameGrabber, StreamGateway
 from ivaas.tenancy import current_tenant, system_context, tenant_context
 
 # Camera array from section 4.1 of the POC scope: 16 volumetric + 1 LPR.
@@ -207,6 +208,7 @@ class Container:
     clock: Clock
     gateway: StreamGateway
     discovery: CameraDiscovery
+    frames: FrameGrabber
     chat_model: ChatModel | None
     verifiers: dict[str, TokenVerifier]
     local_auth: LocalTokenVerifier | None
@@ -783,6 +785,7 @@ async def build_container(settings: Settings) -> Container:
         clock=SystemClock(),
         gateway=gateway,
         discovery=OnvifDiscovery(),
+        frames=OpenCvFrameGrabber(),
         chat_model=chat_model,
         verifiers=verifiers,
         local_auth=local_auth,

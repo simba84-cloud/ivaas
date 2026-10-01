@@ -10,7 +10,6 @@ Who may do what:
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
 from collections.abc import Awaitable, Callable
@@ -23,6 +22,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import JSONResponse, Response
 
 from ivaas.adapters.http.auth import current_principal, require
+from ivaas.adapters.http.media import files
 from ivaas.adapters.http.schemas import (
     BadgeIn,
     BadgeOut,
@@ -179,6 +179,7 @@ def add_security_routes(
     @app.get(
         "/api/v1/cameras/{camera_id}/snapshot",
         dependencies=[Depends(require(P.VIDEO_LIVE_VIEW, scoped=True))],
+        **files("One still frame from the camera", "image/jpeg"),
     )
     async def camera_snapshot(
         camera_id: UUID,
@@ -189,28 +190,7 @@ def add_security_routes(
         streaming has no frame, and says so rather than returning a stale one."""
         camera = await require_camera(c, principal, P.VIDEO_LIVE_VIEW, camera_id)
         url = f"{c.settings.media_rtsp_url.rstrip('/')}/{camera.stream_path}"
-
-        def grab() -> bytes | None:
-            import cv2
-
-            cap = cv2.VideoCapture(
-                url,
-                cv2.CAP_FFMPEG,
-                [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 4000, cv2.CAP_PROP_READ_TIMEOUT_MSEC, 4000],
-            )
-            try:
-                ok, image = cap.read() if cap.isOpened() else (False, None)
-                if not ok:
-                    return None
-                ok, jpeg = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                return jpeg.tobytes() if ok else None
-            finally:
-                cap.release()
-
-        try:
-            frame = await asyncio.wait_for(asyncio.to_thread(grab), timeout=10)
-        except TimeoutError:
-            frame = None
+        frame = await c.frames.grab(url)
         if frame is None:
             raise HTTPException(404, "the camera is not streaming, so there is no frame to show")
         return Response(frame, media_type="image/jpeg", headers={"Cache-Control": "no-store"})

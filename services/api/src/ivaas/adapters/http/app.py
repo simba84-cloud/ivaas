@@ -32,6 +32,7 @@ from ivaas.adapters.http.edge_routes import add_edge_routes
 from ivaas.adapters.http.evidence_routes import add_evidence_routes, sweep_expired
 from ivaas.adapters.http.fleet_routes import add_fleet_routes
 from ivaas.adapters.http.manifest_routes import add_manifest_routes
+from ivaas.adapters.http.media import files
 from ivaas.adapters.http.model_routes import add_model_routes
 from ivaas.adapters.http.platform_routes import add_platform_routes
 from ivaas.adapters.http.report_routes import add_report_routes
@@ -41,6 +42,7 @@ from ivaas.adapters.http.schemas import (
     AnalysisJobOut,
     ApproveIn,
     AssignRolesIn,
+    AssistantStatusOut,
     AuditEntryOut,
     AuthConfigOut,
     BayIn,
@@ -59,6 +61,7 @@ from ivaas.adapters.http.schemas import (
     DiscoveredStreamOut,
     DiscoverStreamsIn,
     EditableSettingOut,
+    HealthOut,
     LoginIn,
     MeOut,
     OpenSessionIn,
@@ -325,11 +328,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def _gateway_down(_: Request, exc: StreamGatewayError) -> JSONResponse:
         return JSONResponse(status_code=502, content={"detail": str(exc)})
 
-    @app.get("/healthz")
+    @app.get("/healthz", response_model=HealthOut)
     async def healthz() -> dict:
         return {"status": "ok"}
 
-    @app.get("/metrics")
+    @app.get("/metrics", **files("Prometheus metrics", "text/plain"))
     async def metrics() -> Response:
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
@@ -1235,7 +1238,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_manifest_routes(app, get_container, audit)
     add_report_routes(app, get_container, audit)
 
-    @app.get("/api/v1/objects/{key:path}")
+    @app.get("/api/v1/objects/{key:path}", **files("The stored object, as stored", "*/*"))
     async def get_object(
         key: str,
         request: Request,
@@ -1267,7 +1270,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Response(body, media_type=content_type)
 
     # assistant -----------------------------------------------------------
-    @app.get("/api/v1/assistant/status", dependencies=[Depends(require(P.ASSISTANT_QUERY))])
+    @app.get(
+        "/api/v1/assistant/status",
+        response_model=AssistantStatusOut,
+        dependencies=[Depends(require(P.ASSISTANT_QUERY))],
+    )
     async def assistant_status(c: Container = Depends(get_container)) -> dict:
         enabled = c.chat_model is not None
         return {"enabled": enabled, "model": c.settings.llm_model if enabled else None}

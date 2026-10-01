@@ -17,6 +17,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import FileResponse, Response
 
 from ivaas.adapters.http.auth import current_principal, require
+from ivaas.adapters.http.media import files
 from ivaas.adapters.http.schemas import ModelVersionOut
 from ivaas.adapters.storage.objects import LocalObjectStore
 from ivaas.domain.audit import AuditAction
@@ -122,6 +123,7 @@ def add_model_routes(app: FastAPI, get_container: Callable[[Request], Any], audi
     @app.get(
         "/api/v1/edge/models/{model_id}/file",
         dependencies=[Depends(require(P.INGEST_WRITE, scoped=True))],
+        **files("The ONNX model; its SHA-256 is in X-IVaaS-SHA256", "application/octet-stream"),
     )
     async def download_model(
         model_id: UUID,

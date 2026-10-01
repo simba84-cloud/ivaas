@@ -501,6 +501,15 @@ class ToolUseOut(BaseModel):
     arguments: dict
 
 
+class HealthOut(BaseModel):
+    status: Literal["ok"]
+
+
+class AssistantStatusOut(BaseModel):
+    enabled: bool
+    model: str | None = None
+
+
 class ChatOut(BaseModel):
     reply: str
     tools_used: list[ToolUseOut]
