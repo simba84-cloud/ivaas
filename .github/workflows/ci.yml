@@ -101,3 +101,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: IVAAS_SECRETS_KEY=ci docker compose config -q
+      # the install-day rehearsal's services (deploy/install/rehearsal.compose.yml)
+      - run: IVAAS_SECRETS_KEY=ci docker compose -f docker-compose.yml -f deploy/install/rehearsal.compose.yml --profile rehearsal config -q
