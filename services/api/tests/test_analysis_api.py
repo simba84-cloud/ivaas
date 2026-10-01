@@ -4,6 +4,7 @@ import time
 
 from conftest import login, make_client
 
+from ivaas.config.settings import Settings
 from ivaas.domain.analysis import DetectedLoad, TimelineEvent
 from ivaas.domain.tenancy import BAKERS_INN_ID
 
@@ -122,3 +123,10 @@ def test_report_objects_load_by_signed_link_and_reject_tampering(tmp_path):
             assert anon.get(frame_url).status_code == 200  # no token, valid signature
             assert anon.get(frame_url.split("?")[0]).status_code == 401  # no token, no signature
             assert anon.get(frame_url + "x").status_code == 401  # tampered signature
+
+
+def test_each_test_app_keeps_its_objects_to_itself():
+    # the shared default once held 334 jobs from earlier runs, which every app reloaded
+    with make_client() as one, make_client() as two:
+        dirs = {c.app.state.container.settings.objects_dir for c in (one, two)}
+    assert len(dirs) == 2 and Settings().objects_dir not in dirs
