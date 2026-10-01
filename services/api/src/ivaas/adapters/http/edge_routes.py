@@ -466,6 +466,19 @@ def add_edge_routes(app: FastAPI, get_container: Callable[[Request], Any], audit
             lpr.append(rendered)
             bays.add(bay)
         bay_id = node.bay_id or (next(iter(bays)) if bays else None)
+        # the plan's channels (T7.3): the node runs no more than it is entitled to, in
+        # the order it was configured with, and is told which it may not run
+        ents = await c.billing().entitlements()
+        refused: list[str] = []
+        if ents is not None:
+            for kind, served in (("od_channels", cameras), ("lpr_channels", lpr)):
+                over = served[ents.limits[kind] :]
+                refused += [x["api_camera_id"] for x in over]
+                del served[ents.limits[kind] :]
+            if refused:
+                log.warning(
+                    "node %s: %d channel(s) beyond the plan not served", node.id, len(refused)
+                )
         if cfg.get("model", {}).get("version_id"):
             arch = cfg["model"].get("arch", "rtdetr")
             cfg["model"] = {**await model_ref(c, cfg["model"]["version_id"]), "arch": arch}
@@ -478,4 +491,6 @@ def add_edge_routes(app: FastAPI, get_container: Callable[[Request], Any], audit
             "bay_id": str(bay_id) if bay_id else None,
             "cameras": cameras,
             "lpr_cameras": lpr,
+            #: configured, but beyond the plan's channels: not run until it is upgraded
+            "not_entitled": refused,
         }

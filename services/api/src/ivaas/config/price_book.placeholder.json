@@ -1,0 +1,39 @@
+{
+  "placeholder": true,
+  "version": "2026-10-placeholder",
+  "note": "MADE-UP PRICES for building and testing billing. Every invoice made from this book is stamped NOT FOR ISSUE. Replace it with the price book Cassava finance approves (IVAAS_PRICE_BOOK).",
+  "currency": "USD",
+  "tax": {"name": "VAT", "rate": "0.15"},
+  "skus": {
+    "ivaas-platform": {"unit": "tenant per month", "price": "250.00"},
+    "ivaas-od-count": {"unit": "counting channel per month", "price": "45.00"},
+    "ivaas-lpr": {"unit": "plate-reading channel per month", "price": "60.00"},
+    "ivaas-api": {"unit": "tenant per month", "price": "50.00"},
+    "ivaas-storage-overage": {"unit": "GB-month above the allowance", "price": "0.05"},
+    "ivaas-assistant": {"unit": "1,000 assistant tokens above the allowance", "price": "0.02"}
+  },
+  "plans": {
+    "poc-trial": {
+      "name": "POC / Trial",
+      "term_days": 14,
+      "recurring": {"ivaas-platform": 1, "ivaas-od-count": 16, "ivaas-lpr": 1, "ivaas-api": 1},
+      "limits": {"sites": 1, "bays": 1, "users": 15},
+      "features": {"lpr": true, "reconciliation": true, "api": true, "webhooks": true, "sso": false, "assistant": true},
+      "allowances": {"storage_gb_month": 100, "assistant_tokens": 200000}
+    },
+    "standard": {
+      "name": "Standard",
+      "recurring": {"ivaas-platform": 1, "ivaas-od-count": 16, "ivaas-lpr": 1, "ivaas-api": 0},
+      "limits": {"sites": 1, "bays": 4, "users": 30},
+      "features": {"lpr": true, "reconciliation": true, "api": false, "webhooks": false, "sso": false, "assistant": true},
+      "allowances": {"storage_gb_month": 100, "assistant_tokens": 200000}
+    },
+    "enterprise": {
+      "name": "Enterprise",
+      "recurring": {"ivaas-platform": 1, "ivaas-od-count": 32, "ivaas-lpr": 2, "ivaas-api": 1},
+      "limits": {"sites": 10, "bays": 40, "users": 300},
+      "features": {"lpr": true, "reconciliation": true, "api": true, "webhooks": true, "sso": true, "assistant": true},
+      "allowances": {"storage_gb_month": 1000, "assistant_tokens": 2000000}
+    }
+  }
+}

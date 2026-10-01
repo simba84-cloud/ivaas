@@ -262,6 +262,47 @@ a container holding a shared key.
 - It comes as JSON, as a PDF to sign, and as a CSV of every load to check it against.
   Every time in the report is in the site's time zone.
 
+## 2a-vii. Billing: plans, entitlements, metering, invoices (M7, first slice)
+
+- **The price book** (`IVAAS_PRICE_BOOK`, a JSON file) holds the SKUs, plans, currency
+  and tax. **The one shipped is made up** (`config/price_book.placeholder.json` says
+  `"placeholder": true`), and every invoice made from it carries the stamp
+  "PLACEHOLDER PRICES: NOT FOR ISSUE". Replacing it with the book Cassava finance
+  approves is a change of file, not of code.
+- **Subscriptions** are runs of segments: from a moment on, a plan at quantities.
+  - A change starts a segment, and rating prorates each one by the days of the month it
+    covers (T7.2).
+  - A SKU whose quantity did not change stays on one line.
+  - Money is `Decimal`, rounded half-up to the cent per line, then taxed once on the
+    subtotal.
+- **Entitlements are enforced, not only invoiced (T7.3):**
+  - Registering a channel past the plan is refused with `402` and an upgrade prompt.
+  - The configuration served to a node includes no more channels than the plan
+    allows, and lists the rest as `not_entitled`.
+  - A tenant with no subscription is unmetered: nothing is limited and nothing is
+    billed, and it says so.
+- **Usage is an append-only ledger (T7.5).** Each event has an idempotency key that is
+  unique per tenant in the database itself, so a replay counts once. The application's
+  role may insert into it but never update or delete.
+  - Active channel-days are metered daily from the registered cameras.
+  - Storage and assistant tokens are rated as overage above the plan's allowance, from
+    events posted to `/api/v1/billing/usage`. Their producers (object store sizing,
+    model-reported tokens) are the next slice; nothing is estimated meanwhile.
+- **Who sees what:**
+  - A tenant's owner (and its auditor, who can only read) uses `/api/v1/billing/...`.
+  - Platform billing staff and a partner's admin name the tenant, under
+    `/api/v1/platform/tenants/{id}/...`.
+  - Staff calling a tenant's own routes, which have no tenant to answer for, are refused
+    with `403` and pointed to the platform routes.
+- **Invoices** are drafted at any time and issued once per tenant and finished month,
+  numbered from one platform-wide sequence (`IVAAS-<year>-<n>`).
+- **Deviation from the proposal.** §2 says to buy the billing engine (e.g. Lago). Rating
+  sits in `domain/billing.py` behind the billing store and use cases, small and tested
+  against golden invoices worked by hand. A hosted engine can replace it at that seam
+  when there is a reason to run one.
+- **Next slice:** suspension and payment (T7.6–T7.8), the LITZIM wholesale invoice with a
+  per-tenant breakdown (T7.9, T7.10), the usage producers, and the portal's billing pages.
+
 ## 2b. Analysis assistant
 
 ```

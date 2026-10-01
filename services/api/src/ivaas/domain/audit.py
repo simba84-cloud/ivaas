@@ -64,6 +64,8 @@ class AuditAction(StrEnum):
     WEBHOOK_CREATED = "webhook_created"
     WEBHOOK_DELETED = "webhook_deleted"
     WEBHOOK_REPLAYED = "webhook_replayed"
+    SUBSCRIPTION_CHANGED = "subscription_changed"
+    INVOICE_ISSUED = "invoice_issued"
 
 
 @dataclass(frozen=True)
