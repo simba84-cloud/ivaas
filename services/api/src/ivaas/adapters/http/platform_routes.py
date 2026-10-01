@@ -18,7 +18,7 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 
-from ivaas.adapters.http.auth import current_principal, require
+from ivaas.adapters.http.auth import current_principal, require, require_any
 from ivaas.adapters.http.schemas import (
     BayOut,
     EnrollmentTokenOut,
@@ -81,7 +81,8 @@ def add_platform_routes(
     @app.get(
         "/api/v1/platform/tenants",
         response_model=list[TenantOut],
-        dependencies=[Depends(require(P.TENANT_CREATE))],
+        # support picks the tenant it asks for break-glass access from this list
+        dependencies=[Depends(require_any(P.TENANT_CREATE, P.SUPPORT_REQUEST))],
     )
     async def list_tenants(
         principal: Principal = Depends(current_principal), c: Any = Depends(get_container)

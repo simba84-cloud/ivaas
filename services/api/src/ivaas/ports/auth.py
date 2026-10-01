@@ -27,6 +27,8 @@ class Principal:
     is_service: bool = False
     #: role names a token carried, for identity providers that manage roles themselves
     claimed_roles: tuple[str, ...] = field(default_factory=tuple)
+    #: the approved break-glass grant this request runs under (support, read-only)
+    break_glass: UUID | None = None
 
     def can(self, permission: Permission, scope: Scope | None = None) -> bool:
         return authorize(self.bindings, permission, scope)

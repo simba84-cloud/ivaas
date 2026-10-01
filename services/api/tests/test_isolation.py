@@ -81,6 +81,9 @@ BODIES: dict[tuple[str, str], object] = {
     ("GET", "/api/v1/webhooks/{endpoint_id}/deliveries"): None,
     ("POST", "/api/v1/webhooks/{endpoint_id}/test"): None,
     ("POST", "/api/v1/webhooks/deliveries/{delivery_id}/replay"): None,
+    ("POST", "/api/v1/support-access/{grant_id}/approve"): None,
+    ("POST", "/api/v1/support-access/{grant_id}/deny"): None,
+    ("POST", "/api/v1/support-access/{grant_id}/end"): None,
 }
 
 #: Path parameters that are not a tenant's resource, and why.
@@ -101,6 +104,9 @@ NOT_TENANT_RESOURCES = {
     ("GET", "/api/v1/platform/tenants/{tenant_id}/onboarding"),
     ("POST", "/api/v1/platform/tenants/{tenant_id}/onboarding/site"),
     ("POST", "/api/v1/platform/tenants/{tenant_id}/onboarding/enrollment-tokens"),
+    # support's own break-glass requests: support only, never a tenant (test_break_glass)
+    ("POST", "/api/v1/platform/tenants/{tenant_id}/break-glass"),
+    ("POST", "/api/v1/platform/break-glass/{grant_id}/end"),
     # a partner's wholesale invoices: platform staff, or that partner (test_billing_api)
     ("GET", "/api/v1/platform/partners/{partner_id}/invoices/draft"),
     ("GET", "/api/v1/platform/partners/{partner_id}/invoices"),
@@ -190,6 +196,11 @@ def world():
             headers=a,
         ).json()
         delivery = c.post(f"/api/v1/webhooks/{hook['id']}/test", headers=a).json()
+        grant = c.post(
+            f"/api/v1/platform/tenants/{BAKERS_INN_ID}/break-glass",
+            json={"reason": "a support request of tenant A", "minutes": 60},
+            headers=login(c, "support"),
+        ).json()
         ids = {
             "site_id": bay["site_id"],
             "bay_id": bay["id"],
@@ -207,6 +218,7 @@ def world():
             "exception_id": str(exception.id),
             "endpoint_id": hook["id"],
             "delivery_id": delivery["id"],
+            "grant_id": grant["id"],
             "webhook:url": hook["url"],
             "webhook:secret": hook["secret"],
         }

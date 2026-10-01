@@ -11,6 +11,8 @@ import {
   onAuthChange,
   resumeOidc,
   adoptToken,
+  switchBreakGlass,
+  can,
 } from "./auth/session";
 import { ScopeProvider } from "./api/scope";
 import Audit from "./pages/Audit";
@@ -44,6 +46,8 @@ import Console from "./pages/Console";
 import ConsoleTenant from "./pages/ConsoleTenant";
 import Onboard from "./pages/Onboard";
 import PartnerInvoices from "./pages/PartnerInvoices";
+import SupportAccess from "./pages/SupportAccess";
+import SupportConsole from "./pages/SupportConsole";
 
 function OidcCallback({ config }: { config: AuthConfig }) {
   const navigate = useNavigate();
@@ -92,6 +96,12 @@ export default function App() {
     window.addEventListener("ivaas:unauthorized", onUnauthorized);
     return () => window.removeEventListener("ivaas:unauthorized", onUnauthorized);
   }, [config.data, qc]);
+  useEffect(() => {
+    // the owner ended it, or its time ran out: back to support's own console
+    const onEnded = () => switchBreakGlass(null, "/console/support");
+    window.addEventListener("ivaas:break-glass-ended", onEnded);
+    return () => window.removeEventListener("ivaas:break-glass-ended", onEnded);
+  }, []);
 
   if (!config.data) return null;
   if (location.pathname === "/auth/callback") return <OidcCallback config={config.data} />;
@@ -118,11 +128,15 @@ export default function App() {
       <Layout connected={connected} me={me.data} onLogout={() => logout(config.data)}>
         <Routes>
           {/* platform and partner staff belong to no tenant: their home is the console */}
-          <Route path="/" element={me.data && !me.data.tenant ? <Navigate to="/console" replace /> : <Dashboard me={me.data} />} />
+          <Route path="/" element={me.data && !me.data.tenant ? (
+                <Navigate to={can(me.data, "tenant.create") ? "/console" : "/console/support"} replace />
+              ) : <Dashboard me={me.data} />} />
           <Route path="/console" element={<Console me={me.data} />} />
           <Route path="/console/onboard" element={<Onboard me={me.data} />} />
           <Route path="/console/tenants/:id" element={<ConsoleTenant me={me.data} />} />
           <Route path="/console/partners" element={<PartnerInvoices me={me.data} />} />
+          <Route path="/console/support" element={<SupportConsole />} />
+          <Route path="/support-access" element={<SupportAccess />} />
           <Route path="/command" element={<Command />} />
           <Route path="/alerts" element={<Alerts me={me.data} />} />
           <Route path="/security" element={<Security me={me.data} />} />

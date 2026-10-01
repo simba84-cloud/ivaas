@@ -3,23 +3,29 @@ request runs for, and enforce permissions.
 
 The tenant comes from the verified identity only: the account's own tenant, or the
 tenant an API key is bound to. Nothing the client sends in a body, query or header
-can choose it (proposal §3.2).
+can choose it (proposal §3.2). The one exception is a break-glass grant: support
+names one in a header, and it counts only if that tenant's owner approved it for
+that very person and it has not ended. It is then read-only, and every request made
+with it is written into the tenant's audit log.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import logging
 from collections.abc import Callable
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, WebSocket
 
+from ivaas.domain.audit import AuditAction, AuditEntry
+from ivaas.domain.break_glass import GrantState
 from ivaas.domain.models import NotFoundError
 from ivaas.domain.rbac import Permission, Role, RoleBinding, Scope
 from ivaas.domain.tenancy import ScopeType
 from ivaas.domain.users import User
 from ivaas.ports.auth import AuthError, Principal, TokenVerifier
-from ivaas.tenancy import set_tenant, system_context
+from ivaas.tenancy import set_tenant, system_context, tenant_context
 
 
 def password_epoch(user: User) -> int:
@@ -30,6 +36,7 @@ def password_epoch(user: User) -> int:
 BEARER = "bearer "
 API_KEY_HEADER = "x-ivaas-key"
 NODE_HEADER = "x-ivaas-node"
+BREAK_GLASS_HEADER = "x-ivaas-break-glass"
 
 
 async def _authenticate(verifiers: dict[str, TokenVerifier], headers, query) -> Principal:
@@ -120,9 +127,61 @@ async def _identity_provider_account(container, principal: Principal) -> Princip
     return dataclasses.replace(principal, tenant_id=tenant_id, bindings=tuple(bindings))
 
 
-async def _principal_for(container, headers, query, path: str) -> Principal:
+#: what break-glass access refuses, whatever its role would allow: it only looks
+_READ_ONLY = frozenset({"GET", "HEAD"})
+
+
+async def _break_glass(
+    container, principal: Principal, ref: str, method: str, path: str, query
+) -> Principal:
+    """Support inside one tenant, on a grant its owner approved, for as long as it
+    lasts. Anything wrong with the grant is the same refusal: it says nothing about
+    grants the caller does not hold."""
+    if principal.tenant_id is not None or not holds(principal, Permission.SUPPORT_REQUEST):
+        raise HTTPException(403, "break-glass access is for platform support")
+    try:
+        grant_id = UUID(ref)
+    except ValueError:
+        grant_id = None
+    with system_context():
+        grant = await container.break_glass.get(grant_id) if grant_id else None
+    now = container.clock.now()
+    if (
+        grant is None
+        or grant.requested_by != principal.subject
+        or grant.state(now) is not GrantState.ACTIVE
+    ):
+        raise HTTPException(403, "break-glass access has ended or was not granted")
+    if method not in _READ_ONLY:
+        raise HTTPException(403, "break-glass access is read-only")
+    if not path.startswith("/api/v1/auth/"):
+        # what support tried to look at, allowed or not, in the tenant's own log
+        with tenant_context(grant.tenant_id):
+            try:
+                await container.audit.record(
+                    AuditEntry(
+                        at=now,
+                        actor=principal.name,
+                        action=AuditAction.BREAK_GLASS_USED,
+                        subject=path,
+                        detail={"grant": str(grant.id), "query": str(query)}
+                        if str(query)
+                        else {"grant": str(grant.id)},
+                    )
+                )
+            except Exception:
+                logging.getLogger(__name__).exception("could not audit break-glass use")
+    bindings = (RoleBinding(Role.BREAK_GLASS, ScopeType.TENANT, grant.tenant_id),)
+    return dataclasses.replace(
+        principal, tenant_id=grant.tenant_id, bindings=bindings, break_glass=grant.id
+    )
+
+
+async def _principal_for(container, headers, query, path: str, method: str = "GET") -> Principal:
     principal = await _authenticate(container.verifiers, headers, query)
     principal = await _check_account(container, principal, path)
+    if ref := headers.get(BREAK_GLASS_HEADER):
+        principal = await _break_glass(container, principal, ref, method, path, query)
     # From here to the end of the request, every query runs for this tenant.
     set_tenant(principal.tenant_id)
     return principal
@@ -135,6 +194,7 @@ async def current_principal(request: Request) -> Principal:
             request.headers,
             request.query_params,
             request.url.path,
+            request.method,
         )
     except AuthError as exc:
         raise HTTPException(401, str(exc), headers={"WWW-Authenticate": "Bearer"}) from exc
@@ -157,6 +217,7 @@ TENANT_DATA = frozenset(Permission) - {
     Permission.TENANT_SUSPEND,
     Permission.SUBSCRIPTION_MANAGE,
     Permission.INVOICE_READ,
+    Permission.SUPPORT_REQUEST,
 }
 
 
@@ -171,6 +232,20 @@ def holds(principal: Principal, permission: Permission, *, scoped: bool = False)
             continue
         return True
     return False
+
+
+def require_any(*permissions: Permission) -> Callable:
+    """Allow the request if the caller holds any one of `permissions`, tenant-wide."""
+
+    async def check(
+        request: Request, principal: Principal = Depends(current_principal)
+    ) -> Principal:
+        if not any(holds(principal, p) for p in permissions):
+            names = " or ".join(f"'{p.value}'" for p in permissions)
+            raise HTTPException(403, f"requires permission {names}")
+        return principal
+
+    return check
 
 
 def require(permission: Permission, *, scoped: bool = False) -> Callable:

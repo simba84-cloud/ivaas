@@ -30,10 +30,11 @@ import {
   Building2,
   Handshake,
   UserPlus,
+  LifeBuoy,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { type Me, type Permission, can } from "../auth/session";
+import { type Me, type Permission, can, switchBreakGlass } from "../auth/session";
 import { useScope } from "../api/scope";
 import { api } from "../api/client";
 import { useAlerts } from "../live/alerts";
@@ -112,6 +113,7 @@ const NAV = [
       { to: "/webhooks", label: "Webhooks", icon: Webhook, needs: "apikey.manage" },
       { to: "/billing", label: "Billing", icon: Receipt, needs: "invoice.read" },
       { to: "/users", label: "Users", icon: Users, needs: "user.manage" },
+      { to: "/support-access", label: "Support Access", icon: LifeBuoy, needs: "support.approve" },
       { to: "/audit", label: "Audit Log", icon: ScrollText, needs: "audit.read" },
       { to: "/settings", label: "Settings", icon: SlidersHorizontal, needs: "settings.manage" },
     ],
@@ -128,6 +130,7 @@ const STAFF_NAV = [
       { to: "/console", label: "Tenants", icon: Building2, needs: "tenant.create" },
       { to: "/console/onboard", label: "Onboard a Tenant", icon: UserPlus, needs: "tenant.create" },
       { to: "/console/partners", label: "Partner Invoices", icon: Handshake, needs: "invoice.read" },
+      { to: "/console/support", label: "Support Access", icon: LifeBuoy, needs: "support.request" },
     ],
   },
 ];
@@ -162,6 +165,35 @@ export function BillingBanner({ status }: { status: string | undefined }) {
     );
   }
   return null;
+}
+
+/**
+ * Support inside a tenant on a break-glass grant: said at the top of every page, with
+ * the way out, so nobody forgets whose data this is or that they are being recorded.
+ */
+export function BreakGlassBanner({ me }: { me: Me | undefined }) {
+  const grant = me?.break_glass;
+  if (!grant) return null;
+  const until = new Date(grant.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return (
+    <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-bad/10 px-3 py-2 text-sm text-bad">
+      <LifeBuoy size={15} className="flex-none" />
+      <span className="flex-1">
+        Support access to <strong>{me?.tenant?.name}</strong>, read-only, until {until}. Every page you open is
+        recorded in its audit log.
+      </span>
+      <button
+        className="btn-ghost btn-sm"
+        onClick={async () => {
+          switchBreakGlass(null); // the end itself is not a read: it goes without the grant
+          await api.endMyBreakGlass(grant.grant_id).catch(() => undefined);
+          window.location.assign("/console/support");
+        }}
+      >
+        End access
+      </button>
+    </div>
+  );
 }
 
 /** Unacknowledged faults and warnings at this bay; pulses while any is critical. */
@@ -244,6 +276,9 @@ function useTheme(): [boolean, () => void] {
 /** Proposal §4.1 roles, most senior first: the first one held is the "access level". */
 const ROLE_LABELS: [string, string][] = [
   ["platform_admin", "Platform Administrator"],
+  ["platform_billing", "Platform Billing"],
+  ["platform_support", "Platform Support"],
+  ["break_glass", "Support (read-only)"],
   ["partner_admin", "Partner Administrator"],
   ["tenant_owner", "Tenant Owner"],
   ["tenant_admin", "Tenant Administrator"],
@@ -407,8 +442,9 @@ export function Layout({
           </div>
 
           <div className="flex items-center gap-1.5">
-            {/* staff have no tenant, so no live feed: "Reconnecting" would never end */}
-            {!isStaff(me) && (
+            {/* staff have no tenant, so no live feed: "Reconnecting" would never end; nor
+                does support on a grant, whose socket cannot carry it */}
+            {!isStaff(me) && !me?.break_glass && (
               <span
                 className={`chip ${connected ? "bg-good/10 text-good" : "bg-ground text-muted"}`}
                 title={connected ? "Receiving live events" : "Reconnecting to the platform"}
@@ -482,6 +518,7 @@ export function Layout({
         </nav>
 
         <main className="flex-1 px-4 pb-10 pt-5 sm:px-6">
+          <BreakGlassBanner me={me} />
           <BillingBanner status={me?.tenant?.status} />
           <PageTransition>{children}</PageTransition>
         </main>

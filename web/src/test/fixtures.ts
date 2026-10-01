@@ -140,7 +140,15 @@ export const overview = (over: Partial<Overview> = {}): Overview => ({
 const PERSONAS: Record<string, { roles: string[]; permissions: string[] }> = {
   owner: {
     roles: ["tenant_owner"],
-    permissions: ["subscription.manage", "invoice.read", "user.invite", "count.read", "report.export", "audit.read"],
+    permissions: [
+      "subscription.manage",
+      "invoice.read",
+      "user.invite",
+      "count.read",
+      "report.export",
+      "audit.read",
+      "support.approve",
+    ],
   },
   admin: {
     roles: ["site_manager", "tenant_admin"],
@@ -215,8 +223,10 @@ export const edgeNode = (over: Partial<EdgeNode> = {}): EdgeNode => ({
 });
 
 /** Platform and partner staff: no tenant, and only the permissions rbac.py gives them. */
-export const staffAs = (who: "platform" | "litzim") =>
-  who === "platform"
+export const staffAs = (who: "platform" | "litzim" | "support") =>
+  who === "support"
+    ? { subject: "support", name: "support", roles: ["platform_support"], permissions: ["support.request"], tenant: null }
+    : who === "platform"
     ? {
         subject: "platform",
         name: "platform",

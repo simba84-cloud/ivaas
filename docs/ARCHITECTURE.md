@@ -355,8 +355,41 @@ is therefore a console, not the tenant pages: they sign in and land on `/console
   (draft, issue, record payment), and the partner hold.
 - **Partner invoices:** the wholesale draft broken down by customer. Cassava issues
   invoices and records payments; a partner reads its own.
-- **Still open in M8:** SSO (T8.2), break-glass (T8.3), export (T8.4), purge with a
-  certificate (T8.5), silo (T8.6), commission statements, and the fleet and revenue views.
+- **Still open in M8:** SSO (T8.2), export (T8.4), purge with a certificate (T8.5),
+  silo (T8.6), commission statements, and the fleet and revenue views.
+
+## 2a-ix. Break-glass support access (M8, T8.3)
+
+Platform Support holds no tenant data. It holds one permission, `support.request`:
+it may ask.
+
+- **Asking:** support asks one tenant, with a reason (10 to 500 characters) and a
+  length of 15 minutes to 8 hours. While one request to a tenant is pending or active,
+  another is refused. A request nobody answers lapses after 24 hours.
+- **Deciding:** only the tenant's owner (`support.approve`) approves or refuses, from
+  Configure → Support Access. A tenant admin cannot, and neither can platform or
+  partner staff. The clock starts at approval, so an owner who approves late still
+  gives the length asked.
+- **Using it:** support sends `X-IVaaS-Break-Glass: <grant id>`
+  (`adapters/http/auth.py`). It counts only if the grant is that person's, approved,
+  and not ended or expired. Otherwise every request gets the same 403, which says
+  nothing about other grants.
+  - The request runs in the grant's tenant as role `break_glass`: §4.2's 🔓 cells
+    (`count.read`, `video.live.view`) plus `topology.read` to find them.
+  - Anything other than GET or HEAD is refused, whatever the role says. Support
+    looks; it does not change anything.
+- **Audit:** every GET made under a grant, whether allowed or refused, is written to
+  the tenant's audit log as `break_glass_used` with the path. So are the request,
+  the decision and the end. `/auth/*` is left out: it is the session, not data.
+- **Ending:** the owner or support can end access at any time, effective on the next
+  request; otherwise it expires on its own.
+  - In the portal, support opens the tenant from its console. A banner on every page
+    says whose data it is, that it is read-only, and that it is recorded.
+  - When the grant ends, the portal reloads back to support's console, with nothing
+    cached from the tenant.
+  - The live event socket cannot carry the header, so support gets no live feed.
+- **Data:** `break_glass_grants` (migration 0024) is row-level secured like every
+  tenant table. The application role cannot delete grants.
 
 ## 2b. Analysis assistant
 
@@ -620,7 +653,7 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
    than by the schema. The app switches to `ivaas_app` per transaction from the owner's
    login; a separate login role with its own credential is the GA step. Provisioning is
    idempotent for retries, not for two simultaneous first calls with one key. There is
-   no break-glass or SSO federation yet (M8); the consoles are §2a-viii.
+   no SSO federation yet (M8); the consoles are §2a-viii and break-glass §2a-ix.
 12. **Edge gaps (M2, first slice).** Node credentials are bearer secrets over HTTPS,
    not mTLS client certificates; mTLS comes with TLS termination on the POC network.
    A configuration change other than a model restarts the node. There is no broker-level

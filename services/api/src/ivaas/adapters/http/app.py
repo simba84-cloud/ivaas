@@ -30,6 +30,7 @@ from ivaas.adapters.http.auth import (
     websocket_principal,
 )
 from ivaas.adapters.http.billing_routes import add_billing_routes
+from ivaas.adapters.http.break_glass_routes import add_break_glass_routes
 from ivaas.adapters.http.edge_routes import add_edge_routes
 from ivaas.adapters.http.evidence_routes import add_evidence_routes, sweep_expired
 from ivaas.adapters.http.fleet_routes import add_fleet_routes
@@ -51,6 +52,7 @@ from ivaas.adapters.http.schemas import (
     BayOut,
     BindingOut,
     BindingsIn,
+    BreakGlassMeOut,
     CameraIn,
     CameraOut,
     ChangePasswordIn,
@@ -1282,6 +1284,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_report_routes(app, get_container, audit)
     add_webhook_routes(app, get_container, audit)
     add_billing_routes(app, get_container, audit)
+    add_break_glass_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}", **files("The stored object, as stored", "*/*"))
     async def get_object(
@@ -1408,7 +1411,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with system_context():
             user = await c.users.get(principal.subject) if c.users else None
             tenant = await c.tenants.get(principal.tenant_id) if principal.tenant_id else None
+            grant = (
+                await c.break_glass.get(principal.break_glass) if principal.break_glass else None
+            )
         return MeOut(
+            break_glass=(
+                BreakGlassMeOut(grant_id=grant.id, expires_at=grant.expires_at)
+                if grant and grant.expires_at
+                else None
+            ),
             subject=principal.subject,
             name=principal.name,
             roles=sorted({b.role.value for b in principal.bindings}),
