@@ -42,8 +42,12 @@ import type {
   TallySheet,
   TallySheetInput,
   ToolUse,
+  BillingSubscription,
+  InvoiceView,
   NodeConfig,
   PocParams,
+  PriceBookView,
+  StatementView,
   PocReport,
   Webhook,
   WebhookCreated,
@@ -92,6 +96,18 @@ export const api = {
   revokeNode: (nodeId: string) =>
     request<void>(`/api/v1/edge/nodes/${nodeId}`, { method: "DELETE" }),
   reports: () => request<FiledReport[]>("/api/v1/reports"),
+  billing: () => request<BillingSubscription>("/api/v1/billing/subscription"),
+  priceBook: () => request<PriceBookView>("/api/v1/billing/price-book"),
+  billingDraft: (period: string) =>
+    request<InvoiceView>(`/api/v1/billing/invoices/draft?period=${period}`),
+  billingStatement: (period: string) =>
+    request<StatementView>(`/api/v1/billing/statement?period=${period}`),
+  invoices: () => request<InvoiceView[]>("/api/v1/billing/invoices"),
+  changePlan: (plan: string, quantities: Record<string, number>) =>
+    request<BillingSubscription>("/api/v1/billing/subscription", {
+      method: "PUT",
+      body: JSON.stringify({ plan, quantities }),
+    }),
   webhooks: () => request<Webhook[]>("/api/v1/webhooks"),
   createWebhook: (url: string, events: WebhookEvent[], description: string) =>
     request<WebhookCreated>("/api/v1/webhooks", {

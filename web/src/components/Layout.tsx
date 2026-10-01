@@ -26,6 +26,7 @@ import {
   Sun,
   Warehouse,
   Webhook,
+  Receipt,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
@@ -106,6 +107,7 @@ const NAV = [
       { to: "/fleet", label: "Fleet", icon: Truck },
       { to: "/edge", label: "Edge Nodes", icon: Cpu, needs: "device.register" },
       { to: "/webhooks", label: "Webhooks", icon: Webhook, needs: "apikey.manage" },
+      { to: "/billing", label: "Billing", icon: Receipt, needs: "invoice.read" },
       { to: "/users", label: "Users", icon: Users, needs: "user.manage" },
       { to: "/audit", label: "Audit Log", icon: ScrollText, needs: "audit.read" },
       { to: "/settings", label: "Settings", icon: SlidersHorizontal, needs: "settings.manage" },
@@ -118,6 +120,29 @@ const visible = (me: Me | undefined) =>
     ...g,
     items: g.items.filter((i) => !("needs" in i && i.needs) || can(me, i.needs as Permission)),
   })).filter((g) => g.items.length);
+
+/**
+ * Billing's hold on the account, said once, at the top: otherwise every change just
+ * fails. Suspended stops changes, never viewing and never counting.
+ */
+export function BillingBanner({ status }: { status: string | undefined }) {
+  if (status === "suspended") {
+    return (
+      <p role="alert" className="mb-4 rounded-lg bg-bad/10 px-3 py-2 text-sm text-bad">
+        This account is suspended. Everything can still be viewed and counting carries on; changes return once it is
+        settled. See Billing.
+      </p>
+    );
+  }
+  if (status === "past_due") {
+    return (
+      <p role="status" className="mb-4 rounded-lg bg-warn/10 px-3 py-2 text-sm text-warn">
+        An invoice is overdue. Settle it within the grace period to keep making changes.
+      </p>
+    );
+  }
+  return null;
+}
 
 /** Unacknowledged faults and warnings at this bay; pulses while any is critical. */
 function AlertBadge({ compact = false }: { compact?: boolean }) {
@@ -428,6 +453,7 @@ export function Layout({
         </nav>
 
         <main className="flex-1 px-4 pb-10 pt-5 sm:px-6">
+          <BillingBanner status={me?.tenant?.status} />
           <PageTransition>{children}</PageTransition>
         </main>
       </div>

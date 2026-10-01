@@ -300,8 +300,34 @@ a container holding a shared key.
   sits in `domain/billing.py` behind the billing store and use cases, small and tested
   against golden invoices worked by hand. A hosted engine can replace it at that seam
   when there is a reason to run one.
-- **Next slice:** suspension and payment (T7.6–T7.8), the LITZIM wholesale invoice with a
-  per-tenant breakdown (T7.9, T7.10), the usage producers, and the portal's billing pages.
+- **Payment and the lifecycle (T7.6, T7.8).** Issued invoices fall due after the
+  book's terms and are paid by bank transfer, reconciled by hand.
+  - An unpaid invoice, the tenant's own or its partner's, makes the tenant past due,
+    then suspended once the grace period is over. Paying returns it.
+  - A trial put on a paid plan is active, with the same tenant.
+  - **Suspended is read-only for people, never for counting.** At the permission check
+    every route passes, every change but what the edge sends is refused with `402` and
+    the reason. The portal says so in a banner.
+- **Partners (T7.9, T7.10).** LITZIM invoices its customers itself, so Cassava invoices
+  LITZIM:
+  - each customer is rated at wholesale (the book's discount; unit prices are kept
+    precise), broken down by customer, and taxed once;
+  - a partner-billed tenant is refused a Cassava invoice, and sees a usage statement
+    without prices;
+  - a partner may hold one customer, suspending only it until the partner lifts the
+    hold. Payment never lifts a hold. Holds use `subscription.manage`, the partner's
+    billing power over its own customers; `tenant.suspend` stays the platform's.
+- **Meters from real data:**
+  - storage is each tenant's bytes in the object store, recorded daily as a share of a
+    GB-month;
+  - assistant tokens are what the model reports, per reply. Nothing is estimated.
+- **Portal:** Configure → Billing shows the plan and its limits, this month's usage
+  against the allowances, the draft invoice or the statement, and invoices with what is
+  paid and due. The owner can change the plan.
+- **Still open for M7:** the signed entitlement snapshot that lets an edge node keep
+  counting on its last plan while offline (T7.7). It is not needed while ingest is never
+  refused for billing. Platform and partner billing screens belong to M8's consoles;
+  until then they are API calls.
 
 ## 2b. Analysis assistant
 

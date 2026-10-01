@@ -39,6 +39,7 @@ import LiveView from "./pages/LiveView";
 import Login from "./pages/Login";
 import Sessions from "./pages/Sessions";
 import Webhooks from "./pages/Webhooks";
+import Billing from "./pages/Billing";
 
 function OidcCallback({ config }: { config: AuthConfig }) {
   const navigate = useNavigate();
@@ -127,6 +128,7 @@ export default function App() {
           <Route path="/exceptions" element={<Exceptions me={me.data} />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/webhooks" element={<Webhooks />} />
+          <Route path="/billing" element={<Billing me={me.data} />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/users" element={<Users me={me.data?.subject ?? ""} />} />

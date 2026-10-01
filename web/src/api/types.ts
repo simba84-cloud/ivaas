@@ -686,3 +686,67 @@ export interface PocParams {
   crate_value?: number;
   currency?: string;
 }
+
+export interface BillingEntitlements {
+  plan: string;
+  valid_until: string | null;
+  limits: Record<string, number>;
+  features: Record<string, boolean>;
+  allowances: Record<string, number>;
+}
+
+export interface BillingSubscription {
+  /** false: no plan, so nothing is limited and nothing is billed */
+  subscribed: boolean;
+  entitlements: BillingEntitlements | null;
+  segments: { starts: string; plan: string; quantities: Record<string, number>; by: string }[];
+  channels_in_use: { od: number; lpr: number };
+  usage_this_month: Record<string, string>;
+}
+
+export interface BillingPlan {
+  id: string;
+  name: string;
+  recurring: Record<string, number>;
+  term_days: number | null;
+}
+
+export interface PriceBookView {
+  version: string;
+  /** made-up prices: invoices from it are stamped not for issue */
+  placeholder: boolean;
+  currency: string;
+  plans: BillingPlan[];
+}
+
+export interface InvoiceLineView {
+  sku: string;
+  description: string;
+  quantity: string;
+  unit_price: string;
+  amount: string;
+}
+
+export interface InvoiceView {
+  number: string | null;
+  period_start: string;
+  period_end: string;
+  currency: string;
+  lines: InvoiceLineView[];
+  subtotal: string;
+  tax_name: string;
+  tax: string;
+  total: string;
+  stamp: string | null;
+  due_date: string | null;
+  paid: string;
+  settled: boolean;
+}
+
+export interface StatementView {
+  period_start: string;
+  period_end: string;
+  billed_by: string;
+  lines: { sku: string; description: string; quantity: string }[];
+  usage: Record<string, string>;
+}
