@@ -231,6 +231,37 @@ a container holding a shared key.
   lost. An outbox written in the same transaction would close this. The daily report
   still carries every load.
 
+## 2a-vi. The POC report, and the availability history behind it (M9)
+
+- **Availability history.** Only a node's latest heartbeat used to be kept, so 14-day
+  uptime could not be computed, and history that was never recorded cannot be rebuilt.
+  - Each heartbeat now extends a period per node and per configured camera
+    (`domain/availability.py`, `edge_availability`, migration 0021). A gap of more than
+    90 s ends a period.
+  - An outage is a stretch longer than that with no period. Uptime is the rest of the
+    window, so the two always agree. Time with no heartbeat counts as down.
+  - Before the first recorded period nothing was kept, so that time is "not measured",
+    not down.
+  - Periods keep the spool backlog, so an outage shows whether what was queued drained.
+  - `GET /api/v1/edge/nodes/{id}/availability` gives uptime and outages for the node and
+    each camera over a window.
+- **The POC report** (`domain/poc.py`, `GET /api/v1/reports/poc`, Reports page) measures
+  the scope's acceptance criteria over the site's own days:
+  - **Accuracy:** per-truck AI count against the tally sheets, on the AI count.
+  - **Speed:** loading cycle time against a baseline that Bakers Inn supplies.
+  - **Reliability:** uptime, and every outage recovered with its backlog drained.
+  - **LPR:** tally sheets whose load the camera identified by the right plate. This is
+    measured on the camera's reading, never a person's correction. Sheets that found no
+    load are counted and shown.
+  - **ROI:** crates out, back and not yet back; exceptions; corrections.
+- **Never a pass by default.** A criterion the records cannot support is "not measured",
+  with the reason, and the verdict is then "incomplete":
+  - without tally sheets, accuracy and LPR are not measured;
+  - without a baseline, speed is not measured;
+  - without a crate value, crates are not priced.
+- It comes as JSON, as a PDF to sign, and as a CSV of every load to check it against.
+  Every time in the report is in the site's time zone.
+
 ## 2b. Analysis assistant
 
 ```
