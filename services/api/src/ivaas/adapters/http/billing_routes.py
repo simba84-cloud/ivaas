@@ -8,6 +8,7 @@ placeholder price book says so on every line of the way: it is not for issue.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime
 from decimal import Decimal
@@ -19,10 +20,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from ivaas.adapters.http.auth import current_principal, require
-from ivaas.adapters.http.platform_routes import _sees
+from ivaas.adapters.http.platform_routes import _partners_of, _sees
 from ivaas.application.billing import period_of
 from ivaas.domain.audit import AuditAction
-from ivaas.domain.billing import METERS, BillingError, Entitlements, Invoice
+from ivaas.domain.billing import METERS, BillingError, Entitlements, Invoice, PartnerInvoice
 from ivaas.domain.models import NotFoundError
 from ivaas.domain.rbac import Permission as P
 from ivaas.ports.auth import Principal
@@ -107,6 +108,23 @@ class LineOut(BaseModel):
     amount: str
 
 
+class StatementLineOut(BaseModel):
+    sku: str
+    description: str
+    quantity: str
+
+
+class StatementOut(BaseModel):
+    """What a partner-billed tenant used, without Cassava's prices: its partner invoices
+    it on its own paper (T7.9)."""
+
+    period_start: date
+    period_end: date
+    billed_by: str
+    lines: list[StatementLineOut]
+    usage: dict[str, str]
+
+
 class InvoiceOut(BaseModel):
     number: str | None
     period_start: date
@@ -123,6 +141,9 @@ class InvoiceOut(BaseModel):
     #: set on every invoice from a placeholder price book
     stamp: str | None
     issued_at: datetime | None
+    due_date: date | None
+    paid: str
+    settled: bool
 
     @classmethod
     def of(cls, inv: Invoice) -> InvoiceOut:
@@ -150,6 +171,9 @@ class InvoiceOut(BaseModel):
             placeholder=inv.placeholder,
             stamp=NOT_FOR_ISSUE if inv.placeholder else None,
             issued_at=inv.issued_at,
+            due_date=inv.due_date,
+            paid=str(inv.paid),
+            settled=inv.number is not None and inv.settled,
         )
 
 
@@ -162,6 +186,90 @@ async def own_tenant() -> None:
         )
 
 
+class PaymentIn(BaseModel):
+    amount: Decimal = Field(gt=0)
+    #: the bank transfer's reference, as on the statement it was reconciled from
+    reference: str = Field(min_length=1, max_length=120)
+
+
+class PartPartOut(BaseModel):
+    tenant_id: UUID
+    tenant_name: str
+    lines: list[LineOut]
+    subtotal: str
+
+
+class PartnerInvoiceOut(BaseModel):
+    partner: str
+    number: str | None
+    period_start: date
+    period_end: date
+    currency: str
+    #: one customer each, for the partner to re-bill from
+    customers: list[PartPartOut]
+    subtotal: str
+    tax_name: str
+    tax: str
+    total: str
+    price_book: str
+    placeholder: bool
+    stamp: str | None
+    issued_at: datetime | None
+    due_date: date | None
+    paid: str
+    settled: bool
+
+    @classmethod
+    def of(cls, inv: PartnerInvoice) -> PartnerInvoiceOut:
+        return cls(
+            partner=inv.partner_name,
+            number=inv.number,
+            period_start=inv.period_start,
+            period_end=inv.period_end,
+            currency=inv.currency,
+            customers=[
+                PartPartOut(
+                    tenant_id=p.tenant_id,
+                    tenant_name=p.tenant_name,
+                    lines=[
+                        LineOut(
+                            sku=x.sku,
+                            description=x.description,
+                            quantity=f"{x.quantity.normalize():f}",
+                            unit_price=f"{x.unit_price.normalize():f}",
+                            amount=str(x.amount),
+                        )
+                        for x in p.lines
+                    ],
+                    subtotal=str(p.subtotal),
+                )
+                for p in inv.parts
+            ],
+            subtotal=str(inv.subtotal),
+            tax_name=inv.tax_name,
+            tax=str(inv.tax),
+            total=str(inv.total),
+            price_book=inv.price_book,
+            placeholder=inv.placeholder,
+            stamp=NOT_FOR_ISSUE if inv.placeholder else None,
+            issued_at=inv.issued_at,
+            due_date=inv.due_date,
+            paid=str(inv.paid),
+            settled=inv.number is not None and inv.settled,
+        )
+
+
+class HoldIn(BaseModel):
+    on_hold: bool
+    reason: str = Field(default="", max_length=300)
+
+
+class TenantStateOut(BaseModel):
+    tenant_id: UUID
+    status: str
+    on_hold: bool
+
+
 def add_billing_routes(app: FastAPI, get_container: Callable[[Request], Any], audit: Audit) -> None:
     async def subscription_out(c: Any) -> SubscriptionOut:
         billing = c.billing()
@@ -171,7 +279,8 @@ def add_billing_routes(app: FastAPI, get_container: Callable[[Request], Any], au
         usage = (
             await billing.store.usage(
                 datetime.combine(draft.period_start, datetime.min.time(), c.clock.now().tzinfo),
-                c.clock.now(),
+                # the whole month: an event recorded at this instant is this month's too
+                datetime.combine(draft.period_end, datetime.max.time(), c.clock.now().tzinfo),
             )
             if draft
             else {}
@@ -255,6 +364,10 @@ def add_billing_routes(app: FastAPI, get_container: Callable[[Request], Any], au
         period: str = Query(pattern=r"^\d{4}-\d{2}$"), c: Any = Depends(get_container)
     ) -> InvoiceOut:
         """What the month comes to now, as the invoice would show it. Not issued."""
+        if await c.billing().partner_billed():
+            raise HTTPException(
+                409, "your partner invoices you; see /api/v1/billing/statement for your usage"
+            )
         try:
             inv = await c.billing().draft(period)
         except BillingError as exc:
@@ -262,6 +375,43 @@ def add_billing_routes(app: FastAPI, get_container: Callable[[Request], Any], au
         if inv is None:
             raise HTTPException(404, "no subscription: nothing is billed")
         return InvoiceOut.of(inv)
+
+    @app.get(
+        "/api/v1/billing/statement",
+        response_model=StatementOut,
+        dependencies=[Depends(require(P.INVOICE_READ)), Depends(own_tenant)],
+    )
+    async def statement(
+        period: str = Query(pattern=r"^\d{4}-\d{2}$"), c: Any = Depends(get_container)
+    ) -> StatementOut:
+        """The month's channels and usage, without prices: what a partner re-bills from."""
+        billing = c.billing()
+        try:
+            inv = await billing.draft(period)
+        except BillingError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if inv is None:
+            raise HTTPException(404, "no subscription: nothing is billed")
+        tenant = await billing.tenant()
+        with system_context():
+            partner = await c.tenants.get_partner(tenant.partner_id) if tenant.partner_id else None
+        tz = c.clock.now().tzinfo
+        usage = await billing.store.usage(
+            datetime.combine(inv.period_start, datetime.min.time(), tz),
+            datetime.combine(inv.period_end, datetime.max.time(), tz),
+        )
+        return StatementOut(
+            period_start=inv.period_start,
+            period_end=inv.period_end,
+            billed_by=partner.name if partner else "Cassava",
+            lines=[
+                StatementLineOut(
+                    sku=x.sku, description=x.description, quantity=f"{x.quantity.normalize():f}"
+                )
+                for x in inv.lines
+            ],
+            usage={k: f"{v.normalize():f}" for k, v in usage.items()},
+        )
 
     @app.get(
         "/api/v1/billing/invoices",
@@ -366,3 +516,161 @@ def add_billing_routes(app: FastAPI, get_container: Callable[[Request], Any], au
                 placeholder=inv.placeholder,
             )
             return InvoiceOut.of(inv)
+
+    @app.post(
+        "/api/v1/platform/tenants/{tenant_id}/invoices/{number}/payments",
+        response_model=InvoiceOut,
+        dependencies=[Depends(require(P.SUBSCRIPTION_MANAGE))],
+    )
+    async def pay_invoice(
+        tenant_id: UUID,
+        number: str,
+        body: PaymentIn,
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> InvoiceOut:
+        """A bank transfer, reconciled by hand. Paid in full, a past-due or suspended
+        tenant is active again (unless its partner holds it)."""
+        await billed_tenant(c, principal, tenant_id)
+        with tenant_context(tenant_id):
+            try:
+                inv = await c.billing().pay(number, body.amount, body.reference, principal.name)
+            except BillingError as exc:
+                raise HTTPException(404 if "no invoice" in str(exc) else 422, str(exc)) from exc
+            await audit(
+                c,
+                principal.name,
+                AuditAction.PAYMENT_RECORDED,
+                number,
+                amount=str(body.amount),
+                reference=body.reference,
+            )
+            return InvoiceOut.of(inv)
+
+    # --- partners: the wholesale invoice (T7.9) and holds (T7.10) --------------------------
+    async def billed_partner(principal: Principal, partner_id: UUID) -> None:
+        partners = _partners_of(principal)
+        if partners is not None and partner_id not in partners:
+            raise NotFoundError(f"partner {partner_id} not found")
+
+    @app.get(
+        "/api/v1/platform/partners/{partner_id}/invoices/draft",
+        response_model=PartnerInvoiceOut,
+        dependencies=[Depends(require(P.INVOICE_READ))],
+    )
+    async def partner_draft(
+        partner_id: UUID,
+        period: str = Query(pattern=r"^\d{4}-\d{2}$"),
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> PartnerInvoiceOut:
+        await billed_partner(principal, partner_id)
+        try:
+            return PartnerInvoiceOut.of(await c.partner_billing().draft(partner_id, period))
+        except BillingError as exc:
+            raise HTTPException(404 if "no partner" in str(exc) else 422, str(exc)) from exc
+
+    @app.get(
+        "/api/v1/platform/partners/{partner_id}/invoices",
+        response_model=list[PartnerInvoiceOut],
+        dependencies=[Depends(require(P.INVOICE_READ))],
+    )
+    async def partner_invoices(
+        partner_id: UUID,
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> list[PartnerInvoiceOut]:
+        await billed_partner(principal, partner_id)
+        with system_context():
+            partner = await c.tenants.get_partner(partner_id)
+            found = await c.partner_invoices.for_partner(partner_id)
+        name = partner.name if partner else ""
+        return [PartnerInvoiceOut.of(dataclasses.replace(i, partner_name=name)) for i in found]
+
+    @app.post(
+        "/api/v1/platform/partners/{partner_id}/invoices",
+        response_model=PartnerInvoiceOut,
+        status_code=201,
+        dependencies=[Depends(require(P.SUBSCRIPTION_MANAGE))],
+    )
+    async def issue_partner_invoice(
+        partner_id: UUID,
+        period: str = Query(pattern=r"^\d{4}-\d{2}$"),
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> PartnerInvoiceOut:
+        """Cassava's invoice to the partner: platform billing staff only."""
+        if _partners_of(principal) is not None:
+            raise HTTPException(403, "only Cassava issues a partner's invoice")
+        try:
+            inv = await c.partner_billing().issue(partner_id, period)
+        except BillingError as exc:
+            raise HTTPException(409 if "already" in str(exc) else 422, str(exc)) from exc
+        await audit(
+            c,
+            principal.name,
+            AuditAction.INVOICE_ISSUED,
+            inv.number or "",
+            partner=str(partner_id),
+            period=period,
+            total=str(inv.total),
+        )
+        return PartnerInvoiceOut.of(inv)
+
+    @app.post(
+        "/api/v1/platform/partner-invoices/{number}/payments",
+        response_model=PartnerInvoiceOut,
+        dependencies=[Depends(require(P.SUBSCRIPTION_MANAGE))],
+    )
+    async def pay_partner_invoice(
+        number: str,
+        body: PaymentIn,
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> PartnerInvoiceOut:
+        if _partners_of(principal) is not None:
+            raise HTTPException(403, "only Cassava records what a partner has paid it")
+        try:
+            inv = await c.partner_billing().pay(number, body.amount, body.reference, principal.name)
+        except BillingError as exc:
+            raise HTTPException(404 if "no invoice" in str(exc) else 422, str(exc)) from exc
+        await audit(
+            c,
+            principal.name,
+            AuditAction.PAYMENT_RECORDED,
+            number,
+            amount=str(body.amount),
+            reference=body.reference,
+        )
+        return PartnerInvoiceOut.of(inv)
+
+    @app.put(
+        "/api/v1/platform/tenants/{tenant_id}/hold",
+        response_model=TenantStateOut,
+        dependencies=[Depends(require(P.SUBSCRIPTION_MANAGE))],
+    )
+    async def hold_tenant(
+        tenant_id: UUID,
+        body: HoldIn,
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> TenantStateOut:
+        """A partner holds one of its customers (it has not paid the partner, say): that
+        tenant only is suspended, counting carries on, and lifting the hold returns it.
+        A billing hold, so subscription.manage on its own customers; tenant.suspend, the
+        platform's own power to suspend, is a different thing (proposal §4.2)."""
+        await billed_tenant(c, principal, tenant_id)
+        await c.partner_billing().hold(tenant_id, body.on_hold)
+        with system_context():
+            tenant = await c.tenants.get(tenant_id)
+        with tenant_context(tenant_id):
+            await audit(
+                c,
+                principal.name,
+                AuditAction.TENANT_HELD if body.on_hold else AuditAction.TENANT_RELEASED,
+                tenant.slug,
+                reason=body.reason,
+            )
+        return TenantStateOut(
+            tenant_id=tenant.id, status=tenant.status.value, on_hold=tenant.on_hold
+        )

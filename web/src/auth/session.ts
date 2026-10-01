@@ -26,6 +26,8 @@ export type Permission =
   | "reconciliation.resolve"
   | "report.export"
   | "apikey.manage"
+  | "invoice.read"
+  | "subscription.manage"
   | "audit.read"
   | "assistant.query"
   | "topology.read"

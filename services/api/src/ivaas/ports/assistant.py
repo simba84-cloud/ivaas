@@ -32,6 +32,8 @@ class ChatMessage:
     content: str = ""
     tool_calls: tuple[ToolCall, ...] = field(default_factory=tuple)
     tool_call_id: str | None = None
+    #: what the model says this reply cost, when it says; never estimated
+    tokens: int | None = None
 
 
 class ChatModel(Protocol):

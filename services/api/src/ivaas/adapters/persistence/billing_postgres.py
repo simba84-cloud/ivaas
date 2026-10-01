@@ -20,7 +20,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ivaas.adapters.persistence.postgres import Base
-from ivaas.domain.billing import Invoice, Line, Segment, Subscription, UsageEvent
+from ivaas.domain.billing import (
+    Invoice,
+    Line,
+    PartnerInvoice,
+    Payment,
+    Segment,
+    Subscription,
+    TenantPart,
+    UsageEvent,
+)
 from ivaas.tenancy import require_tenant
 
 
@@ -52,6 +61,26 @@ class InvoiceRow(Base):
     price_book: Mapped[str] = mapped_column(String(60))
     placeholder: Mapped[bool] = mapped_column(Boolean)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    due_date: Mapped[date | None] = mapped_column(Date)
+    payments: Mapped[list] = mapped_column(JSONB, default=list)
+
+
+class PartnerInvoiceRow(Base):
+    __tablename__ = "partner_invoices"
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    partner_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    number: Mapped[str] = mapped_column(String(40))
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    currency: Mapped[str] = mapped_column(String(3))
+    parts: Mapped[list] = mapped_column(JSONB)
+    tax_name: Mapped[str] = mapped_column(String(20))
+    tax_rate: Mapped[Decimal] = mapped_column(Numeric(6, 4))
+    price_book: Mapped[str] = mapped_column(String(80))
+    placeholder: Mapped[bool] = mapped_column(Boolean)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    due_date: Mapped[date | None] = mapped_column(Date)
+    payments: Mapped[list] = mapped_column(JSONB, default=list)
 
 
 def _segments_out(sub: Subscription) -> list[dict]:
@@ -84,6 +113,33 @@ def _lines_out(inv: Invoice) -> list[dict]:
     ]
 
 
+def _payments_out(payments: list[Payment]) -> list[dict]:
+    return [
+        {"amount": str(p.amount), "reference": p.reference, "at": p.at.isoformat(), "by": p.by}
+        for p in payments
+    ]
+
+
+def _payments_in(raw: list[dict]) -> list[Payment]:
+    return [
+        Payment(Decimal(p["amount"]), p["reference"], datetime.fromisoformat(p["at"]), p["by"])
+        for p in raw or []
+    ]
+
+
+def _lines_in(raw: list[dict]) -> list[Line]:
+    return [
+        Line(
+            x["sku"],
+            x["description"],
+            Decimal(x["quantity"]),
+            Decimal(x["unit_price"]),
+            Decimal(x["amount"]),
+        )
+        for x in raw
+    ]
+
+
 def _invoice_in(r: InvoiceRow, tenant_id: UUID) -> Invoice:
     return Invoice(
         tenant_id=tenant_id,
@@ -106,6 +162,8 @@ def _invoice_in(r: InvoiceRow, tenant_id: UUID) -> Invoice:
         placeholder=r.placeholder,
         number=r.number,
         issued_at=r.issued_at,
+        due_date=r.due_date,
+        payments=_payments_in(r.payments),
         id=r.id,
     )
 
@@ -153,7 +211,7 @@ class PostgresBillingStore:
 
     async def save_invoice(self, inv: Invoice) -> None:
         async with self._sm.begin() as db:
-            db.add(
+            await db.merge(  # issued, then saved again as payments are recorded
                 InvoiceRow(
                     id=inv.id,
                     number=inv.number,
@@ -166,6 +224,8 @@ class PostgresBillingStore:
                     price_book=inv.price_book,
                     placeholder=inv.placeholder,
                     issued_at=inv.issued_at,
+                    due_date=inv.due_date,
+                    payments=_payments_out(inv.payments),
                 )
             )
 
@@ -176,6 +236,12 @@ class PostgresBillingStore:
                 await db.scalars(select(InvoiceRow).order_by(InvoiceRow.issued_at.desc()))
             ).all()
         return [_invoice_in(r, tenant) for r in rows]
+
+    async def invoice(self, number: str) -> Invoice | None:
+        tenant = require_tenant()
+        async with self._sm() as db:
+            r = (await db.scalars(select(InvoiceRow).where(InvoiceRow.number == number))).first()
+        return _invoice_in(r, tenant) if r else None
 
     async def invoice_for(self, period_start, period_end) -> Invoice | None:
         tenant = require_tenant()
@@ -219,7 +285,10 @@ class InMemoryBillingStore:
         return f"IVAAS-{year}-{next(_numbers):06d}"
 
     async def save_invoice(self, inv: Invoice) -> None:
-        self._invoices.append(inv)
+        self._invoices = [i for i in self._invoices if i.id != inv.id] + [inv]
+
+    async def invoice(self, number: str) -> Invoice | None:
+        return next((i for i in self._invoices if i.number == number), None)
 
     async def invoices(self) -> list[Invoice]:
         return sorted(self._invoices, key=lambda i: i.issued_at or datetime.min, reverse=True)
@@ -233,3 +302,101 @@ class InMemoryBillingStore:
             ),
             None,
         )
+
+
+def _part_out(p: TenantPart) -> dict:
+    return {
+        "tenant_id": str(p.tenant_id),
+        "tenant_name": p.tenant_name,
+        "lines": [
+            {
+                "sku": x.sku,
+                "description": x.description,
+                "quantity": str(x.quantity),
+                "unit_price": str(x.unit_price),
+                "amount": str(x.amount),
+            }
+            for x in p.lines
+        ],
+    }
+
+
+def _partner_invoice_in(r: PartnerInvoiceRow, name: str = "") -> PartnerInvoice:
+    return PartnerInvoice(
+        partner_id=r.partner_id,
+        partner_name=name,
+        period_start=r.period_start,
+        period_end=r.period_end,
+        currency=r.currency,
+        parts=[
+            TenantPart(UUID(p["tenant_id"]), p["tenant_name"], _lines_in(p["lines"]))
+            for p in r.parts
+        ],
+        tax_name=r.tax_name,
+        tax_rate=Decimal(r.tax_rate),
+        price_book=r.price_book,
+        placeholder=r.placeholder,
+        number=r.number,
+        issued_at=r.issued_at,
+        due_date=r.due_date,
+        payments=_payments_in(r.payments),
+        id=r.id,
+    )
+
+
+class PostgresPartnerInvoiceStore:
+    """Partners' wholesale invoices: platform records, read in system context."""
+
+    def __init__(self, sm: async_sessionmaker[AsyncSession]) -> None:
+        self._sm = sm
+
+    async def save(self, inv: PartnerInvoice) -> None:
+        async with self._sm.begin() as db:
+            await db.merge(
+                PartnerInvoiceRow(
+                    id=inv.id,
+                    partner_id=inv.partner_id,
+                    number=inv.number,
+                    period_start=inv.period_start,
+                    period_end=inv.period_end,
+                    currency=inv.currency,
+                    parts=[_part_out(p) for p in inv.parts],
+                    tax_name=inv.tax_name,
+                    tax_rate=inv.tax_rate,
+                    price_book=inv.price_book,
+                    placeholder=inv.placeholder,
+                    issued_at=inv.issued_at,
+                    due_date=inv.due_date,
+                    payments=_payments_out(inv.payments),
+                )
+            )
+
+    async def for_partner(self, partner_id: UUID) -> list[PartnerInvoice]:
+        stmt = (
+            select(PartnerInvoiceRow)
+            .where(PartnerInvoiceRow.partner_id == partner_id)
+            .order_by(PartnerInvoiceRow.issued_at.desc())
+        )
+        async with self._sm() as db:
+            return [_partner_invoice_in(r) for r in (await db.scalars(stmt)).all()]
+
+    async def by_number(self, number: str) -> PartnerInvoice | None:
+        stmt = select(PartnerInvoiceRow).where(PartnerInvoiceRow.number == number)
+        async with self._sm() as db:
+            r = (await db.scalars(stmt)).first()
+        return _partner_invoice_in(r) if r else None
+
+
+class InMemoryPartnerInvoiceStore:
+    def __init__(self) -> None:
+        self._items: dict[UUID, PartnerInvoice] = {}
+
+    async def save(self, inv: PartnerInvoice) -> None:
+        self._items[inv.id] = inv
+
+    async def for_partner(self, partner_id: UUID) -> list[PartnerInvoice]:
+        mine = [i for i in self._items.values() if i.partner_id == partner_id]
+        return sorted(mine, key=lambda i: i.issued_at or datetime.min, reverse=True)
+
+    async def by_number(self, number: str) -> PartnerInvoice | None:
+        return next((i for i in self._items.values() if i.number == number), None)

@@ -903,3 +903,92 @@ async def test_the_usage_ledger_is_append_only_for_the_application(request):
                     await db.execute(text(change))
     finally:
         await dispose()
+
+
+@both_billing
+async def test_payments_are_saved_onto_the_issued_invoice(billing):
+    from decimal import Decimal
+
+    from ivaas.domain.billing import Invoice, Line, Payment
+
+    store, _ = billing
+    inv = Invoice(
+        BAKERS_INN_ID,
+        T0.date(),
+        T0.date(),
+        "USD",
+        [Line("ivaas-platform", "x", Decimal(1), Decimal("100.00"), Decimal("100.00"))],
+        "VAT",
+        Decimal("0.15"),
+        "book",
+        True,
+        number=await store.next_invoice_number(2026),
+        issued_at=T0,
+        due_date=T0.date(),
+    )
+    await store.save_invoice(inv)
+    inv.pay(Payment(Decimal("115.00"), "BT-1", T0, "finance"))
+    await store.save_invoice(inv)  # the same invoice, now paid: not a second one
+    [back] = await store.invoices()
+    assert back.settled and back.payments[0].reference == "BT-1"
+    assert back.due_date == T0.date()
+    assert (await store.invoice(inv.number)).id == inv.id
+
+
+@pytest.mark.postgres
+async def test_partner_invoices_and_holds_round_trip_on_postgres(request):
+    from decimal import Decimal
+
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from ivaas.adapters.persistence.billing_postgres import PostgresPartnerInvoiceStore
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+    from ivaas.adapters.persistence.tenants_postgres import PostgresTenantStore
+    from ivaas.domain.billing import Line, PartnerInvoice, Payment, TenantPart
+    from ivaas.domain.tenancy import LITZIM_ID
+    from ivaas.tenancy import system_context
+
+    url = request.getfixturevalue("postgres_url")
+    *_, dispose, sm = await build_postgres_repositories(
+        url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
+    )
+    owner = create_async_engine(url)
+    async with owner.begin() as db:
+        await db.execute(text("DELETE FROM partner_invoices"))
+    await owner.dispose()
+    try:
+        with system_context():
+            store, tenants = PostgresPartnerInvoiceStore(sm), PostgresTenantStore(sm)
+            line = Line("ivaas-platform", "x", Decimal(1), Decimal("175.00"), Decimal("175.00"))
+            inv = PartnerInvoice(
+                LITZIM_ID,
+                "LITZIM",
+                T0.date(),
+                T0.date(),
+                "USD",
+                [TenantPart(BAKERS_INN_ID, "Bakers Inn", [line])],
+                "VAT",
+                Decimal("0.15"),
+                "book+wholesale-litzim",
+                True,
+                number="IVAAS-2026-990001",
+                issued_at=T0,
+                due_date=T0.date(),
+            )
+            await store.save(inv)
+            inv.pay(Payment(inv.total, "LITZIM-1", T0, "finance"))
+            await store.save(inv)
+            [back] = await store.for_partner(LITZIM_ID)
+            assert back.settled and back.parts[0].tenant_name == "Bakers Inn"
+            assert back.total == Decimal("201.25")  # 175.00 + 15%
+            assert (await store.by_number("IVAAS-2026-990001")).id == inv.id
+
+            bakers = await tenants.get(BAKERS_INN_ID)
+            bakers.on_hold = True
+            await tenants.save(bakers)
+            assert (await tenants.get(BAKERS_INN_ID)).on_hold
+            bakers.on_hold = False
+            await tenants.save(bakers)
+    finally:
+        await dispose()

@@ -4,6 +4,8 @@
   "note": "MADE-UP PRICES for building and testing billing. Every invoice made from this book is stamped NOT FOR ISSUE. Replace it with the price book Cassava finance approves (IVAAS_PRICE_BOOK).",
   "currency": "USD",
   "tax": {"name": "VAT", "rate": "0.15"},
+  "terms": {"payment_days": 14, "grace_days": 7},
+  "wholesale": {"litzim": {"discount": "0.30"}},
   "skus": {
     "ivaas-platform": {"unit": "tenant per month", "price": "250.00"},
     "ivaas-od-count": {"unit": "counting channel per month", "price": "45.00"},

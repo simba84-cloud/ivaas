@@ -45,6 +45,8 @@ class ToolUse:
 class AssistantReply:
     text: str
     tools_used: list[ToolUse] = field(default_factory=list)
+    #: tokens the model reported across every step; None when it reported none
+    tokens: int | None = None
 
 
 @dataclass
@@ -64,11 +66,17 @@ class AskAssistant:
         now = self.clock.now().isoformat(timespec="minutes")
         messages = [ChatMessage("system", SYSTEM_PROMPT.format(now=now)), *clean]
         used: list[ToolUse] = []
+        reported: list[int] = []
+
+        def tokens() -> int | None:
+            return sum(reported) if reported else None
 
         for _ in range(MAX_STEPS):
             turn = await self.model.complete(messages, self.tools.SPECS)
+            if turn.tokens is not None:
+                reported.append(turn.tokens)
             if not turn.tool_calls:
-                return AssistantReply(turn.content.strip(), used)
+                return AssistantReply(turn.content.strip(), used, tokens())
             messages.append(turn)
             for call in turn.tool_calls:
                 result = await self.tools.call(call.name, call.arguments)
@@ -79,4 +87,5 @@ class AskAssistant:
         return AssistantReply(
             "I could not finish that analysis within the step limit. Try a narrower question.",
             used,
+            tokens(),
         )

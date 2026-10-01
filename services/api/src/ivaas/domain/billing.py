@@ -18,7 +18,7 @@ billed as overage above the plan's allowance.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -65,6 +65,11 @@ class PriceBook:
     prices: dict[str, Decimal]
     plans: dict[str, Plan]
     placeholder: bool
+    #: days to pay an issued invoice, then days of grace before suspension
+    payment_days: int = 14
+    grace_days: int = 7
+    #: partner slug -> discount off each SKU's price, for its wholesale invoice
+    wholesale: dict[str, Decimal] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: str | Path) -> PriceBook:
@@ -95,6 +100,12 @@ class PriceBook:
                 prices=prices,
                 plans=plans,
                 placeholder=bool(raw.get("placeholder", True)),
+                payment_days=int(raw.get("terms", {}).get("payment_days", 14)),
+                grace_days=int(raw.get("terms", {}).get("grace_days", 7)),
+                wholesale={
+                    slug: Decimal(str(w["discount"]))
+                    for slug, w in raw.get("wholesale", {}).items()
+                },
             )
         except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
             raise BillingError(f"the price book is malformed: {exc}") from exc
@@ -105,6 +116,19 @@ class PriceBook:
         if any(p < 0 for p in prices.values()) or not (0 <= book.tax_rate < 1):
             raise BillingError("prices cannot be negative, and tax is a rate between 0 and 1")
         return book
+
+    def for_partner(self, slug: str) -> PriceBook:
+        """This book at a partner's wholesale prices: each SKU's price less its discount.
+        Unit prices keep their precision (0.02 less 30% is 0.014, not 0.01); only the
+        amount on each line is rounded to the cent, as for retail."""
+        if slug not in self.wholesale:
+            raise BillingError(f"partner {slug!r} has no wholesale terms in the price book")
+        off = Decimal(1) - self.wholesale[slug]
+        return replace(
+            self,
+            version=f"{self.version}+wholesale-{slug}",
+            prices={sku: p * off for sku, p in self.prices.items()},
+        )
 
     def plan(self, plan_id: str) -> Plan:
         if plan_id not in self.plans:
@@ -216,8 +240,41 @@ class Line:
     amount: Decimal
 
 
+@dataclass(frozen=True)
+class Payment:
+    amount: Decimal
+    reference: str  # the bank transfer's reference, as reconciled by hand
+    at: datetime
+    by: str
+
+
+class Payable:
+    """Paying an issued invoice, by bank transfer reconciled by hand (the POC's way)."""
+
+    number: str | None
+    payments: list[Payment]
+    total: Decimal
+
+    @property
+    def paid(self) -> Decimal:
+        return money(sum((p.amount for p in self.payments), Decimal(0)))
+
+    @property
+    def settled(self) -> bool:
+        return self.paid >= self.total
+
+    def pay(self, payment: Payment) -> None:
+        if self.number is None:
+            raise BillingError("a draft is not paid; issue it first")
+        if payment.amount <= 0:
+            raise BillingError("a payment is a positive amount")
+        if self.settled:
+            raise BillingError(f"{self.number} is already paid")
+        self.payments.append(payment)
+
+
 @dataclass
-class Invoice:
+class Invoice(Payable):
     tenant_id: UUID
     period_start: date
     period_end: date  # inclusive
@@ -229,6 +286,8 @@ class Invoice:
     placeholder: bool
     number: str | None = None  # given when issued
     issued_at: datetime | None = None
+    due_date: date | None = None
+    payments: list[Payment] = field(default_factory=list)
     id: UUID = field(default_factory=uuid4)
 
     @property
@@ -343,3 +402,110 @@ def rate(
         price_book=book.version,
         placeholder=book.placeholder,
     )
+
+
+# --- partner wholesale (T7.9) ----------------------------------------------------------
+@dataclass(frozen=True)
+class TenantPart:
+    """One customer's share of a partner's invoice, for the partner to re-bill from."""
+
+    tenant_id: UUID
+    tenant_name: str
+    lines: list[Line]
+
+    @property
+    def subtotal(self) -> Decimal:
+        return money(sum((line.amount for line in self.lines), Decimal(0)))
+
+
+@dataclass
+class PartnerInvoice(Payable):
+    partner_id: UUID
+    partner_name: str
+    period_start: date
+    period_end: date
+    currency: str
+    parts: list[TenantPart]
+    tax_name: str
+    tax_rate: Decimal
+    price_book: str
+    placeholder: bool
+    number: str | None = None
+    issued_at: datetime | None = None
+    due_date: date | None = None
+    payments: list[Payment] = field(default_factory=list)
+    id: UUID = field(default_factory=uuid4)
+
+    @property
+    def subtotal(self) -> Decimal:
+        return money(sum((p.subtotal for p in self.parts), Decimal(0)))
+
+    @property
+    def tax(self) -> Decimal:
+        return money(self.subtotal * self.tax_rate)
+
+    @property
+    def total(self) -> Decimal:
+        return self.subtotal + self.tax
+
+
+def wholesale(
+    book: PriceBook,
+    partner_id: UUID,
+    partner_slug: str,
+    partner_name: str,
+    customers: list[tuple[str, Subscription, dict[str, Decimal]]],
+    start: date,
+    end: date,
+) -> PartnerInvoice:
+    """The partner's month: each customer rated at the partner's wholesale prices,
+    kept apart so the partner can re-bill each one, then taxed once on the whole."""
+    priced = book.for_partner(partner_slug)
+    parts = []
+    for name, sub, usage in customers:
+        inv = rate(priced, sub, start, end, usage)
+        if inv.lines:
+            parts.append(TenantPart(sub.tenant_id, name, inv.lines))
+    return PartnerInvoice(
+        partner_id=partner_id,
+        partner_name=partner_name,
+        period_start=start,
+        period_end=end,
+        currency=book.currency,
+        parts=parts,
+        tax_name=book.tax_name,
+        tax_rate=book.tax_rate,
+        price_book=priced.version,
+        placeholder=book.placeholder,
+    )
+
+
+# --- the tenant's billing state (T7.6, T7.8, T7.10) -------------------------------------
+def billing_status(
+    *,
+    current: str,
+    on_trial: bool,
+    subscribed: bool,
+    overdue_since: list[date],
+    on_hold: bool,
+    today: date,
+    grace_days: int,
+) -> str:
+    """Where billing puts a tenant. `overdue_since`: the due dates of unpaid invoices
+    that apply to it, its own or its partner's. Past due once one is late; suspended
+    once the grace is over too, or while its partner holds it. Paying, or the hold
+    lifting, returns it. A tenant being provisioned, expired or cancelled is not
+    billing's to move.
+
+    Suspended limits what people can change, never counting: the edge keeps running.
+    """
+    if current in ("provisioning", "expired", "cancelled"):
+        return current
+    late = [d for d in overdue_since if today > d]
+    if on_hold or any((today - d).days > grace_days for d in late):
+        return "suspended"
+    if late:
+        return "past_due"
+    if subscribed:
+        return "trial" if on_trial else "active"
+    return current if current in ("trial", "active") else "trial"

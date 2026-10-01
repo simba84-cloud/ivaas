@@ -94,6 +94,13 @@ NOT_TENANT_RESOURCES = {
     ("POST", "/api/v1/platform/tenants/{tenant_id}/invoices"),
     ("GET", "/api/v1/platform/tenants/{tenant_id}/subscription"),
     ("GET", "/api/v1/platform/tenants/{tenant_id}/invoices/draft"),
+    ("POST", "/api/v1/platform/tenants/{tenant_id}/invoices/{number}/payments"),
+    ("PUT", "/api/v1/platform/tenants/{tenant_id}/hold"),
+    # a partner's wholesale invoices: platform staff, or that partner (test_billing_api)
+    ("GET", "/api/v1/platform/partners/{partner_id}/invoices/draft"),
+    ("GET", "/api/v1/platform/partners/{partner_id}/invoices"),
+    ("POST", "/api/v1/platform/partners/{partner_id}/invoices"),
+    ("POST", "/api/v1/platform/partner-invoices/{number}/payments"),
 }
 
 

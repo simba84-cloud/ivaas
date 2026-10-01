@@ -42,7 +42,7 @@ from ivaas.application.analysis import RunNextJob, SubmitVideo
 from ivaas.application.analytics import AnalyticsTools
 from ivaas.application.assistant import AskAssistant
 from ivaas.application.balances import BalanceQuery
-from ivaas.application.billing import Billing
+from ivaas.application.billing import Billing, PartnerBilling
 from ivaas.application.cameras import (
     EnsureStreamPaths,
     RefreshCameraStatus,
@@ -196,6 +196,7 @@ class Container:
     reports: Any
     webhooks: Any
     billing_store: Any
+    partner_invoices: Any
     price_book: PriceBook
     webhook_sender: Any
     users: Any
@@ -383,7 +384,21 @@ class Container:
         return BalanceQuery(self.sessions, self.bays, self.sites, self.manifests, self.clock)
 
     def billing(self) -> Billing:
-        return Billing(self.billing_store, self.price_book, self.cameras, self.bays, self.clock)
+        return Billing(
+            self.billing_store,
+            self.price_book,
+            self.cameras,
+            self.bays,
+            self.clock,
+            tenants=self.tenants,
+            partner_invoices=self.partner_invoices,
+            objects=self.objects,
+        )
+
+    def partner_billing(self) -> PartnerBilling:
+        return PartnerBilling(
+            self.tenants, self.partner_invoices, self.billing, self.price_book, self.clock
+        )
 
     def queue_webhooks(self) -> QueueWebhooks:
         return QueueWebhooks(self.webhooks, self.clock)
@@ -683,9 +698,13 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.webhooks_postgres import PostgresWebhookStore
 
         webhooks: Any = PostgresWebhookStore(pg_sessionmaker, box)
-        from ivaas.adapters.persistence.billing_postgres import PostgresBillingStore
+        from ivaas.adapters.persistence.billing_postgres import (
+            PostgresBillingStore,
+            PostgresPartnerInvoiceStore,
+        )
 
         billing_store: Any = PostgresBillingStore(pg_sessionmaker)
+        partner_invoices: Any = PostgresPartnerInvoiceStore(pg_sessionmaker)
         audit = PostgresAuditLog(pg_sessionmaker)
         setting_store = PostgresSettingsStore(pg_sessionmaker)
         acknowledgements = PostgresAcknowledgementStore(pg_sessionmaker)
@@ -742,9 +761,13 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.webhooks_postgres import InMemoryWebhookStore
 
         webhooks = PerTenant(InMemoryWebhookStore)
-        from ivaas.adapters.persistence.billing_postgres import InMemoryBillingStore
+        from ivaas.adapters.persistence.billing_postgres import (
+            InMemoryBillingStore,
+            InMemoryPartnerInvoiceStore,
+        )
 
         billing_store = PerTenant(InMemoryBillingStore)
+        partner_invoices = InMemoryPartnerInvoiceStore()  # a platform record, like tenants
         audit = PerTenant(InMemoryAuditLog)
         setting_store = PerTenant(InMemorySettingsStore)
         acknowledgements = PerTenant(InMemoryAcknowledgementStore)
@@ -869,6 +892,7 @@ async def build_container(settings: Settings) -> Container:
         webhooks=webhooks,
         webhook_sender=webhook_sender,
         billing_store=billing_store,
+        partner_invoices=partner_invoices,
         price_book=PriceBook.load(settings.price_book),
         availability=availability,
         _closers=closers,

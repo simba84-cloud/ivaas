@@ -138,6 +138,10 @@ export const overview = (over: Partial<Overview> = {}): Overview => ({
  * "admin", "operator" and "viewer" are the accounts, not roles, so tests read the same.
  */
 const PERSONAS: Record<string, { roles: string[]; permissions: string[] }> = {
+  owner: {
+    roles: ["tenant_owner"],
+    permissions: ["subscription.manage", "invoice.read", "user.invite", "count.read", "report.export", "audit.read"],
+  },
   admin: {
     roles: ["site_manager", "tenant_admin"],
     permissions: [
