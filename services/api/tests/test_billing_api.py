@@ -414,3 +414,87 @@ def test_t7_10b_a_partner_holds_one_customer_and_only_lifting_it_returns_it(bill
     # a partner holds its own customers only
     other = f"/api/v1/platform/tenants/{direct_tenant(c)[0]}/hold"
     assert c.put(other, json={"on_hold": True}, headers=litzim).status_code == 404
+
+
+# --- the usage producers: storage and assistant tokens ----------------------------------
+def test_storage_is_metered_daily_from_the_tenants_own_bytes(billed):
+    from decimal import Decimal
+    from uuid import UUID
+
+    from ivaas.domain.tenancy import ISOLATION_TEST_ID
+    from ivaas.tenancy import object_key, tenant_context
+
+    c, clock = billed
+    standard(c)
+    container = c.app.state.container
+    gib = 1024**3
+
+    async def put(tenant, name, n):
+        with tenant_context(tenant):
+            await container.objects.put(object_key(name), b"\0" * n, "application/octet-stream")
+
+    c.portal.call(put, BAKERS_INN_ID, "clips/a.mp4", 3 * 1024**2)
+    c.portal.call(put, ISOLATION_TEST_ID, "clips/b.mp4", 5 * 1024**2)  # not Bakers Inn's
+    clock.at = datetime(2026, 10, 16, 1, tzinfo=UTC)
+
+    async def meter():
+        with tenant_context(UUID(str(BAKERS_INN_ID))):
+            return await container.billing().meter_storage()
+
+    assert c.portal.call(meter) is True
+    assert c.portal.call(meter) is False  # once a day
+    used = c.get("/api/v1/billing/subscription", headers=login(c, "owner")).json()
+    # 3 MiB on 15 Oct, as a 31st of a month: 3 / 1024 / 31 GB-month
+    expected = (Decimal(3 * 1024**2) / Decimal(gib) / 31).quantize(Decimal("0.000001"))
+    assert used["usage_this_month"]["storage_gb_month"] == f"{expected.normalize():f}"
+
+
+def test_assistant_tokens_are_what_the_model_reports_and_nothing_when_it_reports_none(billed):
+    from ivaas.ports.assistant import ChatMessage, ToolCall
+
+    c, clock = billed
+    standard(c)
+    owner = login(c, "owner")
+
+    class Model:
+        def __init__(self, *turns):
+            self.turns = list(turns)
+
+        async def complete(self, messages, tools):
+            return self.turns.pop(0)
+
+    container = c.app.state.container
+    ask = {"messages": [{"role": "user", "content": "how many crates today?"}]}
+    container.chat_model = Model(
+        ChatMessage("assistant", tool_calls=(ToolCall("t1", "camera_health", {}),), tokens=900),
+        ChatMessage("assistant", "All cameras are offline.", tokens=350),
+    )
+    assert c.post("/api/v1/assistant/chat", json=ask, headers=owner).status_code == 200
+    container.chat_model = Model(ChatMessage("assistant", "No figures to give."))  # no usage
+    assert c.post("/api/v1/assistant/chat", json=ask, headers=owner).status_code == 200
+    used = c.get("/api/v1/billing/subscription", headers=owner).json()["usage_this_month"]
+    assert used == {"assistant_tokens": "1250"}  # both steps of the first, none of the second
+
+
+def test_the_model_adapter_reads_reported_usage():
+    import asyncio
+
+    import httpx
+
+    from ivaas.adapters.llm.openai_compatible import OpenAiCompatibleChatModel
+    from ivaas.ports.assistant import ChatMessage
+
+    def reply(usage):
+        body = {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+        return httpx.Response(200, json={**body, **({"usage": usage} if usage else {})})
+
+    async def run(usage):
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda r: reply(usage)), base_url="http://llm"
+        )
+        model = OpenAiCompatibleChatModel("http://llm", "m", client=client)
+        return (await model.complete([ChatMessage("user", "hi")], [])).tokens
+
+    assert asyncio.run(run({"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})) == 15
+    assert asyncio.run(run(None)) is None
+    assert asyncio.run(run({"total_tokens": "lots"})) is None

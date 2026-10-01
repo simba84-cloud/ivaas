@@ -392,6 +392,7 @@ class Container:
             self.clock,
             tenants=self.tenants,
             partner_invoices=self.partner_invoices,
+            objects=self.objects,
         )
 
     def partner_billing(self) -> PartnerBilling:

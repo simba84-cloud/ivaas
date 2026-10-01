@@ -120,7 +120,8 @@ class OpenAiCompatibleChatModel:
                 f"language model server returned {r.status_code}: {r.text[:200]}"
             )
         try:
-            message = r.json()["choices"][0]["message"]
+            body = r.json()
+            message = body["choices"][0]["message"]
         except (KeyError, IndexError, ValueError) as exc:
             raise ChatModelUnavailableError("language model returned an unexpected reply") from exc
 
@@ -133,4 +134,6 @@ class OpenAiCompatibleChatModel:
             for i, c in enumerate(message.get("tool_calls") or [])
         )
         content = _THINK.sub("", message.get("content") or "").strip()
-        return ChatMessage("assistant", content, tool_calls=calls)
+        used = (body.get("usage") or {}).get("total_tokens")
+        tokens = used if isinstance(used, int) and used >= 0 else None
+        return ChatMessage("assistant", content, tool_calls=calls, tokens=tokens)

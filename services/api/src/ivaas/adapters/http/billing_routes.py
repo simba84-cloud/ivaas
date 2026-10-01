@@ -279,7 +279,8 @@ def add_billing_routes(app: FastAPI, get_container: Callable[[Request], Any], au
         usage = (
             await billing.store.usage(
                 datetime.combine(draft.period_start, datetime.min.time(), c.clock.now().tzinfo),
-                c.clock.now(),
+                # the whole month: an event recorded at this instant is this month's too
+                datetime.combine(draft.period_end, datetime.max.time(), c.clock.now().tzinfo),
             )
             if draft
             else {}

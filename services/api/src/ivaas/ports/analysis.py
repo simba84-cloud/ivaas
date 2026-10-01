@@ -30,6 +30,10 @@ class ObjectStore(Protocol):
 
     async def delete(self, key: str) -> None: ...
 
+    async def size(self, prefix: str) -> int:
+        """Bytes stored under `prefix` (a tenant's share, for billing)."""
+        ...
+
 
 class VideoAnalyser(Protocol):
     """Runs the counting pipeline over a local video file. Implemented by the pipeline

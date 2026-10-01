@@ -28,7 +28,7 @@ from ivaas.domain.billing import (
 from ivaas.domain.models import CameraRole
 from ivaas.domain.tenancy import Tenant, TenantStatus
 from ivaas.ports.billing import BillingStore
-from ivaas.tenancy import require_tenant, system_context, tenant_context
+from ivaas.tenancy import object_key, require_tenant, system_context, tenant_context
 
 
 def kind_of(role: CameraRole | str) -> str:
@@ -44,6 +44,7 @@ class Billing:
     clock: Any
     tenants: Any = None
     partner_invoices: Any = None
+    objects: Any = None
 
     async def tenant(self) -> Tenant:
         with system_context():
@@ -96,6 +97,24 @@ class Billing:
         at = datetime.combine(yesterday, time(12), self.clock.now().tzinfo)
         return await self.record_usage(
             "active_channel_days", Decimal(total), at, f"active_channel_days:{yesterday}"
+        )
+
+    async def meter_storage(self) -> bool:
+        """Yesterday's share of a GB-month: the tenant's stored GB over the days in that
+        month, so a month of these sums to its average. Once a day, by its key."""
+        if self.objects is None:
+            return False
+        yesterday = self.clock.now().date() - timedelta(days=1)
+        stored = await self.objects.size(object_key(""))
+        start, end = month(period_of(yesterday))
+        days = (end - start).days + 1
+        gb_month = Decimal(stored) / Decimal(1024**3) / Decimal(days)
+        at = datetime.combine(yesterday, time(12), self.clock.now().tzinfo)
+        return await self.record_usage(
+            "storage_gb_month",
+            gb_month.quantize(Decimal("0.000001")),
+            at,
+            f"storage_gb_month:{yesterday}",
         )
 
     async def draft(self, period: str) -> Invoice | None:

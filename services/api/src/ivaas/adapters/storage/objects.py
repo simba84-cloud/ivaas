@@ -93,6 +93,15 @@ class S3ObjectStore:
     async def read(self, key: str) -> bytes:
         return (await self.open(key))[0]
 
+    async def size(self, prefix: str) -> int:
+        """Bytes stored under `prefix`: a tenant's share of the store, for billing."""
+        async with self._session.client("s3", **self._kw) as s3:
+            total = 0
+            paginator = s3.get_paginator("list_objects_v2")
+            async for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+                total += sum(o["Size"] for o in page.get("Contents", []))
+            return total
+
     async def list_keys(self, prefix: str) -> list[str]:
         async with self._session.client("s3", **self._kw) as s3:
             keys: list[str] = []
@@ -142,6 +151,12 @@ class LocalObjectStore:
         import mimetypes
 
         return await self.read(key), mimetypes.guess_type(key)[0] or "application/octet-stream"
+
+    async def size(self, prefix: str) -> int:
+        base = self.path_of(prefix) if prefix else Path(self._root)
+        if base.is_file():
+            return base.stat().st_size
+        return sum(f.stat().st_size for f in base.rglob("*") if f.is_file()) if base.exists() else 0
 
     async def list_keys(self, prefix: str) -> list[str]:
         base = self._root / prefix

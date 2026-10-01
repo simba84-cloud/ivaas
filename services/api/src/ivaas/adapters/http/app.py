@@ -5,6 +5,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, time, timedelta
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from fastapi import (
@@ -184,6 +185,8 @@ async def _sweep_tenant(container: Container, slug: str) -> None:
         # yesterday's channels, metered once (the day's key makes every minute harmless)
         if await container.billing().meter_channel_days():
             log.info("%s: metered yesterday's active channels", slug)
+        if await container.billing().meter_storage():
+            log.info("%s: metered yesterday's storage", slug)
         # an invoice falling due, or its grace running out, moves the tenant (T7.6)
         moved = await container.billing().refresh_status()
         if moved:
@@ -1334,6 +1337,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             reply = await ask([ChatMessage(m.role, m.content) for m in body.messages])
         except ChatModelUnavailableError as exc:
             raise HTTPException(503, str(exc)) from exc
+        if reply.tokens:  # what the model says it used, metered once; never estimated
+            try:
+                await c.billing().record_usage(
+                    "assistant_tokens",
+                    Decimal(reply.tokens),
+                    c.clock.now(),
+                    f"assistant:{uuid4()}",
+                )
+            except Exception:  # the answer is given; a lost meter is logged, not an error
+                log.exception("could not meter %d assistant tokens", reply.tokens)
         return ChatOut(
             reply=reply.text,
             tools_used=[ToolUseOut(name=t.name, arguments=t.arguments) for t in reply.tools_used],
