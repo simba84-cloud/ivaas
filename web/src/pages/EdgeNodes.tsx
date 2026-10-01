@@ -34,7 +34,7 @@ function uptime(s: number | null) {
  * An enrollment token, shown once. The platform stores a digest of it and cannot
  * show it again; the command beside it is what the installer runs on the node.
  */
-function OneTimeToken({ token, onClose }: { token: EnrollmentToken; onClose: () => void }) {
+export function OneTimeToken({ token, onClose }: { token: EnrollmentToken; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   const command = `docker compose run --rm pipeline python -m ivaas_pipeline enroll --api ${window.location.origin} --token ${token.token}`;
   return (

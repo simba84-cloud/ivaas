@@ -50,6 +50,7 @@ from ivaas.application.cameras import (
     RemoveCamera,
 )
 from ivaas.application.manifests import ReconcileManifests
+from ivaas.application.onboarding import Onboarding
 from ivaas.application.overview import OperationsOverview, Overview
 from ivaas.application.poc import BuildPocReport
 from ivaas.application.provisioning import ProvisionTenant
@@ -453,6 +454,17 @@ class Container:
             self.clock,
             render_pdf=to_pdf,
             render_csv=to_csv,
+        )
+
+    def onboarding(self) -> Onboarding:
+        return Onboarding(
+            self.tenants,
+            self.users,
+            self.sites,
+            self.bays,
+            self.edge,
+            self.billing_store,
+            self.clock,
         )
 
     @property

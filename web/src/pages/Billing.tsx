@@ -114,7 +114,7 @@ function ChangePlan({ sub }: { sub: BillingSubscription }) {
   );
 }
 
-function Lines({ lines }: { lines: { description: string; quantity: string; amount?: string }[] }) {
+export function Lines({ lines }: { lines: { description: string; quantity: string; amount?: string }[] }) {
   return (
     <ul className="divide-y divide-line text-sm">
       {lines.map((l, i) => (
@@ -127,7 +127,7 @@ function Lines({ lines }: { lines: { description: string; quantity: string; amou
   );
 }
 
-function Draft({ inv }: { inv: InvoiceView }) {
+export function Draft({ inv }: { inv: Pick<InvoiceView, "stamp" | "lines" | "subtotal" | "tax_name" | "tax" | "total" | "currency"> }) {
   return (
     <>
       {inv.stamp && <p className="mb-2 text-xs font-semibold text-warn">{inv.stamp}</p>}
@@ -182,7 +182,7 @@ function ThisMonth() {
   );
 }
 
-function InvoiceStatus({ inv }: { inv: InvoiceView }) {
+export function InvoiceStatus({ inv }: { inv: Pick<InvoiceView, "settled" | "due_date"> }) {
   if (inv.settled) return <span className="chip bg-good/10 text-good">Paid</span>;
   const late = inv.due_date !== null && inv.due_date < today();
   return (

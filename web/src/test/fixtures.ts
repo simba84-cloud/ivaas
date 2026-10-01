@@ -213,3 +213,28 @@ export const edgeNode = (over: Partial<EdgeNode> = {}): EdgeNode => ({
   config_drift: false,
   ...over,
 });
+
+/** Platform and partner staff: no tenant, and only the permissions rbac.py gives them. */
+export const staffAs = (who: "platform" | "litzim") =>
+  who === "platform"
+    ? {
+        subject: "platform",
+        name: "platform",
+        roles: ["platform_admin"],
+        permissions: ["tenant.create", "tenant.suspend", "subscription.manage", "invoice.read", "audit.read"],
+        tenant: null,
+      }
+    : {
+        subject: "litzim",
+        name: "litzim",
+        roles: ["partner_admin"],
+        permissions: [
+          "tenant.create",
+          "subscription.manage",
+          "invoice.read",
+          "user.invite",
+          "device.register",
+          "device.calibrate",
+        ],
+        tenant: null,
+      };

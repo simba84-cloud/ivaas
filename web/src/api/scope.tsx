@@ -26,9 +26,10 @@ interface Scope {
 
 const ScopeContext = createContext<Scope | null>(null);
 
-export function ScopeProvider({ children }: { children: ReactNode }) {
-  const sites = useQuery({ queryKey: ["sites"], queryFn: api.sites });
-  const bays = useQuery({ queryKey: ["bays"], queryFn: api.bays });
+/** `enabled` is false for platform and partner staff: they have no tenant, so no bays. */
+export function ScopeProvider({ children, enabled = true }: { children: ReactNode; enabled?: boolean }) {
+  const sites = useQuery({ queryKey: ["sites"], queryFn: api.sites, enabled });
+  const bays = useQuery({ queryKey: ["bays"], queryFn: api.bays, enabled });
   const [chosen, setChosen] = useState<string | null>(() => {
     try {
       return localStorage.getItem(KEY);

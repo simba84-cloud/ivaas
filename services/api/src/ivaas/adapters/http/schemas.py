@@ -85,6 +85,8 @@ class TenantRefOut(BaseModel):
 class TenantOut(TenantRefOut):
     partner_id: UUID | None
     created_at: datetime | None
+    #: its partner has held it (T7.10)
+    on_hold: bool = False
 
     @staticmethod
     def of(t: Tenant) -> TenantOut:  # type: ignore[override]
@@ -95,6 +97,7 @@ class TenantOut(TenantRefOut):
             status=t.status,
             partner_id=t.partner_id,
             created_at=t.created_at,
+            on_hold=t.on_hold,
         )
 
 
@@ -168,6 +171,57 @@ class SiteOut(BaseModel):
     @classmethod
     def of(cls, site: Site) -> SiteOut:
         return cls(id=site.id, name=site.name, timezone=site.timezone)
+
+
+class OnboardingStepOut(BaseModel):
+    name: str
+    done: bool
+    #: null where the time was not recorded, never a guess
+    at: datetime | None
+    detail: str
+
+
+class OnboardingNodeOut(BaseModel):
+    """What an installer needs of a node: is it in, and is it talking. No config."""
+
+    id: UUID
+    name: str
+    site_id: UUID
+    bay_id: UUID | None
+    health: str
+    enrolled_at: datetime
+    last_seen_at: datetime | None
+    version: str | None
+
+
+class OnboardingOut(BaseModel):
+    tenant: TenantOut
+    steps: list[OnboardingStepOut]
+    sites: list[SiteOut]
+    bays: list[BayOut]
+    nodes: list[OnboardingNodeOut]
+    #: creation to the first enrolled node; null until one has enrolled
+    seconds_to_first_node: float | None
+    target_seconds: float
+    within_target: bool | None
+
+
+class FirstSiteIn(BaseModel):
+    site_name: str = Field(min_length=1, max_length=120)
+    timezone: str = Field(default="UTC", max_length=64)
+    bay_name: str = Field(min_length=1, max_length=120)
+
+
+class FirstSiteOut(BaseModel):
+    site: SiteOut
+    bay: BayOut
+
+
+class OnboardingTokenIn(BaseModel):
+    site_id: UUID
+    bay_id: UUID | None = None
+    name: str = Field(min_length=1, max_length=120)
+    ttl_hours: int = Field(default=24, ge=1, le=72)
 
 
 class SiteIn(BaseModel):

@@ -92,10 +92,15 @@ NOT_TENANT_RESOURCES = {
     # billing a tenant: platform staff, or its own partner (test_billing_api)
     ("PUT", "/api/v1/platform/tenants/{tenant_id}/subscription"),
     ("POST", "/api/v1/platform/tenants/{tenant_id}/invoices"),
+    ("GET", "/api/v1/platform/tenants/{tenant_id}/invoices"),
     ("GET", "/api/v1/platform/tenants/{tenant_id}/subscription"),
     ("GET", "/api/v1/platform/tenants/{tenant_id}/invoices/draft"),
     ("POST", "/api/v1/platform/tenants/{tenant_id}/invoices/{number}/payments"),
     ("PUT", "/api/v1/platform/tenants/{tenant_id}/hold"),
+    # onboarding a tenant: whoever may provision it, its own partner (test_onboarding)
+    ("GET", "/api/v1/platform/tenants/{tenant_id}/onboarding"),
+    ("POST", "/api/v1/platform/tenants/{tenant_id}/onboarding/site"),
+    ("POST", "/api/v1/platform/tenants/{tenant_id}/onboarding/enrollment-tokens"),
     # a partner's wholesale invoices: platform staff, or that partner (test_billing_api)
     ("GET", "/api/v1/platform/partners/{partner_id}/invoices/draft"),
     ("GET", "/api/v1/platform/partners/{partner_id}/invoices"),
