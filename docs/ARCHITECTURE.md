@@ -187,6 +187,43 @@ a container holding a shared key.
   Both routes need `report.export`, which operators do not have. Another tenant's site
   is a 404.
 
+## 2a-v. Webhooks (M6, T6.4)
+
+- **What is sent.** A tenant registers HTTPS endpoints under Configure → Webhooks
+  (`apikey.manage`), and subscribes each to `session.closed`, `exception.raised` or both.
+  A webhook sink on the event fan-out (`adapters/messaging/fanout.py`) queues one delivery
+  per subscribed endpoint, all with the same event id. Sending happens in the API's
+  background loop every 5 s, so a slow receiver never slows a load.
+- **Signed, so a receiver can check it.** It follows the open Standard Webhooks scheme:
+  - `webhook-id` is the event id, the same on every retry and replay;
+  - `webhook-timestamp` is when the attempt was signed;
+  - `webhook-signature` is `v1,` + base64 of HMAC-SHA256 over `id.timestamp.body`, keyed
+    with the endpoint's `whsec_…` secret.
+
+  The secret is shown once at creation. It is stored sealed with the same keys as camera
+  credentials, because it has to be read back to sign. A receiver should refuse a
+  timestamp more than 5 minutes old. `domain/webhooks.py` has a reference `verify`.
+- **At least once.** Each delivery is claimed before it is sent (`FOR UPDATE SKIP LOCKED`
+  on Postgres), so two API processes never take the same one. A sender that dies after
+  claiming leaves the delivery due again after 60 s. Receivers de-duplicate on `webhook-id`.
+- **Retries, then giving up, then replay.** A failure is retried after 30 s, 2 min,
+  10 min, 30 min, 2 h, 6 h and 12 h, which is 8 attempts over about 19 hours. After that
+  the delivery is marked failed. A replay is a new delivery of the same event, with the
+  same `webhook-id`, and the original's history stays. Creating, removing and replaying
+  are audited.
+- **Not a way into the platform's network.** A tenant chooses the URL, so:
+  - only public `https` is accepted, with no credentials in the URL;
+  - every address the name resolves to is checked again at send time;
+  - redirects are not followed.
+
+  `IVAAS_WEBHOOK_ALLOW_PRIVATE=true` allows http and LAN receivers, for an ERP on the site
+  network. Known limit: a name that resolves differently between the check and the
+  connection is not pinned. The deployment's egress firewall is the backstop.
+- **Known limit: events are queued after the change that caused them is saved, not in the
+  same transaction.** If queueing fails, the failure is logged and that event's webhook is
+  lost. An outbox written in the same transaction would close this. The daily report
+  still carries every load.
+
 ## 2b. Analysis assistant
 
 ```
