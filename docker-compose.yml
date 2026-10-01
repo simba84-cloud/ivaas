@@ -203,6 +203,36 @@ services:
     depends_on: [mediamtx]
     restart: unless-stopped
 
+  # Backups (docs/BACKUP.md): the database every 15 min, with exact row counts, and
+  # the object store every hour, to IVAAS_BACKUP_DIR on the host, outside Docker's
+  # disk. Prove they restore with deploy/backup/restore-drill.sh; copy them off-site.
+  backup:
+    image: timescale/timescaledb:latest-pg16  # the database's own: pg_dump matches it
+    entrypoint: ["bash", "/backup/backup.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ivaas
+      PGPASSWORD: ${POSTGRES_PASSWORD:-ivaas}
+      PGDATABASE: ivaas
+      IVAAS_BACKUP_EVERY_MIN: ${IVAAS_BACKUP_EVERY_MIN:-15}
+    volumes:
+      - ./deploy/backup:/backup:ro
+      - ${IVAAS_BACKUP_DIR:-./backups}:/backups
+    depends_on: [postgres]
+    restart: unless-stopped
+
+  backup-objects:
+    image: quay.io/minio/minio:latest  # the server's own image, for its mc client
+    entrypoint: ["sh", "/backup/objects.sh"]
+    environment:
+      MC_HOST_store: http://${MINIO_ROOT_USER:-ivaas}:${MINIO_ROOT_PASSWORD:-ivaas-secret}@minio:9000
+      IVAAS_BACKUP_OBJECTS_EVERY_MIN: ${IVAAS_BACKUP_OBJECTS_EVERY_MIN:-60}
+    volumes:
+      - ./deploy/backup:/backup:ro
+      - ${IVAAS_BACKUP_DIR:-./backups}:/backups
+    depends_on: [minio]
+    restart: unless-stopped
+
 volumes:
   mediarecordings:
   pgdata:

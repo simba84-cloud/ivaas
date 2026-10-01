@@ -12,3 +12,6 @@ models/*.onnx
 .DS_Store
 models/*.onnx
 models/*.json
+
+# database dumps and object mirror (deploy/backup)
+/backups/

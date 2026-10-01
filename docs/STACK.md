@@ -38,6 +38,7 @@ see the [README](../README.md).
 | Manifests and balances | Dispatch manifests matched to loads; exceptions per mismatch, missing or unexpected truck; balances from counts of record (`domain/manifests.py`) |
 | Webhooks | `session.closed`, `exception.raised`; Standard Webhooks signing (HMAC-SHA256), retried on backoff, replayable, sent with httpx (`/api/v1/webhooks`) |
 | POC report | Accuracy, speed, reliability, LPR and ROI over the POC window; PDF, CSV and JSON (`/api/v1/reports/poc`), from edge availability history (`/api/v1/edge/nodes/{id}/availability`) |
+| Backups | `pg_dump` every 15 min with an exact row-count manifest, an hourly MinIO mirror, and a restore drill reporting RPO/RTO (`deploy/backup`) |
 | Daily reports | PDF via ReportLab, CSV via `csv`; filed after 06:00 site time, and any day on demand (`/api/v1/reports`) |
 | Evidence clips | MediaMTX records evidence cameras (30 min buffer); the node cuts clips via its playback server and uploads them; kept per tenant (default 90 days) |
 | Models (OTA) | Registered versions in object storage with SHA-256; nodes verify, cache by digest and swap in place; rollback per node (`/api/v1/models`) |
