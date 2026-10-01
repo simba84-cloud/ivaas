@@ -15,7 +15,9 @@ services:
     profiles: [rehearsal]
     volumes:
       - rehearsalspool:/var/lib/ivaas
-    restart: "no"
+    # inherits `restart: unless-stopped`, which it needs: a node takes up a new
+    # configuration by exiting and being restarted onto it. The rehearsal stops it
+    # itself when it is done.
 
   rehearsal-cameras:
     extends:
@@ -24,7 +26,6 @@ services:
     profiles: [rehearsal]
     environment:
       SIM_STREAMS: /sim/rehearsal-streams.txt
-    restart: "no"
 
 volumes:
   rehearsalspool:
