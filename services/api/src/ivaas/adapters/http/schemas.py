@@ -1029,6 +1029,22 @@ class EdgeCameraIn(BaseModel):
     stride: int = Field(default=1, ge=1, le=60)
     frames: Literal["latest", "all"] | None = None
 
+    @model_validator(mode="after")
+    def _one_place_to_count(self) -> EdgeCameraIn:
+        """The pipeline counts at a line or in a zone. Given both it would silently use
+        the zone, so both is refused, as are shapes that cannot count anything."""
+        if self.line is not None and self.zone is not None:
+            raise ValueError("give a camera a line or a zone, not both")
+        if self.line is not None and self.line[0] == self.line[1]:
+            raise ValueError("a line needs two different points")
+        if self.zone is not None:
+            x1, y1, x2, y2 = self.zone
+            if x2 <= x1 or y2 <= y1:
+                raise ValueError(
+                    "a zone is [left, top, right, bottom], right of and below its start"
+                )
+        return self
+
 
 class EdgeModelIn(BaseModel):
     """A model the node already has on disk (`path`), or a registered version it

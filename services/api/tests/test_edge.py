@@ -281,6 +281,32 @@ def test_config_refuses_cameras_from_another_site(bakers):
     assert r.status_code == 422 and "site" in r.json()["detail"]
 
 
+@pytest.mark.parametrize(
+    ("place", "says"),
+    [
+        ({"line": [[0, 0], [10, 10]], "zone": [0, 0, 5, 5]}, "not both"),
+        ({"line": [[640, 0], [640, 0]]}, "two different points"),
+        ({"zone": [500, 0, 100, 720]}, "right of and below"),
+        ({"zone": [0, 720, 1280, 720]}, "right of and below"),
+    ],
+)
+def test_a_counting_place_that_cannot_count_is_refused(bakers, place, says):
+    """The portal draws these; the API still refuses a shape the pipeline would get wrong."""
+    c, admin, bay, _ = bakers
+    enrolled = enrol(c, token(c, admin, bay["site_id"], bay_id=bay["id"])).json()
+    choke = next(
+        x
+        for x in c.get(f"/api/v1/bays/{bay['id']}/cameras", headers=admin).json()
+        if x["role"] == "chokepoint"
+    )
+    body = {
+        "model": {"path": "/models/stacks-v2.onnx"},
+        "cameras": [{"api_camera_id": choke["id"], **place}],
+    }
+    r = c.put(f"/api/v1/edge/nodes/{enrolled['node_id']}/config", json=body, headers=admin)
+    assert r.status_code == 422 and says in r.text
+
+
 def test_enrolment_is_audited(bakers):
     c, admin, bay, _ = bakers
     enrolled = enrol(c, token(c, admin, bay["site_id"])).json()
