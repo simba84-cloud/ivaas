@@ -97,6 +97,13 @@ a container holding a shared key.
   heartbeat's answer, exits cleanly and is restarted onto it by Docker; events are
   spooled to disk, so nothing counted is lost across the restart. An unenrolled node
   still runs from `pipeline.json`.
+- **Configured in the portal (M9, install days).** Edge Nodes → Configure picks the
+  bay's cameras and how each counts: chokepoints at a line, other positions in a zone.
+  The line or zone is drawn on a snapshot from the camera, in its own pixels (the same
+  coordinates the node counts in), or typed when there is no frame. Strides are chosen
+  from a list, with a warning above 1 on a chokepoint. The API refuses a camera given
+  both a line and a zone, which the pipeline would silently treat as a zone, as well as a
+  zero-length line and a back-to-front zone.
 - **Models over the air (T2.6).** A model version is registered once
   (`POST /api/v1/models`): the ONNX file is hashed as it streams into object storage,
   and its labels and input size are kept with it. Versions are immutable. A node config
