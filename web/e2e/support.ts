@@ -6,7 +6,7 @@ export const API_URL = `http://localhost:${API_PORT}`;
 /** Posts crossings and plate reads the way an edge node does. */
 export const EDGE_KEY = "e2e-edge-key";
 
-export const USERS = ["manager-desktop", "manager-tablet", "floor"] as const;
+export const USERS = ["manager-desktop", "manager-tablet", "floor", "latency"] as const;
 export type User = (typeof USERS)[number];
 
 const temporary = (user: User) => `${user}-temporary`;
@@ -79,19 +79,27 @@ export async function edgeSees(
     data: { bay_id: bay.id, camera_id: bay.lpr, plate: load.plate, confidence: 0.93, read_at: at() },
   });
   expect(plate.ok()).toBeTruthy();
-  for (const [i, crates] of load.stacks.entries()) {
-    const crossing = await request.post(`${API_URL}/api/v1/ingest/crossings`, {
-      headers,
-      data: {
-        bay_id: bay.id,
-        camera_id: bay.chokepoint,
-        track_id: i + 1,
-        direction: "loading",
-        crates,
-        confidence: 0.9,
-        crossed_at: at(),
-      },
-    });
-    expect(crossing.ok()).toBeTruthy();
-  }
+  for (const [i, crates] of load.stacks.entries()) await edgeCounts(request, bay, crates, i + 1);
+}
+
+/** One stack crossing the chokepoint line, as the edge node reports it. */
+export async function edgeCounts(
+  request: APIRequestContext,
+  bay: Bay,
+  crates: number,
+  trackId: number,
+): Promise<void> {
+  const crossing = await request.post(`${API_URL}/api/v1/ingest/crossings`, {
+    headers: { "X-IVaaS-Key": EDGE_KEY },
+    data: {
+      bay_id: bay.id,
+      camera_id: bay.chokepoint,
+      track_id: trackId,
+      direction: "loading",
+      crates,
+      confidence: 0.9,
+      crossed_at: new Date().toISOString(),
+    },
+  });
+  expect(crossing.ok()).toBeTruthy();
 }
