@@ -61,6 +61,9 @@ class AuditAction(StrEnum):
     COUNT_OVERRIDDEN = "count_overridden"
     MANIFEST_IMPORTED = "manifest_imported"
     EXCEPTION_RESOLVED = "exception_resolved"
+    WEBHOOK_CREATED = "webhook_created"
+    WEBHOOK_DELETED = "webhook_deleted"
+    WEBHOOK_REPLAYED = "webhook_replayed"
 
 
 @dataclass(frozen=True)

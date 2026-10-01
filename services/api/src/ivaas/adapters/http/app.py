@@ -93,6 +93,7 @@ from ivaas.adapters.http.scope import (
 )
 from ivaas.adapters.http.security_routes import add_security_routes
 from ivaas.adapters.http.tally_routes import add_tally_routes
+from ivaas.adapters.http.webhook_routes import add_webhook_routes
 from ivaas.adapters.storage.objects import LocalObjectStore
 from ivaas.adapters.streaming.mediamtx import StreamGatewayError
 from ivaas.adapters.streaming.onvif import is_lan_device_url
@@ -196,6 +197,28 @@ async def _sweep_tenant(container: Container, slug: str) -> None:
         log.exception("%s: tally rematch failed", slug)
 
 
+async def _deliver_webhooks(container: Container, every_s: float = 5.0) -> None:
+    """Send what is due, every few seconds. Each delivery is claimed before it is sent,
+    so a second API process running this at the same moment sends other ones."""
+    while True:
+        await asyncio.sleep(every_s)
+        for tenant in await _each_tenant(container):
+            with tenant_context(tenant.id):
+                try:
+                    for d in await container.deliver_webhooks_uc()():
+                        if d.status.value != "delivered":
+                            log.warning(
+                                "%s: webhook %s %s: %s (attempt %d)",
+                                tenant.slug,
+                                d.event,
+                                d.status.value,
+                                d.last_error,
+                                d.attempts,
+                            )
+                except Exception:
+                    log.exception("%s: webhook delivery failed", tenant.slug)
+
+
 async def _refresh_camera_status(container: Container, every_s: float = 10.0) -> None:
     passes = 0
     while True:
@@ -248,6 +271,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tasks = [
             asyncio.create_task(_sweep_idle_sessions(app.state.container)),
             asyncio.create_task(_refresh_camera_status(app.state.container)),
+            asyncio.create_task(_deliver_webhooks(app.state.container)),
         ]
         if settings.run_analysis_worker:
             tasks.append(asyncio.create_task(job_worker(lambda: app.state.container.run_next_job)))
@@ -1237,6 +1261,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_fleet_routes(app, get_container, audit)
     add_manifest_routes(app, get_container, audit)
     add_report_routes(app, get_container, audit)
+    add_webhook_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}", **files("The stored object, as stored", "*/*"))
     async def get_object(

@@ -76,6 +76,10 @@ BODIES: dict[tuple[str, str], object] = {
     ("PUT", "/api/v1/fleet/{vehicle_id}"): {"plate": "B 999 ZZ"},
     ("POST", "/api/v1/exceptions/{exception_id}/resolve"): {"note": "looked"},
     ("GET", "/api/v1/edge/models/{model_id}/file"): "node",
+    ("DELETE", "/api/v1/webhooks/{endpoint_id}"): None,
+    ("GET", "/api/v1/webhooks/{endpoint_id}/deliveries"): None,
+    ("POST", "/api/v1/webhooks/{endpoint_id}/test"): None,
+    ("POST", "/api/v1/webhooks/deliveries/{delivery_id}/replay"): None,
 }
 
 #: Path parameters that are not a tenant's resource, and why.
@@ -162,6 +166,12 @@ def world():
             files={"file": ("m.onnx", b"\x08\x07fake-onnx")},
             headers=a,
         ).json()
+        hook = c.post(
+            "/api/v1/webhooks",
+            json={"url": "https://erp.bakers-inn.example/hooks", "events": ["session.closed"]},
+            headers=a,
+        ).json()
+        delivery = c.post(f"/api/v1/webhooks/{hook['id']}/test", headers=a).json()
         ids = {
             "site_id": bay["site_id"],
             "bay_id": bay["id"],
@@ -177,6 +187,10 @@ def world():
             "model_id": model["id"],
             "vehicle_id": vehicle["id"],
             "exception_id": str(exception.id),
+            "endpoint_id": hook["id"],
+            "delivery_id": delivery["id"],
+            "webhook:url": hook["url"],
+            "webhook:secret": hook["secret"],
         }
         b = login(c, "b-all", B_PASSWORD)
         b_site = c.get("/api/v1/sites", headers=b).json()[0]["id"]
@@ -242,6 +256,7 @@ def test_nothing_of_tenant_as_appears_in_anything_b_can_list(world):
         "/api/v1/tally/sheets",
         "/api/v1/tally/report",
         "/api/v1/settings",
+        "/api/v1/webhooks",
     ):
         r = c.get(path, headers=b)
         assert r.status_code == 200, (path, r.text)
