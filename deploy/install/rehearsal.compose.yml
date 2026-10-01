@@ -1,0 +1,30 @@
+# Install-day rehearsal (proposal M9, days 1-2): a stand-in edge node and simulated
+# cameras, run against the stack without touching the real ones.
+#
+#   docker compose -f docker-compose.yml -f deploy/install/rehearsal.compose.yml ...
+#
+# The rehearsal node is the pipeline service under another name, with its own
+# volume: its enrollment credential and spool never replace the real node's, and
+# starting it never restarts the real `pipeline` container. deploy/install/rehearse.py
+# drives it; run that rather than these services by hand.
+services:
+  rehearsal-node:
+    extends:
+      file: docker-compose.yml  # paths resolve from the project directory
+      service: pipeline
+    profiles: [rehearsal]
+    volumes:
+      - rehearsalspool:/var/lib/ivaas
+    restart: "no"
+
+  rehearsal-cameras:
+    extends:
+      file: docker-compose.yml  # paths resolve from the project directory
+      service: simulator
+    profiles: [rehearsal]
+    environment:
+      SIM_STREAMS: /sim/rehearsal-streams.txt
+    restart: "no"
+
+volumes:
+  rehearsalspool:
