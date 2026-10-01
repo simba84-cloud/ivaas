@@ -7,12 +7,14 @@ can neither see nor report for any other.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from pydantic import BaseModel
 
 from ivaas.adapters.http.auth import current_principal, require
 from ivaas.adapters.http.schemas import (
@@ -27,7 +29,9 @@ from ivaas.adapters.http.schemas import (
     NodeCameraOut,
 )
 from ivaas.adapters.http.scope import require_bay, require_site, site_scope
+from ivaas.application.availability import NodeAvailability, RecordAvailability
 from ivaas.domain.audit import AuditAction
+from ivaas.domain.availability import Availability
 from ivaas.domain.edge import (
     TOKEN_PREFIX,
     EdgeError,
@@ -57,6 +61,54 @@ async def _own_node(c: Any, principal: Principal) -> EdgeNode:
     if node is None:  # revoked between authentication and here, or deleted
         raise HTTPException(401, "invalid node credential")
     return node
+
+
+log = logging.getLogger(__name__)
+
+
+class OutageOut(BaseModel):
+    start: datetime
+    end: datetime
+    minutes: float
+    #: the backlog the node brought back, and whether it then drained (no data lost)
+    backlog: int | None
+    drained: bool | None
+
+
+class UptimeOut(BaseModel):
+    #: share of the window it was working, as a percentage; null for an empty window
+    uptime_pct: float | None
+    down_minutes: float
+    outages: list[OutageOut]
+
+    @classmethod
+    def of(cls, a: Availability) -> UptimeOut:
+        return cls(
+            uptime_pct=None if a.uptime is None else round(a.uptime * 100, 2),
+            down_minutes=round(a.down_minutes, 1),
+            outages=[
+                OutageOut(
+                    start=o.start,
+                    end=o.end,
+                    minutes=round(o.minutes, 1),
+                    backlog=o.backlog,
+                    drained=o.drained,
+                )
+                for o in a.outages
+            ],
+        )
+
+
+class CameraUptimeOut(UptimeOut):
+    api_camera_id: str
+    name: str | None
+
+
+class NodeAvailabilityOut(BaseModel):
+    start: datetime
+    end: datetime
+    node: UptimeOut
+    cameras: list[CameraUptimeOut]
 
 
 def _stream_uri(c: Any, stream_path: str) -> str:
@@ -112,6 +164,41 @@ def add_edge_routes(app: FastAPI, get_container: Callable[[Request], Any], audit
         if node is None or not principal.can(perm, site_scope(node.site_id)):
             raise NotFoundError(f"node {node_id} not found")
         return node
+
+    @app.get(
+        "/api/v1/edge/nodes/{node_id}/availability",
+        response_model=NodeAvailabilityOut,
+        dependencies=[Depends(require(P.TOPOLOGY_READ, scoped=True))],
+    )
+    async def node_availability(
+        node_id: UUID,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> NodeAvailabilityOut:
+        """How long the node, and each camera it runs, was working over a window (the
+        last 24 hours unless given). Time with no heartbeat is down, never assumed up."""
+        node = await managed_node(c, principal, node_id, P.TOPOLOGY_READ)
+        end = end or c.clock.now()
+        start = start or end - timedelta(hours=24)
+        if end <= start or end - start > timedelta(days=62):
+            raise HTTPException(422, "give a window of up to 62 days, start before end")
+        whole, cams = await NodeAvailability(c.availability)(node.id, start, end)
+        names = {
+            str(x.id): x.name for x in [await c.cameras.get(cid) for cid in cams] if x is not None
+        }
+        return NodeAvailabilityOut(
+            start=start,
+            end=end,
+            node=UptimeOut.of(whole),
+            cameras=[
+                CameraUptimeOut(
+                    api_camera_id=str(cid), name=names.get(str(cid)), **UptimeOut.of(a).model_dump()
+                )
+                for cid, a in sorted(cams.items(), key=lambda kv: names.get(str(kv[0])) or "")
+            ],
+        )
 
     # --- people: create a token, list, revoke, configure ----------------------------
     @app.post(
@@ -325,8 +412,24 @@ def add_edge_routes(app: FastAPI, get_container: Callable[[Request], Any], audit
         c: Any = Depends(get_container),
     ) -> HeartbeatOut:
         node = await _own_node(c, principal)
-        node.record_heartbeat(body.model_dump(mode="json"), c.clock.now())
+        report = body.model_dump(mode="json")
+        node.record_heartbeat(report, c.clock.now())
         await c.edge.save_node(node)
+        # the history behind the POC's reliability figure. A node is credited only for
+        # cameras it is configured with; a failure here is logged, never a failed beat.
+        mine = {
+            e.get("api_camera_id")
+            for e in [*node.config.get("cameras", []), *node.config.get("lpr_cameras", [])]
+        }
+        # a copy: the node keeps the report it sent, every camera in it
+        counted = {
+            **report,
+            "cameras": [x for x in report["cameras"] if x["api_camera_id"] in mine],
+        }
+        try:
+            await RecordAvailability(c.availability)(node.id, counted, c.clock.now())
+        except Exception:
+            log.exception("could not record availability for node %s", node.id)
         return HeartbeatOut(config_version=node.config_version)
 
     @app.get(

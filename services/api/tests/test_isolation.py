@@ -76,6 +76,7 @@ BODIES: dict[tuple[str, str], object] = {
     ("PUT", "/api/v1/fleet/{vehicle_id}"): {"plate": "B 999 ZZ"},
     ("POST", "/api/v1/exceptions/{exception_id}/resolve"): {"note": "looked"},
     ("GET", "/api/v1/edge/models/{model_id}/file"): "node",
+    ("GET", "/api/v1/edge/nodes/{node_id}/availability"): None,
     ("DELETE", "/api/v1/webhooks/{endpoint_id}"): None,
     ("GET", "/api/v1/webhooks/{endpoint_id}/deliveries"): None,
     ("POST", "/api/v1/webhooks/{endpoint_id}/test"): None,

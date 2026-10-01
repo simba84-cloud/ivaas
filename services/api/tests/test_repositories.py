@@ -734,3 +734,64 @@ async def test_two_senders_never_claim_the_same_webhook_delivery(request):
     ids_a, ids_b = {d.id for d in a}, {d.id for d in b}
     assert ids_a.isdisjoint(ids_b) and len(ids_a | ids_b) == 10
     await dispose()
+
+
+# --- edge availability (POC reliability) ----------------------------------------------
+@pytest_asyncio.fixture
+async def avail(request):
+    """-> (store, node_id) for the requested backend, empty, with an enrolled node."""
+    from ivaas.adapters.persistence.availability_postgres import (
+        InMemoryAvailabilityStore,
+        PostgresAvailabilityStore,
+    )
+
+    if request.param == "memory":
+        yield InMemoryAvailabilityStore(), uuid4()
+        return
+
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.edge_postgres import PostgresEdgeStore
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+    from ivaas.domain.edge import EdgeNode
+
+    postgres_url = request.getfixturevalue("postgres_url")
+    _s, _b, _c, _se, dispose, sm = await build_postgres_repositories(
+        postgres_url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
+    )
+    async with sm.begin() as db:
+        await db.execute(text("DELETE FROM edge_availability"))
+    node = EdgeNode(name="n", site_id=SITE.id, credential_hash="x", enrolled_at=T0)
+    await PostgresEdgeStore(sm).save_node(node)  # the period rows reference it
+    yield PostgresAvailabilityStore(sm), node.id
+    await dispose()
+
+
+both_avail = pytest.mark.parametrize(
+    "avail", ["memory", pytest.param("postgres", marks=pytest.mark.postgres)], indirect=True
+)
+
+
+@both_avail
+async def test_availability_keeps_the_latest_period_per_subject_and_reads_a_window(avail):
+    from ivaas.domain.availability import Period
+
+    store, node = avail
+    cam = uuid4()
+    t = T0
+    old_node = Period(node, None, True, t, t + timedelta(hours=1))
+    new_node = Period(node, None, True, t + timedelta(hours=2), t + timedelta(hours=3))
+    cam_down = Period(node, cam, False, t, t + timedelta(minutes=10))
+    await store.save_all([old_node, new_node, cam_down])
+    latest = await store.latest(node)
+    assert set(latest) == {None, cam}
+    assert latest[None].id == new_node.id and latest[cam].id == cam_down.id
+    # extending a period is saving it again
+    new_node.until = t + timedelta(hours=4)
+    await store.save_all([new_node])
+    assert (await store.latest(node))[None].until == t + timedelta(hours=4)
+    window = await store.between(
+        [node], t + timedelta(minutes=30), t + timedelta(hours=1, minutes=30)
+    )
+    assert {p.id for p in window} == {old_node.id}
+    assert await store.between([], t, t + timedelta(days=1)) == []

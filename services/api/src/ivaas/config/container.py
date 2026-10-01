@@ -183,6 +183,7 @@ class Container:
     settings: Settings
     tenants: Any
     edge: Any
+    availability: Any
     ingest: Any
     ml_models: Any
     evidence: Any
@@ -629,6 +630,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.edge_postgres import PostgresEdgeStore
 
         edge: Any = PostgresEdgeStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.availability_postgres import PostgresAvailabilityStore
+
+        availability: Any = PostgresAvailabilityStore(pg_sessionmaker)
         from ivaas.adapters.persistence.ingest_postgres import PostgresIngestLedger
 
         ingest: Any = PostgresIngestLedger(pg_sessionmaker)
@@ -682,6 +686,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.edge_postgres import InMemoryEdgeStore
 
         edge = InMemoryEdgeStore()
+        from ivaas.adapters.persistence.availability_postgres import InMemoryAvailabilityStore
+
+        availability = PerTenant(InMemoryAvailabilityStore)
         from ivaas.adapters.persistence.ingest_postgres import InMemoryIngestLedger
 
         ingest = PerTenant(InMemoryIngestLedger)
@@ -830,6 +837,7 @@ async def build_container(settings: Settings) -> Container:
         analyser=PipelineVideoAnalyser(settings.stack_model, settings.layers_model),
         webhooks=webhooks,
         webhook_sender=webhook_sender,
+        availability=availability,
         _closers=closers,
     )
     # read through the container at publish time: its clock and store are the live ones
