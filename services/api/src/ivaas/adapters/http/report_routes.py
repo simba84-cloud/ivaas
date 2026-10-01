@@ -12,6 +12,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from ivaas.adapters.http.auth import require
+from ivaas.adapters.http.media import files
 from ivaas.adapters.reports import to_csv, to_pdf
 from ivaas.domain.rbac import Permission as P
 
@@ -54,7 +55,11 @@ def add_report_routes(app: FastAPI, get_container: Callable[[Request], Any], aud
             for r in await c.reports.since(since)
         ]
 
-    @app.get("/api/v1/reports/daily", dependencies=[Depends(require(P.REPORT_EXPORT))])
+    @app.get(
+        "/api/v1/reports/daily",
+        dependencies=[Depends(require(P.REPORT_EXPORT))],
+        **files("The day's report", "application/pdf", "text/csv"),
+    )
     async def daily_report(
         site_id: UUID,
         day: date,

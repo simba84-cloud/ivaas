@@ -53,3 +53,9 @@ class CameraDiscovery(Protocol):
     async def streams(
         self, address: str, username: str, password: str
     ) -> list[DiscoveredStream]: ...
+
+
+class FrameGrabber(Protocol):
+    async def grab(self, url: str) -> bytes | None:
+        """One still frame from a stream, as JPEG; None when the stream gives none."""
+        ...
