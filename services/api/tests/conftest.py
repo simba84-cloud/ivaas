@@ -2,6 +2,7 @@ import os
 import tempfile
 
 import pytest
+from contract import CONTRACT
 from fastapi.testclient import TestClient
 
 from ivaas.adapters.http.app import create_app
@@ -62,3 +63,39 @@ def postgres_url():
     with PostgresContainer("timescale/timescaledb:latest-pg16") as pg:
         host, port = pg.get_container_host_ip(), pg.get_exposed_port(5432)
         yield f"postgresql+asyncpg://{pg.username}:{pg.password}@{host}:{port}/{pg.dbname}"
+
+
+# --- T6.3: every response held against the OpenAPI spec (see contract.py) -------------
+_request = TestClient.request
+
+
+def _checked_request(self, method, url, **kwargs):
+    response = _request(self, method, url, **kwargs)
+    broken = CONTRACT.check(self.app, response)
+    assert not broken, "the response breaks the OpenAPI spec:\n" + "\n".join(broken)
+    return response
+
+
+TestClient.request = _checked_request
+
+
+def _whole_suite(config) -> bool:
+    """Coverage means something only when every test ran: no -k, no chosen files, and
+    at most the Postgres tests left out (they exercise repositories, not routes)."""
+    chosen = [a for a in config.args if not a.rstrip("/").endswith("tests")]
+    marks = (config.option.markexpr or "").replace(" ", "")
+    return not config.option.keyword and not chosen and marks in ("", "notpostgres")
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if exitstatus != 0 or not _whole_suite(session.config):
+        return
+    missing = CONTRACT.uncovered()
+    if missing:
+        lines = "\n".join(f"  {m} {p}" for m, p in missing)
+        session.config.get_terminal_writer().line(
+            f"\nT6.3: {len(missing)} operation(s) in the OpenAPI spec never returned a checked "
+            f"success in any test:\n{lines}",
+            red=True,
+        )
+        session.exitstatus = 1

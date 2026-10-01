@@ -15,6 +15,7 @@ see the [README](../README.md).
 | Routing | React Router 6 |
 | Auth (OIDC mode) | `oidc-client-ts` against Keycloak |
 | Charts / motion / icons | Recharts, Framer Motion, Lucide |
+| API contract | The OpenAPI spec (FastAPI) checked against every test response with `jsonschema` |
 | Tests | Vitest, Testing Library, MSW (API mocking), jsdom; Playwright (Chromium) end to end against the real API |
 | Production image | `node:22-alpine` build → `nginx:1.27-alpine` serving `dist/` (`web/nginx.conf`) |
 
