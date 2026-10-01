@@ -38,6 +38,7 @@ import TallySheets from "./pages/TallySheets";
 import LiveView from "./pages/LiveView";
 import Login from "./pages/Login";
 import Sessions from "./pages/Sessions";
+import Webhooks from "./pages/Webhooks";
 
 function OidcCallback({ config }: { config: AuthConfig }) {
   const navigate = useNavigate();
@@ -125,6 +126,7 @@ export default function App() {
           <Route path="/balances" element={<Balances />} />
           <Route path="/exceptions" element={<Exceptions me={me.data} />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/webhooks" element={<Webhooks />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/users" element={<Users me={me.data?.subject ?? ""} />} />

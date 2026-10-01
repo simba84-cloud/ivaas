@@ -587,3 +587,33 @@ export interface FiledReport {
   pdf_url: string;
   csv_url: string;
 }
+
+export type WebhookEvent = "session.closed" | "exception.raised";
+
+export interface Webhook {
+  id: string;
+  url: string;
+  events: WebhookEvent[];
+  description: string;
+  created_by: string;
+  created_at: string;
+}
+
+/** Only when it is created: the secret is not shown again. */
+export interface WebhookCreated extends Webhook {
+  secret: string;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  event_id: string;
+  event: string;
+  status: "pending" | "delivered" | "failed";
+  attempts: number;
+  next_attempt_at: string | null;
+  last_status_code: number | null;
+  last_error: string | null;
+  delivered_at: string | null;
+  replay_of: string | null;
+  created_at: string;
+}

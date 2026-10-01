@@ -25,6 +25,7 @@ import {
   Sparkles,
   Sun,
   Warehouse,
+  Webhook,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
@@ -104,6 +105,7 @@ const NAV = [
       { to: "/cameras", label: "Cameras", icon: Camera },
       { to: "/fleet", label: "Fleet", icon: Truck },
       { to: "/edge", label: "Edge Nodes", icon: Cpu, needs: "device.register" },
+      { to: "/webhooks", label: "Webhooks", icon: Webhook, needs: "apikey.manage" },
       { to: "/users", label: "Users", icon: Users, needs: "user.manage" },
       { to: "/audit", label: "Audit Log", icon: ScrollText, needs: "audit.read" },
       { to: "/settings", label: "Settings", icon: SlidersHorizontal, needs: "settings.manage" },

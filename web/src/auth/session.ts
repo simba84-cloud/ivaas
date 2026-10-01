@@ -25,6 +25,7 @@ export type Permission =
   | "groundtruth.enter"
   | "reconciliation.resolve"
   | "report.export"
+  | "apikey.manage"
   | "audit.read"
   | "assistant.query"
   | "topology.read"

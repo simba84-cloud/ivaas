@@ -42,6 +42,10 @@ import type {
   TallySheet,
   TallySheetInput,
   ToolUse,
+  Webhook,
+  WebhookCreated,
+  WebhookDelivery,
+  WebhookEvent,
 } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -76,6 +80,19 @@ export const api = {
   revokeNode: (nodeId: string) =>
     request<void>(`/api/v1/edge/nodes/${nodeId}`, { method: "DELETE" }),
   reports: () => request<FiledReport[]>("/api/v1/reports"),
+  webhooks: () => request<Webhook[]>("/api/v1/webhooks"),
+  createWebhook: (url: string, events: WebhookEvent[], description: string) =>
+    request<WebhookCreated>("/api/v1/webhooks", {
+      method: "POST",
+      body: JSON.stringify({ url, events, description }),
+    }),
+  deleteWebhook: (id: string) => request<void>(`/api/v1/webhooks/${id}`, { method: "DELETE" }),
+  webhookDeliveries: (id: string) =>
+    request<WebhookDelivery[]>(`/api/v1/webhooks/${id}/deliveries`),
+  testWebhook: (id: string) =>
+    request<WebhookDelivery>(`/api/v1/webhooks/${id}/test`, { method: "POST" }),
+  replayDelivery: (id: string) =>
+    request<WebhookDelivery>(`/api/v1/webhooks/deliveries/${id}/replay`, { method: "POST" }),
   /** Any day's report, built now; fetched with the token and handed back as a file. */
   dailyReport: async (siteId: string, day: string, format: "pdf" | "csv"): Promise<Blob> => {
     const token = getToken();
