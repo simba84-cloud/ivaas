@@ -7,13 +7,16 @@ from datetime import date, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+# named apart from the poc_report route below, which would otherwise shadow it
+from ivaas.adapters import poc_report as poc_files
 from ivaas.adapters.http.auth import require
 from ivaas.adapters.http.media import files
 from ivaas.adapters.reports import to_csv, to_pdf
+from ivaas.domain.poc import PocReport
 from ivaas.domain.rbac import Permission as P
 
 Audit = Callable[..., Awaitable[None]]
@@ -28,6 +31,91 @@ class FiledReportOut(BaseModel):
     #: signed, short-lived: a download link cannot carry a bearer token
     pdf_url: str
     csv_url: str
+
+
+class CriterionOut(BaseModel):
+    name: str
+    result: Literal["pass", "fail", "not measured"]
+    figure: str
+    target: str
+    how: str
+    notes: list[str]
+
+
+class NodeUptimeOut(BaseModel):
+    name: str
+    measured_from: datetime
+    measured_to: datetime
+    uptime_pct: float | None
+    outages: int
+    down_minutes: float
+
+
+class ExceptionCountOut(BaseModel):
+    kind: str
+    status: str
+    count: int
+
+
+class PocReportOut(BaseModel):
+    site: str
+    start: date
+    end: date
+    timezone: str
+    generated_at: datetime
+    #: pass only when every criterion was measured and met; incomplete when any was not
+    verdict: Literal["pass", "fail", "incomplete"]
+    criteria: list[CriterionOut]
+    loads: int
+    dispatched: int
+    returned: int
+    outstanding: int
+    still_at_the_bay: int
+    corrections: int
+    correction_crates: int
+    #: only when a crate value was given: the crates not yet back, priced
+    outstanding_value: float | None
+    currency: str
+    exceptions: list[ExceptionCountOut]
+    nodes: list[NodeUptimeOut]
+
+    @classmethod
+    def of(cls, r: PocReport) -> PocReportOut:
+        return cls(
+            site=r.site,
+            start=r.start,
+            end=r.end,
+            timezone=r.timezone,
+            generated_at=r.generated_at,
+            verdict=r.verdict,
+            criteria=[CriterionOut(**vars(c)) for c in r.criteria],
+            loads=len(r.loads),
+            dispatched=r.balance.dispatched,
+            returned=r.balance.returned,
+            outstanding=r.balance.outstanding,
+            still_at_the_bay=r.balance.in_progress,
+            corrections=r.corrections,
+            correction_crates=r.correction_crates,
+            outstanding_value=r.outstanding_value,
+            currency=r.currency,
+            exceptions=[
+                ExceptionCountOut(kind=k, status=s, count=n)
+                for (k, s), n in sorted(r.exceptions.items())
+            ],
+            nodes=[
+                NodeUptimeOut(
+                    name=n.name,
+                    measured_from=n.availability.start,
+                    measured_to=n.availability.end,
+                    uptime_pct=None
+                    if n.availability.uptime is None
+                    else round(n.availability.uptime * 100, 2),
+                    outages=len(n.availability.outages),
+                    down_minutes=round(n.availability.down_minutes, 1),
+                )
+                for n in r.nodes
+            ],
+        )
 
 
 def add_report_routes(app: FastAPI, get_container: Callable[[Request], Any], audit: Audit) -> None:
@@ -54,6 +142,50 @@ def add_report_routes(app: FastAPI, get_container: Callable[[Request], Any], aud
             )
             for r in await c.reports.since(since)
         ]
+
+    @app.get(
+        "/api/v1/reports/poc",
+        response_model=PocReportOut,
+        dependencies=[Depends(require(P.REPORT_EXPORT))],
+        responses={200: {"content": {"application/pdf": {}, "text/csv": {}}}},
+    )
+    async def poc_report(
+        site_id: UUID,
+        start: date,
+        end: date,
+        format: Literal["json", "pdf", "csv"] = "json",
+        uptime_target: float = Query(99.0, gt=0, le=100, description="percent"),
+        baseline_minutes: float | None = Query(None, gt=0, description="loading cycle before"),
+        crate_value: float | None = Query(None, ge=0),
+        currency: str = Query("USD", min_length=3, max_length=3),
+        c: Any = Depends(get_container),
+    ) -> Any:
+        """The POC's acceptance criteria, measured over the site's own days from start
+        to end. A criterion the records cannot support is reported as not measured."""
+        try:
+            report = await (await c.build_poc_report_uc())(
+                site_id,
+                start,
+                end,
+                uptime_target=uptime_target / 100,
+                baseline_minutes=baseline_minutes,
+                crate_value=crate_value,
+                currency=currency.upper(),
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if format == "json":
+            return PocReportOut.of(report)
+        name = f"{report.site or 'site'}-poc-{start}-to-{end}".replace(" ", "-").lower()
+        if format == "csv":
+            body, media = poc_files.to_csv(report), "text/csv"
+        else:
+            body, media = poc_files.to_pdf(report), "application/pdf"
+        return Response(
+            body,
+            media_type=media,
+            headers={"Content-Disposition": f'attachment; filename="{name}.{format}"'},
+        )
 
     @app.get(
         "/api/v1/reports/daily",

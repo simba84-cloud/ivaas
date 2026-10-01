@@ -43,6 +43,8 @@ import type {
   TallySheetInput,
   ToolUse,
   NodeConfig,
+  PocParams,
+  PocReport,
   Webhook,
   WebhookCreated,
   WebhookDelivery,
@@ -68,6 +70,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(body.detail ?? `${res.status} ${res.statusText}`);
   }
   return res.status === 204 ? (undefined as T) : res.json();
+}
+
+/** The POC report's query: only what was given, so nothing defaults to a made-up figure. */
+function pocQuery(siteId: string, p: PocParams): string {
+  const q = new URLSearchParams({ site_id: siteId, start: p.start, end: p.end });
+  if (p.baseline_minutes !== undefined) q.set("baseline_minutes", String(p.baseline_minutes));
+  if (p.crate_value !== undefined) q.set("crate_value", String(p.crate_value));
+  if (p.currency) q.set("currency", p.currency);
+  return q.toString();
 }
 
 export const api = {
@@ -103,6 +114,20 @@ export const api = {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(body.detail ?? `${res.status} ${res.statusText}`);
+    }
+    return res.blob();
+  },
+  pocReport: (siteId: string, p: PocParams) =>
+    request<PocReport>(`/api/v1/reports/poc?${pocQuery(siteId, p)}`),
+  /** The POC report as a file, fetched with the token. */
+  pocReportFile: async (siteId: string, p: PocParams, format: "pdf" | "csv"): Promise<Blob> => {
+    const token = getToken();
+    const res = await fetch(`/api/v1/reports/poc?${pocQuery(siteId, p)}&format=${format}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(typeof body.detail === "string" ? body.detail : `${res.status} ${res.statusText}`);
     }
     return res.blob();
   },

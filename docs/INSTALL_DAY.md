@@ -92,6 +92,18 @@ Times in brackets are from the rehearsal on 2026-10-01 (a laptop, simulated came
 | Loads without plates | The LPR camera's angle | Re-aim it. Loads still count and can be identified by hand (Sessions → identify). |
 | Clock warning | No NTP on the node | Set NTP before any tally sheet is entered. |
 
+## After the day
+
+From the first heartbeat, the platform keeps each node's and camera's availability. That
+is the history the POC report's reliability figure is measured from. On days 13–14, open
+Reports → **Proof-of-concept report** for the POC's dates:
+- Give the loading cycle time Bakers Inn measured before the system, so speed can be
+  judged.
+- Give a crate value, so the crates not yet back are priced.
+
+Accuracy and plate reading come from the tally sheets entered during the POC. Without
+them, those two criteria stay "not measured" and the report stays incomplete.
+
 ## Sign-off
 
 | Test | Evidence | Result | Time |

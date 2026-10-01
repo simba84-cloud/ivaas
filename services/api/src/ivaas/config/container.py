@@ -50,6 +50,7 @@ from ivaas.application.cameras import (
 )
 from ivaas.application.manifests import ReconcileManifests
 from ivaas.application.overview import OperationsOverview, Overview
+from ivaas.application.poc import BuildPocReport
 from ivaas.application.provisioning import ProvisionTenant
 from ivaas.application.reports import BuildDailyReport, FileDailyReports
 from ivaas.application.security import (
@@ -183,6 +184,7 @@ class Container:
     settings: Settings
     tenants: Any
     edge: Any
+    availability: Any
     ingest: Any
     ml_models: Any
     evidence: Any
@@ -396,6 +398,23 @@ class Container:
             self.sessions,
             self.exceptions,
             self.fleet,
+            self.clock,
+            target=target,
+            tenant_id=current_tenant(),
+        )
+
+    async def build_poc_report_uc(self) -> BuildPocReport:
+        target = float(await self.effective(RECONCILE_TOLERANCE, self.settings.reconcile_tolerance))
+        return BuildPocReport(
+            self.tenants,
+            self.sites,
+            self.bays,
+            self.sessions,
+            self.tally,
+            self.exceptions,
+            self.manifests,
+            self.edge,
+            self.availability,
             self.clock,
             target=target,
             tenant_id=current_tenant(),
@@ -629,6 +648,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.edge_postgres import PostgresEdgeStore
 
         edge: Any = PostgresEdgeStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.availability_postgres import PostgresAvailabilityStore
+
+        availability: Any = PostgresAvailabilityStore(pg_sessionmaker)
         from ivaas.adapters.persistence.ingest_postgres import PostgresIngestLedger
 
         ingest: Any = PostgresIngestLedger(pg_sessionmaker)
@@ -682,6 +704,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.edge_postgres import InMemoryEdgeStore
 
         edge = InMemoryEdgeStore()
+        from ivaas.adapters.persistence.availability_postgres import InMemoryAvailabilityStore
+
+        availability = PerTenant(InMemoryAvailabilityStore)
         from ivaas.adapters.persistence.ingest_postgres import InMemoryIngestLedger
 
         ingest = PerTenant(InMemoryIngestLedger)
@@ -830,6 +855,7 @@ async def build_container(settings: Settings) -> Container:
         analyser=PipelineVideoAnalyser(settings.stack_model, settings.layers_model),
         webhooks=webhooks,
         webhook_sender=webhook_sender,
+        availability=availability,
         _closers=closers,
     )
     # read through the container at publish time: its clock and store are the live ones
