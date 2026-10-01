@@ -40,6 +40,8 @@ export default defineConfig({
     {
       // what supervisors carry on the floor (T6.7); Chromium, so CI needs one browser
       name: "tablet",
+      // latency is the system's, not the screen size's: measured once, on the desktop
+      testIgnore: /latency\.spec/,
       use: { ...devices["Desktop Chrome"], viewport: { width: 820, height: 1180 }, hasTouch: true },
     },
   ],
