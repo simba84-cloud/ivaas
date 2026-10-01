@@ -42,6 +42,7 @@ from ivaas.application.analysis import RunNextJob, SubmitVideo
 from ivaas.application.analytics import AnalyticsTools
 from ivaas.application.assistant import AskAssistant
 from ivaas.application.balances import BalanceQuery
+from ivaas.application.billing import Billing
 from ivaas.application.cameras import (
     EnsureStreamPaths,
     RefreshCameraStatus,
@@ -74,6 +75,7 @@ from ivaas.application.tally import RematchTallySheets, SaveTallySheets
 from ivaas.application.users import UserAdmin
 from ivaas.application.webhooks import DeliverWebhooks, ManageWebhooks, QueueWebhooks
 from ivaas.config.settings import Settings
+from ivaas.domain.billing import PriceBook
 from ivaas.domain.models import Bay, Camera, CameraRole, SessionDirection, Site
 from ivaas.domain.platform_settings import (
     AUTO_CLOSE_IDLE_MINUTES,
@@ -193,6 +195,8 @@ class Container:
     exceptions: Any
     reports: Any
     webhooks: Any
+    billing_store: Any
+    price_book: PriceBook
     webhook_sender: Any
     users: Any
     hasher: Any
@@ -377,6 +381,9 @@ class Container:
 
     def balance_query(self) -> BalanceQuery:
         return BalanceQuery(self.sessions, self.bays, self.sites, self.manifests, self.clock)
+
+    def billing(self) -> Billing:
+        return Billing(self.billing_store, self.price_book, self.cameras, self.bays, self.clock)
 
     def queue_webhooks(self) -> QueueWebhooks:
         return QueueWebhooks(self.webhooks, self.clock)
@@ -676,6 +683,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.webhooks_postgres import PostgresWebhookStore
 
         webhooks: Any = PostgresWebhookStore(pg_sessionmaker, box)
+        from ivaas.adapters.persistence.billing_postgres import PostgresBillingStore
+
+        billing_store: Any = PostgresBillingStore(pg_sessionmaker)
         audit = PostgresAuditLog(pg_sessionmaker)
         setting_store = PostgresSettingsStore(pg_sessionmaker)
         acknowledgements = PostgresAcknowledgementStore(pg_sessionmaker)
@@ -732,6 +742,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.webhooks_postgres import InMemoryWebhookStore
 
         webhooks = PerTenant(InMemoryWebhookStore)
+        from ivaas.adapters.persistence.billing_postgres import InMemoryBillingStore
+
+        billing_store = PerTenant(InMemoryBillingStore)
         audit = PerTenant(InMemoryAuditLog)
         setting_store = PerTenant(InMemorySettingsStore)
         acknowledgements = PerTenant(InMemoryAcknowledgementStore)
@@ -855,6 +868,8 @@ async def build_container(settings: Settings) -> Container:
         analyser=PipelineVideoAnalyser(settings.stack_model, settings.layers_model),
         webhooks=webhooks,
         webhook_sender=webhook_sender,
+        billing_store=billing_store,
+        price_book=PriceBook.load(settings.price_book),
         availability=availability,
         _closers=closers,
     )

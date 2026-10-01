@@ -28,6 +28,7 @@ from ivaas.adapters.http.auth import (
     require,
     websocket_principal,
 )
+from ivaas.adapters.http.billing_routes import add_billing_routes
 from ivaas.adapters.http.edge_routes import add_edge_routes
 from ivaas.adapters.http.evidence_routes import add_evidence_routes, sweep_expired
 from ivaas.adapters.http.fleet_routes import add_fleet_routes
@@ -102,6 +103,7 @@ from ivaas.config.container import Container, build_container
 from ivaas.config.settings import Settings
 from ivaas.domain.alerts import InvalidAlertKeyError
 from ivaas.domain.audit import AuditAction, AuditEntry
+from ivaas.domain.billing import LimitReached
 from ivaas.domain.models import (
     Bay,
     CameraStatus,
@@ -178,6 +180,12 @@ async def _sweep_tenant(container: Container, slug: str) -> None:
             log.info("%s: filed the daily report for %s", slug, filed.day)
     except Exception:
         log.exception("%s: filing daily reports failed", slug)
+    try:
+        # yesterday's channels, metered once (the day's key makes every minute harmless)
+        if await container.billing().meter_channel_days():
+            log.info("%s: metered yesterday's active channels", slug)
+    except Exception:
+        log.exception("%s: channel metering failed", slug)
     try:
         removed = await sweep_expired(container)
         if removed:
@@ -472,6 +480,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         c: Container = Depends(get_container),
     ) -> CameraOut:
         await require_bay(c, principal, P.DEVICE_REGISTER, bay_id)
+        try:  # the plan's channels: a hard limit, refused with what would lift it (T7.3)
+            await c.billing().check_new_camera(body.role)
+        except LimitReached as exc:
+            raise HTTPException(402, str(exc)) from exc
         camera = await c.register_camera(bay_id, body.name, body.role, body.source_url)
         await audit(
             c,
@@ -1262,6 +1274,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_manifest_routes(app, get_container, audit)
     add_report_routes(app, get_container, audit)
     add_webhook_routes(app, get_container, audit)
+    add_billing_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}", **files("The stored object, as stored", "*/*"))
     async def get_object(

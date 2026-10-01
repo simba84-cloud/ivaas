@@ -795,3 +795,111 @@ async def test_availability_keeps_the_latest_period_per_subject_and_reads_a_wind
     )
     assert {p.id for p in window} == {old_node.id}
     assert await store.between([], t, t + timedelta(days=1)) == []
+
+
+# --- billing (M7) ---------------------------------------------------------------------
+@pytest_asyncio.fixture
+async def billing(request):
+    """-> (store, sessionmaker or None) for the requested backend, empty."""
+    from ivaas.adapters.persistence.billing_postgres import (
+        InMemoryBillingStore,
+        PostgresBillingStore,
+    )
+
+    if request.param == "memory":
+        yield InMemoryBillingStore(), None
+        return
+
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+
+    postgres_url = request.getfixturevalue("postgres_url")
+    *_, dispose, sm = await build_postgres_repositories(
+        postgres_url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
+    )
+    # as the owner: the application's role may not delete from the ledger (below)
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    owner = create_async_engine(postgres_url)
+    async with owner.begin() as db:
+        for table in ("invoices", "usage_events", "subscriptions"):
+            await db.execute(text(f"DELETE FROM {table}"))
+    await owner.dispose()
+    yield PostgresBillingStore(sm), sm
+    await dispose()
+
+
+both_billing = pytest.mark.parametrize(
+    "billing", ["memory", pytest.param("postgres", marks=pytest.mark.postgres)], indirect=True
+)
+
+
+@both_billing
+async def test_billing_subscription_ledger_and_invoices_round_trip(billing):
+    from decimal import Decimal
+
+    from ivaas.domain.billing import (
+        OD,
+        Invoice,
+        Line,
+        Segment,
+        Subscription,
+        UsageEvent,
+    )
+
+    store, _ = billing
+    sub = Subscription(BAKERS_INN_ID, [Segment(T0, "standard", {OD: 16}, "platform")])
+    await store.save_subscription(sub)
+    sub.change(Segment(T0 + timedelta(days=10), "standard", {OD: 24}, "owner"))
+    await store.save_subscription(sub)  # an upsert, not a second row
+    back = await store.subscription()
+    assert [s.quantities[OD] for s in back.segments] == [16, 24]
+
+    e = UsageEvent("assistant_tokens", Decimal("1000.5"), T0, "spend:1")
+    assert await store.record(e) is True
+    assert await store.record(UsageEvent("assistant_tokens", Decimal(9), T0, "spend:1")) is False
+    await store.record(
+        UsageEvent("assistant_tokens", Decimal(2), T0 + timedelta(hours=1), "spend:2")
+    )
+    got = await store.usage(T0, T0 + timedelta(days=1))
+    assert got == {"assistant_tokens": Decimal("1002.5")}
+
+    first, second = await store.next_invoice_number(2026), await store.next_invoice_number(2026)
+    assert first < second and first.startswith("IVAAS-2026-")
+    inv = Invoice(
+        BAKERS_INN_ID,
+        T0.date(),
+        T0.date(),
+        "USD",
+        [Line("ivaas-platform", "x", Decimal(1), Decimal("250.00"), Decimal("250.00"))],
+        "VAT",
+        Decimal("0.15"),
+        "book",
+        True,
+        number=first,
+        issued_at=T0,
+    )
+    await store.save_invoice(inv)
+    [listed] = await store.invoices()
+    assert listed.number == first and listed.total == Decimal("287.50") and listed.placeholder
+    assert (await store.invoice_for(T0.date(), T0.date())).id == inv.id
+
+
+@pytest.mark.postgres
+async def test_the_usage_ledger_is_append_only_for_the_application(request):
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+
+    url = request.getfixturevalue("postgres_url")
+    *_, dispose, sm = await build_postgres_repositories(
+        url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
+    )
+    try:
+        for change in ("DELETE FROM usage_events", "UPDATE usage_events SET quantity = 0"):
+            with pytest.raises(Exception, match="permission denied"):
+                async with sm.begin() as db:  # the application's own sessions, as ivaas_app
+                    await db.execute(text(change))
+    finally:
+        await dispose()

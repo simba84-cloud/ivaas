@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -51,6 +52,9 @@ class Settings(BaseSettings):
     # Webhooks go to public https receivers only. True also allows http and addresses
     # on the deployment's own network (an ERP on the site LAN): never on a shared host.
     webhook_allow_private: bool = False
+    # The price book billing rates with (SKUs, plans, tax, currency). The one shipped
+    # is made up and says so: every invoice from it is stamped NOT FOR ISSUE.
+    price_book: str = str(Path(__file__).parent / "price_book.placeholder.json")
     # Analysis assistant. Any OpenAI-compatible server; empty = assistant disabled.
     llm_url: str = ""
     llm_model: str = "qwen3:8b"  # Apache-2.0 open weights, reliable tool calling
