@@ -1278,7 +1278,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[Depends(require(P.ASSISTANT_QUERY))],
     )
     async def assistant_chat(body: ChatIn, c: Container = Depends(get_container)) -> ChatOut:
-        ask = c.ask_assistant
+        ask = await c.ask_assistant_uc()
         if ask is None:
             raise HTTPException(503, "assistant is not configured (set IVAAS_LLM_URL)")
         try:

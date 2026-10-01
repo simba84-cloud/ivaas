@@ -8,7 +8,6 @@ from collections.abc import Awaitable, Callable
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
@@ -23,8 +22,6 @@ from ivaas.domain.manifests import (
     ManifestError,
     ManifestException,
     ManifestLine,
-    balances,
-    local_day,
 )
 from ivaas.domain.models import NotFoundError, SessionDirection
 from ivaas.domain.plates import canonical
@@ -124,13 +121,6 @@ class BalanceOut(BaseModel):
             in_progress=b.in_progress,
             corrected=b.corrected,
         )
-
-
-def _tz(name: str | None) -> ZoneInfo:
-    try:
-        return ZoneInfo(name or "UTC")
-    except ZoneInfoNotFoundError:
-        return ZoneInfo("UTC")
 
 
 def add_manifest_routes(
@@ -320,21 +310,5 @@ def add_manifest_routes(
         """Crates out, crates back, still outstanding, over the last `days` days, per
         truck, route or day, from each load's count of record. Open loads are counted
         as in progress, not added in."""
-        now = c.clock.now()
-        start = now - timedelta(days=max(1, min(days, 90)))
-        sessions = await c.sessions.list_recent(since=start, limit=5000)
-        site_of = {b.id: b.site_id for b in await c.bays.list_all()}
-        tz_of = {s.id: _tz(s.timezone) for s in await c.sites.list_all()}
-        route_of = {
-            x.session_id: x.route for x in await c.manifests.since(start.date()) if x.session_id
-        }
-
-        def key(s) -> str:
-            if by == "route":
-                return route_of.get(s.id, "")
-            if by == "day":
-                tz = tz_of.get(site_of.get(s.bay_id), ZoneInfo("UTC"))
-                return local_day(s.opened_at, tz).isoformat()
-            return s.plate or ""
-
-        return [BalanceOut.of(b) for b in balances(sessions, key)]
+        rows = await c.balance_query()(days, by)
+        return [BalanceOut.of(b) for b in rows]

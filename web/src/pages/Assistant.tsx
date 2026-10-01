@@ -5,6 +5,7 @@ import {
   Camera,
   ChevronDown,
   Database,
+  FileText,
   Gauge,
   SendHorizontal,
   ShieldCheck,
@@ -17,19 +18,20 @@ import type { ChatTurn, ToolUse } from "../api/types";
 import { staggerDelay, transition } from "../motion";
 
 const SUGGESTIONS = [
+  "How many crates went out yesterday, and how many came back?",
+  "Which trucks still have crates out this week?",
   "How accurate has the AI count been this week?",
-  "Which trucks had the biggest variance?",
   "Show me today's disputed sessions",
   "Are any cameras offline?",
-  "How many crates did we count per day this week?",
 ];
 
-/** The assistant's whole surface area: these five queries and nothing else. */
+/** The assistant's whole surface area: these five queries and nothing else. The
+ * figures are the daily report's and the Balances page's, computed by the same code. */
 const TOOLS = [
   { name: "list_sessions", label: "Truck sessions", icon: Truck },
+  { name: "daily_report", label: "Daily report", icon: FileText },
+  { name: "balances", label: "Balances", icon: BarChart3 },
   { name: "accuracy_report", label: "Accuracy report", icon: Gauge },
-  { name: "totals_by_plate", label: "Totals by truck", icon: BarChart3 },
-  { name: "daily_totals", label: "Daily totals", icon: BarChart3 },
   { name: "camera_health", label: "Camera health", icon: Camera },
 ];
 const TOOL_LABEL: Record<string, string> = Object.fromEntries(

@@ -11,11 +11,12 @@ from ivaas.adapters.persistence.memory import (
     InMemoryBayRepository,
     InMemoryCameraRepository,
     InMemorySessionRepository,
+    InMemorySiteRepository,
     SystemClock,
 )
 from ivaas.application.analytics import AnalyticsTools
 from ivaas.application.assistant import MAX_STEPS, AskAssistant
-from ivaas.domain.models import Bay, LoadingSession, SessionDirection
+from ivaas.domain.models import Bay, LoadingSession, OverrideReason, SessionDirection
 from ivaas.ports.assistant import (
     ChatMessage,
     ChatModelUnavailableError,
@@ -49,8 +50,18 @@ async def tools():
     ]:
         await repo.save(s)
     bay = Bay(uuid4(), uuid4(), "Bay")
+
+    async def unused(*_):
+        raise AssertionError("the report paths are tested in test_assistant_golden.py")
+
     return AnalyticsTools(
-        repo, InMemoryCameraRepository(), InMemoryBayRepository([bay]), SystemClock()
+        repo,
+        InMemoryCameraRepository(),
+        InMemoryBayRepository([bay]),
+        InMemorySiteRepository(),
+        SystemClock(),
+        balances=unused,
+        daily=unused,
     )
 
 
@@ -89,16 +100,28 @@ async def test_window_excludes_old_sessions_and_plate_filter_is_fuzzy(tools):
 
 
 @pytest.mark.asyncio
-async def test_totals_by_plate_aggregates(tools):
-    trucks = (await tools.call("totals_by_plate", {}))["trucks"]
-    afe = next(t for t in trucks if t["plate"] == "ABE 2437")
-    assert afe == {
-        "plate": "ABE 2437",
-        "sessions": 2,
-        "crates_ai": 1684,
-        "net_variance": -16,
-        "disputed": 0,
-    }
+async def test_a_load_shows_its_correction_and_count_of_record(tools):
+    s = session("COR 0001", 80, None)
+    s.override(78, reason=OverrideReason.PERSON_OR_FORKLIFT, by="admin", at=NOW)
+    await tools.sessions.save(s)
+    [row] = (await tools.call("list_sessions", {"plate": "COR 0001"}))["sessions"]
+    assert (row["ai_count"], row["corrected_count"], row["count_of_record"]) == (80, 78, 78)
+
+
+@pytest.mark.asyncio
+async def test_totals_that_disagreed_with_the_reports_are_gone(tools):
+    # they summed AI counts of loads and returns together by UTC date (T6.6)
+    for old in ("totals_by_plate", "daily_totals"):
+        assert "error" in await tools.call(old, {})
+
+
+@pytest.mark.asyncio
+async def test_accuracy_is_measured_against_the_configured_target(tools):
+    tools.target = 0.99
+    r = await tools.call("accuracy_report", {"days": 7})
+    # 98.7% and 84.2% miss 99%; 99.1% and 100% meet it
+    assert r["target_pct"] == 99.0 and r["sessions_below_target"] == 2
+    assert r["aggregate_error_pct"] == round(abs(3186 - 3330) / 3330 * 100, 1)
 
 
 @pytest.mark.asyncio
@@ -168,7 +191,7 @@ async def test_openai_adapter_round_trip_and_think_stripping():
                                 {
                                     "id": "abc",
                                     "function": {
-                                        "name": "daily_totals",
+                                        "name": "balances",
                                         "arguments": '{"days": 3}',
                                     },
                                 },
@@ -186,14 +209,14 @@ async def test_openai_adapter_round_trip_and_think_stripping():
     out = await model.complete(
         [
             ChatMessage("user", "q"),
-            calls(("daily_totals", {"days": 3})),
+            calls(("balances", {"days": 3})),
             ChatMessage("tool", "{}", tool_call_id="c0"),
         ],
         AnalyticsTools.SPECS,
     )
     assert out.content == "Let me check."
     assert [(c.id, c.name, c.arguments) for c in out.tool_calls] == [
-        ("abc", "daily_totals", {"days": 3}),
+        ("abc", "balances", {"days": 3}),
         ("call_1", "camera_health", {"x": 1}),
         ("call_2", "list_sessions", {}),
     ]

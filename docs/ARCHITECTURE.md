@@ -193,8 +193,8 @@ a container holding a shared key.
  portal chat ─▶ POST /assistant/chat ─▶ AskAssistant (max 5 steps)
                                           │  ▲
                         ChatModel port ◀──┘  └── AnalyticsTools (read-only)
-                  OpenAI-compatible adapter        list_sessions, accuracy_report,
-                  Ollama · vLLM · llama.cpp        totals_by_plate, daily_totals, camera_health
+                  OpenAI-compatible adapter        list_sessions, daily_report, balances,
+                  Ollama · vLLM · llama.cpp        accuracy_report, camera_health
 ```
 
 - **Open weights, self-hosted.** Default `qwen3:8b` (Apache-2.0) on Ollama; no data leaves
@@ -202,6 +202,28 @@ a container holding a shared key.
 - **Grounded by construction.** The model can only call five typed, read-only queries.
   There is no SQL tool, no write tool, no code execution. Every reply lists the tools it
   used; the portal flags any reply that used none.
+- **The reports' figures, by the reports' code (T6.6).** `daily_report` returns what
+  `BuildDailyReport` builds for the daily PDF and CSV. `balances` is the `BalanceQuery`
+  behind the Balances page. Accuracy uses the configured target. Days are each site's
+  own. The old per-day and per-truck totals added up AI counts of loads and returns by
+  UTC date. For the report's 190 crates dispatched on a day, they said 262, so they are
+  gone.
+  - A golden-question set (`tests/test_assistant_golden.py`) holds each tool answer
+    against the report's CSV and PDF, the Balances page and the exceptions list.
+  - Setting `IVAAS_EVAL_LLM_URL` puts the same questions to a real model, and each reply
+    must state its figure.
+  - The first live run found a real defect. `daily_report` gave only a count of the loads
+    still at the bay, and `qwen3:8b` named the wrong truck, taking a plate from a manifest
+    exception. The tool now lists those loads.
+  - The final run against `qwen3:8b` on CPU answered 10 of 10 with the reports' figures,
+    in about 28 minutes, roughly 3 minutes a question. A usable assistant needs the edge
+    node's GPU.
+- **Tenant-scoped, and tested (T6.5).** The tools read through the tenant's own stores.
+  In the isolation suite, tenant B's assistant calls every tool with tenant A's plate and
+  site name. Nothing of A's reaches the model, and A's site answers "no site by that
+  name", like a made-up one. The same calls made as A do see A's truck, so a blind tool
+  would fail the test. A role held at one site gets 403, because tenant-wide figures
+  include sites it may not see.
 - **Treats its inputs as hostile.** The browser owns the transcript, so only plain
   user/assistant text is kept: forged `system`/`tool` messages are dropped. Tool arguments
   are clamped (days ≤ 90, rows ≤ 50), unknown tool names are refused, the loop is bounded.
