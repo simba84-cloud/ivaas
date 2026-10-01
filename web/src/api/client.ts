@@ -42,6 +42,7 @@ import type {
   TallySheet,
   TallySheetInput,
   ToolUse,
+  NodeConfig,
   Webhook,
   WebhookCreated,
   WebhookDelivery,
@@ -139,6 +140,11 @@ export const api = {
     }),
   sessionEvidence: (sessionId: string) =>
     request<EvidenceClip[]>(`/api/v1/sessions/${sessionId}/evidence`),
+  setNodeConfig: (nodeId: string, config: NodeConfig) =>
+    request<EdgeNode>(`/api/v1/edge/nodes/${nodeId}/config`, {
+      method: "PUT",
+      body: JSON.stringify(config),
+    }),
   rollBackNode: (nodeId: string) =>
     request<EdgeNode>(`/api/v1/edge/nodes/${nodeId}/rollback`, { method: "POST" }),
   tallySheets: () => request<TallySheet[]>("/api/v1/tally/sheets"),

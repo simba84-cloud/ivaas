@@ -617,3 +617,26 @@ export interface WebhookDelivery {
   replay_of: string | null;
   created_at: string;
 }
+
+export type Point = [number, number];
+
+/** Where a camera counts: across a line (a chokepoint) or within a zone. Pixels. */
+export interface NodeCameraConfig {
+  api_camera_id: string;
+  key?: string;
+  line?: [Point, Point];
+  zone?: [number, number, number, number];
+  stride: number;
+  frames?: "latest" | "all";
+}
+
+/** What a node runs (PUT /edge/nodes/{id}/config); keys the editor does not touch are kept. */
+export interface NodeConfig {
+  model: { path?: string; version_id?: string; arch?: "rtdetr" | "yolo" };
+  layers_model?: string;
+  layers_model_id?: string;
+  forward_means?: "loading" | "offloading";
+  count?: "stack" | "crate";
+  cameras: NodeCameraConfig[];
+  lpr_cameras: NodeCameraConfig[];
+}
