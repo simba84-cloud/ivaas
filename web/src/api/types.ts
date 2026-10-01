@@ -640,3 +640,49 @@ export interface NodeConfig {
   cameras: NodeCameraConfig[];
   lpr_cameras: NodeCameraConfig[];
 }
+
+export interface PocCriterion {
+  name: string;
+  result: "pass" | "fail" | "not measured";
+  figure: string;
+  target: string;
+  how: string;
+  notes: string[];
+}
+
+export interface PocReport {
+  site: string;
+  start: string;
+  end: string;
+  timezone: string;
+  generated_at: string;
+  /** pass only when every criterion was measured and met */
+  verdict: "pass" | "fail" | "incomplete";
+  criteria: PocCriterion[];
+  loads: number;
+  dispatched: number;
+  returned: number;
+  outstanding: number;
+  still_at_the_bay: number;
+  corrections: number;
+  correction_crates: number;
+  outstanding_value: number | null;
+  currency: string;
+  exceptions: { kind: string; status: string; count: number }[];
+  nodes: {
+    name: string;
+    measured_from: string;
+    measured_to: string;
+    uptime_pct: number | null;
+    outages: number;
+    down_minutes: number;
+  }[];
+}
+
+export interface PocParams {
+  start: string;
+  end: string;
+  baseline_minutes?: number;
+  crate_value?: number;
+  currency?: string;
+}

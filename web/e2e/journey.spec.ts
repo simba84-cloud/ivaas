@@ -40,8 +40,9 @@ test("a site manager watches a load, ends it, and exports the day's report", asy
   await page.getByRole("link", { name: "Daily Reports" }).click();
   await expect(page.getByRole("heading", { name: "Daily reports" })).toBeVisible();
 
+  const daily = page.getByRole("region", { name: "A day's report" });
   const csv = page.waitForEvent("download");
-  await page.getByRole("button", { name: "CSV" }).click();
+  await daily.getByRole("button", { name: "CSV" }).click();
   const rows = (await readFile(await (await csv).path(), "utf8")).trim().split(/\r?\n/);
   expect(rows[0]).toMatch(/^date,site,opened,closed,plate,/);
   const row = rows.find((r) => r.includes(plate));
@@ -58,7 +59,7 @@ test("a site manager watches a load, ends it, and exports the day's report", asy
   });
 
   const pdf = page.waitForEvent("download");
-  await page.getByRole("button", { name: "PDF" }).click();
+  await daily.getByRole("button", { name: "PDF" }).click();
   const bytes = await readFile(await (await pdf).path());
   expect(bytes.subarray(0, 5).toString()).toBe("%PDF-");
 });
