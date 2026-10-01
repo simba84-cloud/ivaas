@@ -19,6 +19,11 @@ class AvailabilityStore(Protocol):
 
     async def save_all(self, periods: list[Period]) -> None: ...
 
+    async def first_recorded(self) -> datetime | None:
+        """When history began: the earliest period kept. Before it nothing was recorded,
+        which is not the same as down."""
+        ...
+
     async def between(self, node_ids: list[UUID], start: datetime, end: datetime) -> list[Period]:
         """Periods of these nodes (and their cameras) that overlap [start, end)."""
         ...

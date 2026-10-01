@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, Integer, select
+from sqlalchemy import Boolean, DateTime, Integer, func, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
@@ -51,6 +51,10 @@ class PostgresAvailabilityStore:
             for p in periods:
                 await db.merge(PeriodRow(**{f: getattr(p, f) for f in _FIELDS}))
 
+    async def first_recorded(self) -> datetime | None:
+        async with self._sm() as db:
+            return (await db.execute(select(func.min(PeriodRow.since)))).scalar_one_or_none()
+
     async def between(self, node_ids: list[UUID], start: datetime, end: datetime) -> list[Period]:
         if not node_ids:
             return []
@@ -77,6 +81,9 @@ class InMemoryAvailabilityStore:
     async def save_all(self, periods: list[Period]) -> None:
         for p in periods:
             self._periods[p.id] = p
+
+    async def first_recorded(self) -> datetime | None:
+        return min((p.since for p in self._periods.values()), default=None)
 
     async def between(self, node_ids: list[UUID], start: datetime, end: datetime) -> list[Period]:
         wanted = set(node_ids)

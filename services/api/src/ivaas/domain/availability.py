@@ -7,8 +7,9 @@ run of heartbeats in one state becomes one period, extended while they keep comi
 - A camera is up while its node reports it connected, and down while its node reports
   it not. While the node is silent nobody can vouch for the camera, so that is down too.
 
-Uptime over a window is the share of it inside up periods. An outage is the time
-between two up periods. Each period keeps the node's spool backlog, so an outage can
+An outage is a stretch longer than the heartbeat gap with no up period: between two,
+or at either end of the window. Uptime is the rest of the window, so the two always
+agree. Each period keeps the node's spool backlog, so an outage can
 be shown to have been recovered with nothing lost: the backlog it built drained.
 """
 
@@ -53,11 +54,6 @@ def observe(
     return Period(node_id, camera_id, up, at, at, peak_spool=spool, last_spool=spool)
 
 
-def _overlap(p: Period, start: datetime, end: datetime) -> timedelta:
-    lo, hi = max(p.since, start), min(p.until, end)
-    return max(hi - lo, timedelta(0))
-
-
 @dataclass(frozen=True)
 class Outage:
     start: datetime  # the last heartbeat before it, or the window's start
@@ -90,7 +86,6 @@ def availability(periods: list[Period], start: datetime, end: datetime) -> Avail
     ups = sorted(
         (p for p in periods if p.up and p.until >= start and p.since < end), key=lambda p: p.since
     )
-    covered = sum((_overlap(p, start, end) for p in ups), timedelta(0))
     outages: list[Outage] = []
     cursor = start
     for p in ups:
@@ -99,4 +94,7 @@ def availability(periods: list[Period], start: datetime, end: datetime) -> Avail
         cursor = max(cursor, p.until)
     if end - cursor > GAP:
         outages.append(Outage(cursor, end, None, None))
-    return Availability(start, end, covered / (end - start), outages)
+    # up is everything that is not an outage: a subject heard from within the gap is
+    # working, as the fleet view's "online" says, so uptime and outages always agree
+    down = sum((o.end - o.start for o in outages), timedelta(0))
+    return Availability(start, end, 1 - down / (end - start), outages)

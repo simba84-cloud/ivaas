@@ -83,3 +83,26 @@ def test_a_window_clips_the_periods_it_overlaps():
     a = availability(periods, T0 + timedelta(minutes=30), T0 + timedelta(minutes=90))
     assert a.uptime == pytest.approx(1.0)
     assert availability(periods, T0, T0).uptime is None
+
+
+@pytest.mark.parametrize(
+    "spans",
+    [
+        ((0, 60),),  # steady
+        ((0, 30), (40, 60)),  # a ten-minute outage
+        ((5, 20), (21, 50)),  # late, a short gap, early silence
+        (),  # never heard from
+        ((10, 11),),  # one minute alive
+    ],
+)
+def test_uptime_and_outages_always_agree(spans):
+    """Up is everything that is not an outage: a figure and its breakdown never disagree."""
+    a = availability(beats(*spans), T0, T0 + timedelta(minutes=60))
+    assert a.uptime == pytest.approx(1 - a.down_minutes / 60)
+
+
+def test_a_short_life_heard_from_throughout_is_fully_up():
+    # found live: a node that beat every 30 s for 86 s read "68% up, no outages"
+    periods = beats((0, 1.4))
+    a = availability(periods, T0, T0 + timedelta(seconds=86))
+    assert a.outages == [] and a.uptime == pytest.approx(1.0)

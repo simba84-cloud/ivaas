@@ -50,6 +50,7 @@ from ivaas.application.cameras import (
 )
 from ivaas.application.manifests import ReconcileManifests
 from ivaas.application.overview import OperationsOverview, Overview
+from ivaas.application.poc import BuildPocReport
 from ivaas.application.provisioning import ProvisionTenant
 from ivaas.application.reports import BuildDailyReport, FileDailyReports
 from ivaas.application.security import (
@@ -397,6 +398,23 @@ class Container:
             self.sessions,
             self.exceptions,
             self.fleet,
+            self.clock,
+            target=target,
+            tenant_id=current_tenant(),
+        )
+
+    async def build_poc_report_uc(self) -> BuildPocReport:
+        target = float(await self.effective(RECONCILE_TOLERANCE, self.settings.reconcile_tolerance))
+        return BuildPocReport(
+            self.tenants,
+            self.sites,
+            self.bays,
+            self.sessions,
+            self.tally,
+            self.exceptions,
+            self.manifests,
+            self.edge,
+            self.availability,
             self.clock,
             target=target,
             tenant_id=current_tenant(),
