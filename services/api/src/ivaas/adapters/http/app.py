@@ -184,6 +184,10 @@ async def _sweep_tenant(container: Container, slug: str) -> None:
         # yesterday's channels, metered once (the day's key makes every minute harmless)
         if await container.billing().meter_channel_days():
             log.info("%s: metered yesterday's active channels", slug)
+        # an invoice falling due, or its grace running out, moves the tenant (T7.6)
+        moved = await container.billing().refresh_status()
+        if moved:
+            log.warning("%s: billing moved the tenant from %s to %s", slug, *moved)
     except Exception:
         log.exception("%s: channel metering failed", slug)
     try:

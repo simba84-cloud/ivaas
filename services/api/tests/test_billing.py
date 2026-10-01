@@ -139,3 +139,98 @@ def _raw():
     return json.loads(
         (Path(__file__).parents[1] / "src/ivaas/config/price_book.placeholder.json").read_text()
     )
+
+
+# --- second slice: wholesale (T7.9) and the billing state (T7.6, T7.8, T7.10) -----------
+def test_t7_9_litzims_wholesale_october_for_bakers_inn_and_a_second_customer():
+    from ivaas.domain.billing import wholesale
+
+    bakers = Subscription(uuid4())
+    bakers.change(Segment(at(5), "poc-trial", {}))  # 5-18 Oct
+    acme = standard()  # the whole month
+    inv = wholesale(
+        BOOK,
+        uuid4(),
+        "litzim",
+        "LITZIM",
+        [("Bakers Inn", bakers, {}), ("Acme Foods", acme, {})],
+        *OCT,
+    )
+    # LITZIM's prices, 30% off: platform 175, counting channel 31.50, plates 42, API 35
+    by = {p.tenant_name: p for p in inv.parts}
+    # Bakers Inn, 14 of 31 days: 175 x 14/31 = 79.03; 16 x 31.50 x 14/31 = 227.61;
+    # 42 x 14/31 = 18.97; 35 x 14/31 = 15.81
+    assert [x.amount for x in by["Bakers Inn"].lines] == [
+        D("79.03"),
+        D("227.61"),
+        D("18.97"),
+        D("15.81"),
+    ]
+    assert by["Bakers Inn"].subtotal == D("341.42")
+    # Acme, all month: 175 + 16 x 31.50 + 42 = 721.00
+    assert by["Acme Foods"].subtotal == D("721.00")
+    assert inv.subtotal == D("1062.42")
+    assert inv.tax == D("159.36")  # 15% of 1,062.42 = 159.363
+    assert inv.total == D("1221.78")
+    assert inv.price_book == "2026-10-placeholder+wholesale-litzim" and inv.placeholder
+
+
+def test_wholesale_keeps_unit_prices_precise():
+    # 0.02 less 30% is 0.014: rounding it to 0.01 would be a 50% discount, not 30%
+    assert BOOK.for_partner("litzim").prices["ivaas-assistant"] == D("0.014")
+    with pytest.raises(BillingError, match="no wholesale terms"):
+        BOOK.for_partner("nobody")
+
+
+def _status(**over):
+    from ivaas.domain.billing import billing_status
+
+    args = dict(
+        current="active",
+        on_trial=False,
+        subscribed=True,
+        overdue_since=[],
+        on_hold=False,
+        today=datetime(2026, 11, 20).date(),
+        grace_days=7,
+    )
+    return billing_status(**{**args, **over})
+
+
+def test_t7_6_unpaid_goes_past_due_then_suspended_and_payment_brings_it_back():
+    due = datetime(2026, 11, 16).date()
+    assert _status(overdue_since=[due], today=due) == "active"  # due today: not late
+    assert _status(overdue_since=[due], today=datetime(2026, 11, 17).date()) == "past_due"
+    assert _status(overdue_since=[due], today=datetime(2026, 11, 23).date()) == "past_due"
+    assert _status(overdue_since=[due], today=datetime(2026, 11, 24).date()) == "suspended"
+    assert _status(current="suspended", overdue_since=[]) == "active"  # paid
+
+
+def test_t7_8_a_trial_on_a_paid_plan_is_active_and_unbilled_states_stay_put():
+    assert _status(current="trial", on_trial=True) == "trial"
+    assert _status(current="trial", on_trial=False) == "active"  # converted to paid
+    for fixed in ("provisioning", "expired", "cancelled"):
+        assert _status(current=fixed, on_hold=True) == fixed
+    assert _status(current="trial", subscribed=False) == "trial"
+
+
+def test_t7_10_a_partner_hold_suspends_and_only_lifting_it_returns_the_tenant():
+    assert _status(on_hold=True) == "suspended"
+    assert _status(current="suspended", on_hold=True, overdue_since=[]) == "suspended"
+    assert _status(current="suspended", on_hold=False) == "active"
+
+
+def test_an_invoice_is_paid_in_full_once_and_only_when_issued():
+    from ivaas.domain.billing import Payment
+
+    inv = rate(BOOK, standard(), *OCT, {})
+    pay = Payment(D("100.00"), "BT-1", at(31), "finance")
+    with pytest.raises(BillingError, match="issue it first"):
+        inv.pay(pay)
+    inv.number = "IVAAS-2026-000001"
+    inv.pay(pay)
+    assert not inv.settled and inv.paid == D("100.00")
+    inv.pay(Payment(inv.total - D("100.00"), "BT-2", at(31), "finance"))
+    assert inv.settled
+    with pytest.raises(BillingError, match="already paid"):
+        inv.pay(pay)

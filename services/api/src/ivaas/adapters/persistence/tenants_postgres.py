@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, String, select
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, select
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -43,6 +43,7 @@ class TenantRow(Base):
     partner_id: Mapped[UUID | None] = mapped_column(ForeignKey("partners.id"), index=True)
     status: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    on_hold: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class ProvisioningRow(Base):
@@ -56,7 +57,9 @@ class ProvisioningRow(Base):
 
 
 def _tenant(r: TenantRow) -> Tenant:
-    return Tenant(r.id, r.slug, r.name, r.partner_id, TenantStatus(r.status), r.created_at)
+    return Tenant(
+        r.id, r.slug, r.name, r.partner_id, TenantStatus(r.status), r.created_at, r.on_hold
+    )
 
 
 def _record(r: ProvisioningRow) -> ProvisioningRecord:
@@ -98,6 +101,7 @@ class PostgresTenantStore:
             "name": tenant.name,
             "partner_id": tenant.partner_id,
             "status": tenant.status.value,
+            "on_hold": tenant.on_hold,
             "created_at": tenant.created_at,
         }
         stmt = insert(TenantRow).values(**values)

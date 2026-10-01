@@ -88,6 +88,8 @@ class Tenant:
     partner_id: UUID | None
     status: TenantStatus = TenantStatus.TRIAL
     created_at: datetime | None = None
+    #: its partner has held it: suspended until the partner lifts it, whatever is paid
+    on_hold: bool = False
 
 
 @dataclass

@@ -183,12 +183,38 @@ def require(permission: Permission, *, scoped: bool = False) -> Callable:
     at sites the caller has no right to see.
     """
 
-    async def check(principal: Principal = Depends(current_principal)) -> Principal:
+    async def check(
+        request: Request, principal: Principal = Depends(current_principal)
+    ) -> Principal:
         if not holds(principal, permission, scoped=scoped):
             raise HTTPException(403, f"requires permission '{permission.value}'")
+        await refuse_changes_while_suspended(request, principal, permission)
         return principal
 
     return check
+
+
+#: what still works while a tenant is suspended: looking, and the edge counting
+_SAFE = {"GET", "HEAD", "OPTIONS"}
+_NEVER_STOPPED = {Permission.INGEST_WRITE}
+
+
+async def refuse_changes_while_suspended(
+    request: Request, principal: Principal, permission: Permission
+) -> None:
+    """A suspended tenant's people can look but not change anything (T7.6, T7.10).
+    Counting never stops for a billing reason: what the edge sends always lands."""
+    if principal.tenant_id is None or request.method in _SAFE or permission in _NEVER_STOPPED:
+        return
+    with system_context():
+        tenant = await request.app.state.container.tenants.get(principal.tenant_id)
+    if tenant is not None and tenant.status.value == "suspended":
+        why = "its partner has put it on hold" if tenant.on_hold else "an invoice is unpaid"
+        raise HTTPException(
+            402,
+            f"this account is suspended: {why}. Everything can still be viewed, and counting "
+            "carries on; changes return when it is settled.",
+        )
 
 
 def check_scope(principal: Principal, permission: Permission, scope: Scope) -> None:
