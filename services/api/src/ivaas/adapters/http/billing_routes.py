@@ -487,6 +487,21 @@ def add_billing_routes(app: FastAPI, get_container: Callable[[Request], Any], au
             raise HTTPException(404, "no subscription: nothing is billed")
         return InvoiceOut.of(inv)
 
+    @app.get(
+        "/api/v1/platform/tenants/{tenant_id}/invoices",
+        response_model=list[InvoiceOut],
+        dependencies=[Depends(require(P.INVOICE_READ))],
+    )
+    async def tenant_invoices(
+        tenant_id: UUID,
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> list[InvoiceOut]:
+        """What Cassava has issued the tenant itself; a partner-billed tenant has none."""
+        await billed_tenant(c, principal, tenant_id)
+        with tenant_context(tenant_id):
+            return [InvoiceOut.of(i) for i in await c.billing_store.invoices()]
+
     @app.post(
         "/api/v1/platform/tenants/{tenant_id}/invoices",
         response_model=InvoiceOut,

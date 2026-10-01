@@ -40,6 +40,10 @@ import Login from "./pages/Login";
 import Sessions from "./pages/Sessions";
 import Webhooks from "./pages/Webhooks";
 import Billing from "./pages/Billing";
+import Console from "./pages/Console";
+import ConsoleTenant from "./pages/ConsoleTenant";
+import Onboard from "./pages/Onboard";
+import PartnerInvoices from "./pages/PartnerInvoices";
 
 function OidcCallback({ config }: { config: AuthConfig }) {
   const navigate = useNavigate();
@@ -109,11 +113,16 @@ export default function App() {
 
   return (
     // the whole shell shares one bay selection, header and pages alike
-    <ScopeProvider>
+    <ScopeProvider enabled={!!me.data?.tenant}>
       <LiveActivityProvider>
       <Layout connected={connected} me={me.data} onLogout={() => logout(config.data)}>
         <Routes>
-          <Route path="/" element={<Dashboard me={me.data} />} />
+          {/* platform and partner staff belong to no tenant: their home is the console */}
+          <Route path="/" element={me.data && !me.data.tenant ? <Navigate to="/console" replace /> : <Dashboard me={me.data} />} />
+          <Route path="/console" element={<Console me={me.data} />} />
+          <Route path="/console/onboard" element={<Onboard me={me.data} />} />
+          <Route path="/console/tenants/:id" element={<ConsoleTenant me={me.data} />} />
+          <Route path="/console/partners" element={<PartnerInvoices me={me.data} />} />
           <Route path="/command" element={<Command />} />
           <Route path="/alerts" element={<Alerts me={me.data} />} />
           <Route path="/security" element={<Security me={me.data} />} />

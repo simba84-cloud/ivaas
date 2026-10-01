@@ -53,6 +53,11 @@ import type {
   WebhookCreated,
   WebhookDelivery,
   WebhookEvent,
+  Onboarding,
+  PartnerInvoiceView,
+  PartnerRecord,
+  Provisioned,
+  TenantRecord,
 } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -107,6 +112,64 @@ export const api = {
     request<BillingSubscription>("/api/v1/billing/subscription", {
       method: "PUT",
       body: JSON.stringify({ plan, quantities }),
+    }),
+  // consoles (M8): platform staff see every tenant, a partner its own customers
+  tenants: () => request<TenantRecord[]>("/api/v1/platform/tenants"),
+  tenant: (id: string) => request<TenantRecord>(`/api/v1/platform/tenants/${id}`),
+  partners: () => request<PartnerRecord[]>("/api/v1/platform/partners"),
+  provisionTenant: (
+    body: { slug: string; name: string; owner_username: string; owner_display_name?: string; partner_id?: string | null },
+    idempotencyKey: string,
+  ) =>
+    request<Provisioned>("/api/v1/platform/tenants", {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(body),
+    }),
+  onboarding: (id: string) => request<Onboarding>(`/api/v1/platform/tenants/${id}/onboarding`),
+  onboardingSite: (id: string, body: { site_name: string; timezone: string; bay_name: string }) =>
+    request<{ site: Site; bay: Bay }>(`/api/v1/platform/tenants/${id}/onboarding/site`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  onboardingToken: (id: string, body: { site_id: string; bay_id: string | null; name: string; ttl_hours: number }) =>
+    request<EnrollmentToken>(`/api/v1/platform/tenants/${id}/onboarding/enrollment-tokens`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  tenantPlan: (id: string) => request<BillingSubscription>(`/api/v1/platform/tenants/${id}/subscription`),
+  setTenantPlan: (id: string, plan: string, quantities: Record<string, number>) =>
+    request<BillingSubscription>(`/api/v1/platform/tenants/${id}/subscription`, {
+      method: "PUT",
+      body: JSON.stringify({ plan, quantities }),
+    }),
+  tenantInvoices: (id: string) => request<InvoiceView[]>(`/api/v1/platform/tenants/${id}/invoices`),
+  tenantDraft: (id: string, period: string) =>
+    request<InvoiceView>(`/api/v1/platform/tenants/${id}/invoices/draft?period=${period}`),
+  issueTenantInvoice: (id: string, period: string) =>
+    request<InvoiceView>(`/api/v1/platform/tenants/${id}/invoices?period=${period}`, { method: "POST" }),
+  payTenantInvoice: (id: string, number: string, amount: string, reference: string) =>
+    request<InvoiceView>(`/api/v1/platform/tenants/${id}/invoices/${number}/payments`, {
+      method: "POST",
+      body: JSON.stringify({ amount, reference }),
+    }),
+  holdTenant: (id: string, onHold: boolean, reason = "") =>
+    request<{ tenant_id: string; status: string; on_hold: boolean }>(`/api/v1/platform/tenants/${id}/hold`, {
+      method: "PUT",
+      body: JSON.stringify({ on_hold: onHold, reason }),
+    }),
+  partnerInvoices: (partnerId: string) =>
+    request<PartnerInvoiceView[]>(`/api/v1/platform/partners/${partnerId}/invoices`),
+  partnerDraft: (partnerId: string, period: string) =>
+    request<PartnerInvoiceView>(`/api/v1/platform/partners/${partnerId}/invoices/draft?period=${period}`),
+  issuePartnerInvoice: (partnerId: string, period: string) =>
+    request<PartnerInvoiceView>(`/api/v1/platform/partners/${partnerId}/invoices?period=${period}`, {
+      method: "POST",
+    }),
+  payPartnerInvoice: (number: string, amount: string, reference: string) =>
+    request<PartnerInvoiceView>(`/api/v1/platform/partner-invoices/${number}/payments`, {
+      method: "POST",
+      body: JSON.stringify({ amount, reference }),
     }),
   webhooks: () => request<Webhook[]>("/api/v1/webhooks"),
   createWebhook: (url: string, events: WebhookEvent[], description: string) =>

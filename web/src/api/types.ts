@@ -750,3 +750,89 @@ export interface StatementView {
   lines: { sku: string; description: string; quantity: string }[];
   usage: Record<string, string>;
 }
+
+// --- consoles (M8) ----------------------------------------------------------------------
+
+export interface TenantRecord {
+  id: string;
+  slug: string;
+  name: string;
+  status: "provisioning" | "trial" | "active" | "past_due" | "suspended" | "expired" | "cancelled";
+  partner_id: string | null;
+  created_at: string | null;
+  on_hold: boolean;
+}
+
+export interface PartnerRecord {
+  id: string;
+  slug: string;
+  name: string;
+}
+
+export interface Provisioned {
+  tenant: TenantRecord;
+  owner_username: string;
+  /** shown once, on the call that created the tenant; null on a repeat */
+  temporary_password: string | null;
+  created: boolean;
+}
+
+export type OnboardingStepName =
+  | "tenant_created"
+  | "owner_signed_in"
+  | "plan_set"
+  | "site_and_bay"
+  | "enrollment_token"
+  | "node_enrolled"
+  | "node_reporting";
+
+export interface OnboardingStep {
+  name: OnboardingStepName;
+  done: boolean;
+  /** null where no time was recorded */
+  at: string | null;
+  detail: string;
+}
+
+export interface OnboardingNode {
+  id: string;
+  name: string;
+  site_id: string;
+  bay_id: string | null;
+  health: string;
+  enrolled_at: string;
+  last_seen_at: string | null;
+  version: string | null;
+}
+
+export interface Onboarding {
+  tenant: TenantRecord;
+  steps: OnboardingStep[];
+  sites: Site[];
+  bays: Bay[];
+  nodes: OnboardingNode[];
+  /** null until a node has enrolled */
+  seconds_to_first_node: number | null;
+  target_seconds: number;
+  within_target: boolean | null;
+}
+
+export interface PartnerInvoiceView {
+  partner: string;
+  number: string | null;
+  period_start: string;
+  period_end: string;
+  currency: string;
+  customers: { tenant_id: string; tenant_name: string; lines: InvoiceLineView[]; subtotal: string }[];
+  subtotal: string;
+  tax_name: string;
+  tax: string;
+  total: string;
+  price_book: string;
+  placeholder: boolean;
+  stamp: string | null;
+  issued_at: string | null;
+  due_date: string | null;
+  paid: string;
+  settled: boolean;
+}

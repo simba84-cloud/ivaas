@@ -4,20 +4,39 @@ Cassava's platform admins see every partner and tenant. A partner admin sees and
 provisions only its own customers. Neither reaches a tenant's operational data
 from here: that takes an account inside the tenant.
 
-Provisioning is API-only in M1; the consoles that drive it are M8.
+The consoles (M8) drive these. Onboarding (T8.1) gives whoever provisioned a tenant
+the few steps inside it an install needs (its first site and bay, enrollment tokens,
+whether the node reports), and no more: see application/onboarding.py.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 
 from ivaas.adapters.http.auth import current_principal, require
-from ivaas.adapters.http.schemas import PartnerOut, ProvisionIn, ProvisionOut, TenantOut
+from ivaas.adapters.http.schemas import (
+    BayOut,
+    EnrollmentTokenOut,
+    FirstSiteIn,
+    FirstSiteOut,
+    OnboardingNodeOut,
+    OnboardingOut,
+    OnboardingStepOut,
+    OnboardingTokenIn,
+    PartnerOut,
+    ProvisionIn,
+    ProvisionOut,
+    SiteOut,
+    TenantOut,
+)
+from ivaas.application.onboarding import TARGET, OnboardingError
 from ivaas.domain.audit import AuditAction
+from ivaas.domain.edge import EdgeError
 from ivaas.domain.models import NotFoundError
 from ivaas.domain.rbac import Permission as P
 from ivaas.domain.tenancy import ScopeType, Tenant
@@ -133,4 +152,127 @@ def add_platform_routes(
                 await audit(c, principal.name, AuditAction.TENANT_PROVISIONED, body.slug, **detail)
         return ProvisionOut.of(
             result.record, result.tenant, result.temporary_password, result.created
+        )
+
+    # --- onboarding (T8.1) ----------------------------------------------------------
+    async def onboarded(c: Any, principal: Principal, tenant_id: UUID) -> Tenant:
+        with system_context():
+            tenant = await c.tenants.get(tenant_id)
+        if tenant is None or not _sees(principal, tenant):
+            raise NotFoundError(f"tenant {tenant_id} not found")
+        return tenant
+
+    def refused(exc: Exception) -> HTTPException:
+        if "suspended" in str(exc):
+            return HTTPException(402, str(exc))
+        if "already has a site" in str(exc):
+            return HTTPException(409, str(exc))
+        return HTTPException(422, str(exc))
+
+    @app.get(
+        "/api/v1/platform/tenants/{tenant_id}/onboarding",
+        response_model=OnboardingOut,
+        dependencies=[Depends(require(P.TENANT_CREATE))],
+    )
+    async def onboarding(
+        tenant_id: UUID,
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> OnboardingOut:
+        """How far the install has got, read from what exists."""
+        await onboarded(c, principal, tenant_id)
+        p = await c.onboarding().progress(tenant_id)
+        now = c.clock.now()
+        return OnboardingOut(
+            tenant=TenantOut.of(p.tenant),
+            steps=[OnboardingStepOut(**s.__dict__) for s in p.steps],
+            sites=[SiteOut.of(s) for s in p.sites],
+            bays=[BayOut.of(b) for b in p.bays],
+            nodes=[
+                OnboardingNodeOut(
+                    id=n.id,
+                    name=n.name,
+                    site_id=n.site_id,
+                    bay_id=n.bay_id,
+                    health=n.health(now).value,
+                    enrolled_at=n.enrolled_at,
+                    last_seen_at=n.last_seen_at,
+                    version=n.last_report.get("version") or None,
+                )
+                for n in p.nodes
+            ],
+            seconds_to_first_node=(
+                p.to_first_node.total_seconds() if p.to_first_node is not None else None
+            ),
+            target_seconds=TARGET.total_seconds(),
+            within_target=p.within_target,
+        )
+
+    @app.post(
+        "/api/v1/platform/tenants/{tenant_id}/onboarding/site",
+        response_model=FirstSiteOut,
+        status_code=201,
+        dependencies=[Depends(require(P.TENANT_CREATE))],
+    )
+    async def onboarding_site(
+        tenant_id: UUID,
+        body: FirstSiteIn,
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> FirstSiteOut:
+        """The tenant's first site and bay. Refused once it has one."""
+        await onboarded(c, principal, tenant_id)
+        try:
+            site, bay = await c.onboarding().first_site(
+                tenant_id, body.site_name, body.timezone, body.bay_name
+            )
+        except OnboardingError as exc:
+            raise refused(exc) from exc
+        with tenant_context(tenant_id):  # in the tenant's own log: who set it up
+            await audit(
+                c, principal.name, AuditAction.SITE_CREATED, site.name, site_id=str(site.id)
+            )
+            await audit(c, principal.name, AuditAction.BAY_CREATED, bay.name, bay_id=str(bay.id))
+        return FirstSiteOut(site=SiteOut.of(site), bay=BayOut.of(bay))
+
+    @app.post(
+        "/api/v1/platform/tenants/{tenant_id}/onboarding/enrollment-tokens",
+        response_model=EnrollmentTokenOut,
+        status_code=201,
+        dependencies=[Depends(require(P.TENANT_CREATE))],
+    )
+    async def onboarding_token(
+        tenant_id: UUID,
+        body: OnboardingTokenIn,
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> EnrollmentTokenOut:
+        """A single-use token for a node at one of the tenant's sites, shown once."""
+        await onboarded(c, principal, tenant_id)
+        try:
+            record, token = await c.onboarding().enrollment_token(
+                tenant_id,
+                body.site_id,
+                body.bay_id,
+                body.name,
+                timedelta(hours=body.ttl_hours),
+                principal.name,
+            )
+        except (OnboardingError, EdgeError) as exc:
+            raise refused(exc) from exc
+        with tenant_context(tenant_id):
+            await audit(
+                c,
+                principal.name,
+                AuditAction.EDGE_TOKEN_CREATED,
+                record.name,
+                expires_at=record.expires_at.isoformat(),
+                site_id=str(record.site_id),
+            )
+        return EnrollmentTokenOut(
+            token=token,
+            name=record.name,
+            site_id=record.site_id,
+            bay_id=record.bay_id,
+            expires_at=record.expires_at,
         )

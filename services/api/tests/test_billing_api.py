@@ -293,6 +293,11 @@ def test_t7_6_unpaid_goes_past_due_then_suspended_read_only_and_payment_restores
     assert c.post(pay, json={"amount": "1", "reference": "x"}, headers=platform).status_code == 422
     actions = [e["action"] for e in c.get("/api/v1/audit", headers=owner).json()]
     assert actions.count("payment_recorded") == 2
+    # the console lists what was issued; a partner sees none of a direct customer's
+    listed = c.get(f"/api/v1/platform/tenants/{tenant}/invoices", headers=platform).json()
+    assert [(i["number"], i["settled"]) for i in listed] == [(inv["number"], True)]
+    theirs = c.get(f"/api/v1/platform/tenants/{tenant}/invoices", headers=login(c, "litzim"))
+    assert theirs.status_code == 404
 
 
 def test_t7_8_a_trial_put_on_a_paid_plan_is_active_with_the_same_tenant(billed):

@@ -120,6 +120,12 @@ class PostgresEdgeStore:
             r = await db.get(EnrollmentTokenRow, token_id)
         return _token(r) if r else None
 
+    async def list_tokens(self) -> list[EnrollmentToken]:
+        async with self._sm() as db:
+            stmt = select(EnrollmentTokenRow).order_by(EnrollmentTokenRow.created_at)
+            rows = (await db.scalars(stmt)).all()
+        return [_token(r) for r in rows]
+
     async def save_node(self, node: EdgeNode) -> None:
         _stamp(node)
         values = {f: getattr(node, f) for f in _NODE_FIELDS}
@@ -160,6 +166,10 @@ class InMemoryEdgeStore:
     async def get_token(self, token_id: UUID) -> EnrollmentToken | None:
         token = self._tokens.get(token_id)
         return token if token is not None and self._visible(token) else None
+
+    async def list_tokens(self) -> list[EnrollmentToken]:
+        mine = (t for t in self._tokens.values() if self._visible(t))
+        return sorted(mine, key=lambda t: t.created_at)
 
     async def save_node(self, node: EdgeNode) -> None:
         _stamp(node)

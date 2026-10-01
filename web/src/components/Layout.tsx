@@ -27,6 +27,9 @@ import {
   Warehouse,
   Webhook,
   Receipt,
+  Building2,
+  Handshake,
+  UserPlus,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
@@ -114,9 +117,26 @@ const NAV = [
     ],
   },
 ];
+/**
+ * Platform and partner staff belong to no tenant and hold none of its data, so the
+ * tenant's pages would only refuse them. They get the consoles instead (M8).
+ */
+const STAFF_NAV = [
+  {
+    group: "Console",
+    items: [
+      { to: "/console", label: "Tenants", icon: Building2, needs: "tenant.create" },
+      { to: "/console/onboard", label: "Onboard a Tenant", icon: UserPlus, needs: "tenant.create" },
+      { to: "/console/partners", label: "Partner Invoices", icon: Handshake, needs: "invoice.read" },
+    ],
+  },
+];
+
+export const isStaff = (me: Me | undefined) => !!me && !me.tenant;
+
 /** A page someone cannot use is not advertised to them: they would only meet a refusal. */
 const visible = (me: Me | undefined) =>
-  NAV.map((g) => ({
+  (isStaff(me) ? STAFF_NAV : NAV).map((g) => ({
     ...g,
     items: g.items.filter((i) => !("needs" in i && i.needs) || can(me, i.needs as Permission)),
   })).filter((g) => g.items.length);
@@ -264,7 +284,13 @@ export function Layout({
   const level = accessLevel(me);
   const nav = visible(me);
   const { bay, site } = useScope();
-  const where = bay ? `${site?.name ?? "Site"} · ${bay.name}` : "No bay configured";
+  const where = isStaff(me)
+    ? me!.roles.some((r) => r.startsWith("platform_"))
+      ? "Cassava platform"
+      : "Partner console"
+    : bay
+      ? `${site?.name ?? "Site"} · ${bay.name}`
+      : "No bay configured";
 
   return (
     <div className="flex min-h-full">
@@ -316,7 +342,7 @@ export function Layout({
                   <NavLink
                     key={to}
                     to={to}
-                    end={to === "/"}
+                    end={to === "/" || to === "/console"}
                     className={({ isActive }) =>
                       `group relative flex items-center gap-2.5 rounded-lg py-2 pl-3 pr-3 text-sm font-semibold transition ${
                         isActive ? "text-white" : "text-white/65 hover:bg-white/8 hover:text-white"
@@ -381,13 +407,16 @@ export function Layout({
           </div>
 
           <div className="flex items-center gap-1.5">
-            <span
-              className={`chip ${connected ? "bg-good/10 text-good" : "bg-ground text-muted"}`}
-              title={connected ? "Receiving live events" : "Reconnecting to the platform"}
-            >
-              <span className={`dot ${connected ? "animate-pulse bg-good" : "bg-faint"}`} />
-              {connected ? "Live" : "Reconnecting"}
-            </span>
+            {/* staff have no tenant, so no live feed: "Reconnecting" would never end */}
+            {!isStaff(me) && (
+              <span
+                className={`chip ${connected ? "bg-good/10 text-good" : "bg-ground text-muted"}`}
+                title={connected ? "Receiving live events" : "Reconnecting to the platform"}
+              >
+                <span className={`dot ${connected ? "animate-pulse bg-good" : "bg-faint"}`} />
+                {connected ? "Live" : "Reconnecting"}
+              </span>
+            )}
             <button
               onClick={toggleTheme}
               aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
@@ -427,7 +456,7 @@ export function Layout({
             <NavLink
               key={to}
               to={to}
-              end={to === "/"}
+              end={to === "/" || to === "/console"}
               className={({ isActive }) =>
                 `relative flex items-center gap-1.5 whitespace-nowrap px-3 py-2.5 text-sm font-semibold transition-colors ${
                   isActive ? "text-ink" : "text-muted hover:text-ink"

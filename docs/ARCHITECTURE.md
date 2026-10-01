@@ -326,8 +326,37 @@ a container holding a shared key.
   paid and due. The owner can change the plan.
 - **Still open for M7:** the signed entitlement snapshot that lets an edge node keep
   counting on its last plan while offline (T7.7). It is not needed while ingest is never
-  refused for billing. Platform and partner billing screens belong to M8's consoles;
-  until then they are API calls.
+  refused for billing. Platform and partner billing screens are M8's consoles (§2a-viii).
+
+## 2a-viii. Consoles and onboarding (M8, first slice)
+
+Platform and partner staff belong to no tenant and hold none of its data. Their portal
+is therefore a console, not the tenant pages: they sign in and land on `/console`.
+
+- **Tenants:** Cassava sees every tenant, and a partner sees its own customers. The API
+  decides which; the page lists them.
+- **Onboard a tenant (T8.1):** the wizard sets up the customer and its owner, with a
+  temporary password shown once and an idempotency key per attempt, so a retried click
+  is never a second tenant. Then it follows `application/onboarding.py`:
+  - the plan;
+  - the **first** site and bay, refused once the tenant has one, after which its own
+    admins run its topology;
+  - enrollment tokens for the tenant's sites;
+  - a checklist read from what exists, polled until a node reports in.
+- **What onboarding grants:** whoever may provision a tenant (`tenant.create` over it)
+  gets exactly the steps above. The partner still gets 403 on `/sites` and
+  `/edge/nodes`, and sees only each node's name, health, version and times, not its
+  configuration. Every step is written to the tenant's own audit log under the
+  partner's name.
+- **Time to first node:** measured from tenant creation to the first node enrolling,
+  against the 30-minute target. Until a node enrols there is no such time, and the
+  page says how long the install has been going instead of showing 0.
+- **Tenant page:** onboarding, the plan, Cassava's invoices for a direct customer
+  (draft, issue, record payment), and the partner hold.
+- **Partner invoices:** the wholesale draft broken down by customer. Cassava issues
+  invoices and records payments; a partner reads its own.
+- **Still open in M8:** SSO (T8.2), break-glass (T8.3), export (T8.4), purge with a
+  certificate (T8.5), silo (T8.6), commission statements, and the fleet and revenue views.
 
 ## 2b. Analysis assistant
 
@@ -591,7 +620,7 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
    than by the schema. The app switches to `ivaas_app` per transaction from the owner's
    login; a separate login role with its own credential is the GA step. Provisioning is
    idempotent for retries, not for two simultaneous first calls with one key. There is
-   no break-glass, SSO federation, platform console or partner console yet (M8).
+   no break-glass or SSO federation yet (M8); the consoles are §2a-viii.
 12. **Edge gaps (M2, first slice).** Node credentials are bearer secrets over HTTPS,
    not mTLS client certificates; mTLS comes with TLS termination on the POC network.
    A configuration change other than a model restarts the node. There is no broker-level

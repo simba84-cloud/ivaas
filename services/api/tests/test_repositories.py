@@ -797,6 +797,49 @@ async def test_availability_keeps_the_latest_period_per_subject_and_reads_a_wind
     assert await store.between([], t, t + timedelta(days=1)) == []
 
 
+# --- enrollment tokens, listed (M8 onboarding) --------------------------------------
+@pytest_asyncio.fixture
+async def edge(request):
+    from ivaas.adapters.persistence.edge_postgres import InMemoryEdgeStore, PostgresEdgeStore
+
+    if request.param == "memory":
+        yield InMemoryEdgeStore()
+        return
+
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+
+    postgres_url = request.getfixturevalue("postgres_url")
+    _s, _b, _c, _se, dispose, sm = await build_postgres_repositories(
+        postgres_url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
+    )
+    async with sm.begin() as db:
+        await db.execute(text("DELETE FROM edge_enrollment_tokens"))
+    yield PostgresEdgeStore(sm)
+    await dispose()
+
+
+@pytest.mark.parametrize(
+    "edge", ["memory", pytest.param("postgres", marks=pytest.mark.postgres)], indirect=True
+)
+async def test_enrollment_tokens_are_listed_oldest_first_and_per_tenant(edge):
+    from ivaas.domain.edge import EnrollmentToken
+    from ivaas.domain.tenancy import ISOLATION_TEST_ID
+
+    def issue(name, at):
+        return EnrollmentToken.issue(
+            site_id=SITE.id, bay_id=None, name=name, ttl=timedelta(hours=1), by="t", now=at
+        )[0]
+
+    later, first = issue("later", T0 + timedelta(minutes=5)), issue("first", T0)
+    await edge.save_token(later)
+    await edge.save_token(first)
+    assert [t.name for t in await edge.list_tokens()] == ["first", "later"]
+    with tenant_context(ISOLATION_TEST_ID):
+        assert await edge.list_tokens() == []
+
+
 # --- billing (M7) ---------------------------------------------------------------------
 @pytest_asyncio.fixture
 async def billing(request):
