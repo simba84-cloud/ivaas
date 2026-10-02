@@ -60,6 +60,7 @@ import type {
   TenantRecord,
   BreakGlassGrant,
   CertificateView,
+  CommissionView,
   LifecycleView,
 } from "./types";
 
@@ -167,6 +168,8 @@ export const api = {
     }),
   partnerInvoices: (partnerId: string) =>
     request<PartnerInvoiceView[]>(`/api/v1/platform/partners/${partnerId}/invoices`),
+  partnerCommission: (partnerId: string, period: string) =>
+    request<CommissionView>(`/api/v1/platform/partners/${partnerId}/commission?period=${period}`),
   partnerDraft: (partnerId: string, period: string) =>
     request<PartnerInvoiceView>(`/api/v1/platform/partners/${partnerId}/invoices/draft?period=${period}`),
   issuePartnerInvoice: (partnerId: string, period: string) =>

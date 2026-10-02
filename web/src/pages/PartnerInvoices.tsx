@@ -84,6 +84,64 @@ function Pay({ inv }: { inv: PartnerInvoiceView }) {
   );
 }
 
+/**
+ * What the partner keeps on each customer if it re-bills at Cassava's list prices.
+ * What it actually charges is between it and its customer, so that is all this says.
+ */
+function Commission({ partner, period }: { partner: PartnerRecord; period: string }) {
+  const st = useQuery({
+    queryKey: ["console", "partner", partner.id, "commission", period],
+    queryFn: () => api.partnerCommission(partner.id, period),
+    retry: false,
+  });
+  if (st.isPending) return null;
+  if (st.error) return <p className="mt-4 text-sm text-muted">{(st.error as Error).message}</p>;
+  const c = st.data!;
+  const pct = `${Math.round(Number(c.discount) * 100)}%`;
+  return (
+    <div aria-label={`${partner.name} commission`} className="mt-4 border-t border-line pt-3">
+      <h3 className="text-sm font-bold text-ink">Commission statement</h3>
+      <p className="mt-0.5 text-xs text-muted">
+        At Cassava's list prices, less your {pct} wholesale discount, {c.tax_note}. What you charge your customers is
+        your own business: this is the margin list price would give.
+        {c.wholesale_invoice ? ` Wholesale invoice ${c.wholesale_invoice}.` : " The wholesale invoice for this month is not issued yet."}
+      </p>
+      {c.lines.length === 0 ? (
+        <p className="mt-2 text-sm text-muted">No customer had anything billable this month: nothing to report.</p>
+      ) : (
+        <table className="mt-2 w-full text-sm">
+          <thead>
+            <tr className="border-b border-line">
+              <th className="th">Customer</th>
+              <th className="th text-right">At list</th>
+              <th className="th text-right">Wholesale</th>
+              <th className="th text-right">Margin</th>
+            </tr>
+          </thead>
+          <tbody>
+            {c.lines.map((x) => (
+              <tr key={x.tenant_id} className="border-b border-line">
+                <td className="td text-ink">{x.tenant_name}</td>
+                <td className="td num text-right">{x.at_list}</td>
+                <td className="td num text-right text-muted">{x.at_wholesale}</td>
+                <td className="td num text-right">{x.margin}</td>
+              </tr>
+            ))}
+            <tr>
+              <td className="td font-semibold text-ink">Total</td>
+              <td className="td num text-right font-semibold">{c.at_list}</td>
+              <td className="td num text-right text-muted">{c.at_wholesale}</td>
+              <td className="td num text-right font-semibold text-ink">
+                {c.margin} {c.currency}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function Partner({ partner, period, cassava }: { partner: PartnerRecord; period: string; cassava: boolean }) {
   const qc = useQueryClient();
   const draft = useQuery({
@@ -119,6 +177,7 @@ function Partner({ partner, period, cassava }: { partner: PartnerRecord; period:
       ) : (
         <p className="text-sm text-muted">{draft.isPending ? "Loading…" : (draft.error as Error).message}</p>
       )}
+      <Commission partner={partner} period={period} />
       {(issued.data?.length ?? 0) > 0 && (
         <table className="mt-4 w-full border-t border-line text-sm">
           <tbody>

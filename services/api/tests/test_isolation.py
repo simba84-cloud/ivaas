@@ -113,6 +113,7 @@ NOT_TENANT_RESOURCES = {
     ("POST", "/api/v1/platform/tenants/{tenant_id}/break-glass"),
     ("POST", "/api/v1/platform/break-glass/{grant_id}/end"),
     # a partner's wholesale invoices: platform staff, or that partner (test_billing_api)
+    ("GET", "/api/v1/platform/partners/{partner_id}/commission"),
     ("GET", "/api/v1/platform/partners/{partner_id}/invoices/draft"),
     ("GET", "/api/v1/platform/partners/{partner_id}/invoices"),
     ("POST", "/api/v1/platform/partners/{partner_id}/invoices"),
