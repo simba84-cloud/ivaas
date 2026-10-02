@@ -1,6 +1,9 @@
 # IVaaS platform: fully open-source stack.
 #   docker compose up -d --build        -> portal on http://localhost:8080
-name: ivaas
+# Not "ivaas": another project on this machine (~/Desktop/crates) runs as compose project
+# "ivaas", and two projects with one name remove each other's containers on every up
+# and down. The volumes keep their old names (below), so no data moves.
+name: ivaas-poc
 
 # The API and the analysis worker are the same image with the same configuration;
 # one serves HTTP, the other drains the job queue. Anchored so they cannot drift.
@@ -36,6 +39,9 @@ x-ivaas-env: &ivaas-env
       IVAAS_SERVICE_API_KEYS: '{"${IVAAS_PIPELINE_KEY:-change-me-pipeline-key}": "pipeline"}'
       IVAAS_LLM_MODEL: ${IVAAS_LLM_MODEL:-qwen3:8b}
       IVAAS_CORS_ORIGINS: '["http://localhost:${IVAAS_PORTAL_PORT:-8080}"]'
+      # where people reach the portal; SSO sends them back here (set it to the real
+      # address, https and all, anywhere but a laptop)
+      IVAAS_PUBLIC_URL: ${IVAAS_PUBLIC_URL:-http://localhost:${IVAAS_PORTAL_PORT:-8080}}
 
 services:
   postgres:
@@ -234,10 +240,11 @@ services:
     restart: unless-stopped
 
 volumes:
-  mediarecordings:
-  pgdata:
-  natsdata:
-  miniodata:
-  grafanadata:
-  ollamadata:
-  pipelinespool:
+  # pinned to the names they had under project "ivaas": the data stays where it is
+  mediarecordings: { name: ivaas_mediarecordings }
+  pgdata: { name: ivaas_pgdata }
+  natsdata: { name: ivaas_natsdata }
+  miniodata: { name: ivaas_miniodata }
+  grafanadata: { name: ivaas_grafanadata }
+  ollamadata: { name: ivaas_ollamadata }
+  pipelinespool: { name: ivaas_pipelinespool }
