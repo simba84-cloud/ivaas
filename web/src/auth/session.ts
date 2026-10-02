@@ -36,7 +36,9 @@ export type Permission =
   | "settings.manage"
   | "security.manage"
   | "support.request"
-  | "support.approve";
+  | "support.approve"
+  | "data.export"
+  | "tenant.suspend";
 
 export interface Me {
   subject: string;

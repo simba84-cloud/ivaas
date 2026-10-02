@@ -148,6 +148,7 @@ const PERSONAS: Record<string, { roles: string[]; permissions: string[] }> = {
       "report.export",
       "audit.read",
       "support.approve",
+      "data.export",
     ],
   },
   admin: {

@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import type { InvoiceView, TenantRecord } from "../api/types";
 import { type Me, can } from "../auth/session";
 import { OnboardingProgress } from "../components/OnboardingProgress";
-import { PageHeader } from "../components/ui";
+import { PageHeader, dateTime } from "../components/ui";
 import { Draft, InvoiceStatus } from "./Billing";
 import { TenantStatus } from "./Console";
 
@@ -225,6 +225,105 @@ function Hold({ tenant }: { tenant: TenantRecord }) {
   );
 }
 
+/**
+ * The end of a tenant: cancel (the owner can too), reinstate within the window, and,
+ * once it has passed, purge. Each asks for the tenant's short name: none is a click.
+ */
+function Lifecycle({ tenantId }: { tenantId: string }) {
+  const qc = useQueryClient();
+  const lc = useQuery({ queryKey: ["console", tenantId, "lifecycle"], queryFn: () => api.tenantLifecycle(tenantId) });
+  const [confirm, setConfirm] = useState("");
+  const [reason, setReason] = useState("");
+  const done = () => {
+    setConfirm("");
+    qc.invalidateQueries({ queryKey: ["console"] });
+  };
+  const change = useMutation({
+    mutationFn: (action: "cancel" | "reinstate") => api.changeLifecycle(tenantId, action, confirm, reason),
+    onSuccess: done,
+  });
+  const purge = useMutation({ mutationFn: () => api.purgeTenant(tenantId, confirm), onSuccess: done });
+  if (!lc.data) return null;
+  const t = lc.data;
+  const cancelled = t.status === "cancelled";
+  const due = t.purge_after !== null && Date.parse(t.purge_after) <= Date.now();
+  const error = (change.error ?? purge.error) as Error | null;
+  if (purge.data) {
+    return (
+      <section aria-label="Lifecycle" className="card p-4">
+        <h2 className="text-sm font-bold text-ink">Purged</h2>
+        <p className="mt-1 text-sm text-muted">
+          Everything of {purge.data.tenant_name} is gone: {purge.data.body.scan.rows_remaining} rows and{" "}
+          {purge.data.body.scan.objects_remaining} objects left after. Its certificate is under{" "}
+          <Link to="/console/certificates" className="font-semibold text-ink hover:underline">
+            Deletion certificates
+          </Link>
+          .
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section aria-label="Lifecycle" className="card p-4">
+      <h2 className="mb-1 text-sm font-bold text-ink">Cancellation</h2>
+      <p className="text-xs text-muted">
+        {cancelled
+          ? `Cancelled ${t.cancelled_at ? dateTime(t.cancelled_at) : ""}${t.cancelled_by ? ` by ${t.cancelled_by}` : ""}. Its owner can still export; its data may be purged from ${t.purge_after ? dateTime(t.purge_after) : "the end of the window"}.`
+          : `Cancelling stops counting and closes the portal except the owner's export. The data is kept ${t.retention_days} days, then may be purged.`}
+      </p>
+      <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={(e) => e.preventDefault()}>
+        {!cancelled && (
+          <input
+            aria-label="Reason"
+            placeholder="Reason, for the audit log"
+            className="input h-9 w-56"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        )}
+        {(!cancelled || due) && (
+          <input
+            aria-label={`Type ${t.slug} to confirm`}
+            placeholder={`Type ${t.slug} to confirm`}
+            className="input h-9 w-48"
+            autoComplete="off"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+        )}
+        {!cancelled && (
+          <button
+            className="btn-ghost text-bad"
+            disabled={confirm !== t.slug || change.isPending}
+            onClick={() => change.mutate("cancel")}
+          >
+            Cancel tenant
+          </button>
+        )}
+        {cancelled && (
+          <button className="btn-ghost" disabled={change.isPending} onClick={() => change.mutate("reinstate")}>
+            Reinstate
+          </button>
+        )}
+        {cancelled && due && (
+          <button
+            className="btn-accent"
+            disabled={confirm !== t.slug || purge.isPending}
+            onClick={() => purge.mutate()}
+          >
+            Purge for good
+          </button>
+        )}
+      </form>
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-bad">
+          {error.message}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** One tenant, as its provisioner sees it: the install, the plan, its bills, a hold. */
 export default function ConsoleTenant({ me }: { me: Me | undefined }) {
   const { id = "" } = useParams();
@@ -264,6 +363,7 @@ export default function ConsoleTenant({ me }: { me: Me | undefined }) {
             </p>
           )}
           {billing && <Hold tenant={t} />}
+          {can(me, "tenant.suspend") && <Lifecycle tenantId={t.id} />}
         </div>
       </div>
     </>

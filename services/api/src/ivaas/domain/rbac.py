@@ -48,6 +48,7 @@ class Permission(StrEnum):
     INGEST_WRITE = "ingest.write"  # the edge pipeline posting what it saw
     SUPPORT_REQUEST = "support.request"  # ask a tenant for break-glass access (M8)
     SUPPORT_APPROVE = "support.approve"  # grant or refuse it: the tenant's owner only
+    DATA_EXPORT = "data.export"  # the whole tenant, to take away (M8): the owner only
 
 
 class Role(StrEnum):
@@ -107,6 +108,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             P.SETTINGS_MANAGE,
             P.USER_MANAGE,
             P.SUPPORT_APPROVE,
+            P.DATA_EXPORT,
         }
     ),
     Role.TENANT_ADMIN: frozenset(

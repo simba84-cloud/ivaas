@@ -355,8 +355,8 @@ is therefore a console, not the tenant pages: they sign in and land on `/console
   (draft, issue, record payment), and the partner hold.
 - **Partner invoices:** the wholesale draft broken down by customer. Cassava issues
   invoices and records payments; a partner reads its own.
-- **Still open in M8:** SSO (T8.2), export (T8.4), purge with a certificate (T8.5),
-  silo (T8.6), commission statements, and the fleet and revenue views.
+- **Still open in M8:** SSO (T8.2), silo (T8.6), commission statements, and the fleet
+  and revenue views. Export and purge are §2a-x.
 
 ## 2a-ix. Break-glass support access (M8, T8.3)
 
@@ -390,6 +390,67 @@ it may ask.
   - The live event socket cannot carry the header, so support gets no live feed.
 - **Data:** `break_glass_grants` (migration 0024) is row-level secured like every
   tenant table. The application role cannot delete grants.
+
+## 2a-x. Cancellation, export and purge (M8, T8.4 and T8.5)
+
+These follow proposal §3.3: Cancelled → Purged once the retention window has elapsed
+and export has been offered.
+
+**Cancel**
+- The owner (`POST /api/v1/account/cancel`) or a platform admin
+  (`/api/v1/platform/tenants/{id}/cancel`) cancels by typing the tenant's short name.
+- From then on, `adapters/http/auth.py` refuses the tenant everything except
+  `/api/v1/account/*`. Counting stops too, because §3.3 says "export only" for a
+  cancelled tenant.
+- The data is kept for `IVAAS_CANCEL_RETENTION_DAYS`. The default is 90, the evidence
+  window confirmed for Bakers Inn. Until then a platform admin can reinstate the
+  tenant, which comes back as a trial for billing to move on.
+
+**Export (T8.4)**
+- `GET /api/v1/account/export` is owner only (`data.export`). Cassava never exports a
+  tenant's data.
+- It returns a zip with every table as JSON and CSV, every object, and a manifest of
+  counts, checksums and withheld columns.
+- **Which tables:** every table with a `tenant_id`, read from the catalogue
+  (`adapters/persistence/tenant_data_postgres.py`), so a new table is included without
+  anyone listing it. The same rule makes `test_rls.py` demand RLS on it.
+- **How rows move:** as Postgres's own JSON (`row_to_json`), and they come back
+  through `json_populate_recordset`, so every type round-trips exactly.
+- **Which objects:** everything under `tenants/<id>/`, plus any object a row names
+  (`object_key`, `csv_key`, `pdf_key`, `snapshot_key`), which catches files written
+  before keys carried the prefix.
+- **Withheld:** password, credential and token hashes, webhook secrets, camera URLs
+  (they carry camera passwords), face embeddings, and setting overrides named like a
+  key. Each is exported as null, and an import fills a required one with a marker.
+- **Import into a scratch environment:** `TenantLifecycle.import_into`. The test loads
+  an export into a freshly migrated database, and every one of the 30+ tenant tables
+  matches its exported count exactly.
+
+**Purge (T8.5)**
+- Platform admins only. The tenant must be cancelled, the window must have elapsed,
+  and the short name must be typed.
+- It deletes the objects, then every row children-first as the database owner (the
+  application role cannot delete invoices, usage or audit), then the tenant row.
+- It then scans: every tenant table and the object prefix must be empty, or there is
+  no certificate.
+- The certificate (`deletion_certificates`, migration 0025) records what was deleted
+  and the scan, and is signed with `IVAAS_CERTIFICATE_SECRET`. Console → Deletion
+  Certificates shows whether each signature still checks out.
+
+**Memory and coverage**
+- On the in-memory store, export and purge answer 501.
+- The T6.3 coverage guard therefore excuses those two routes from `-m "not postgres"`
+  runs only. A whole run must cover them.
+
+**Open questions for Cassava**
+- **Invoices:** purge deletes a direct customer's invoices with the rest. Tax law may
+  require Cassava to keep them. If so, they move to a platform ledger before a purge.
+- **Partner invoices:** these are the partner's records and are not purged with the
+  customer.
+- **Application logs:** these are stdout, not an index, so the "logs index" scanned is
+  the audit log.
+- **Size:** export is built synchronously into one file. That suits a POC tenant;
+  90 days of clips at scale wants a background job and a link.
 
 ## 2b. Analysis assistant
 

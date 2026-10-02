@@ -7,6 +7,7 @@ records do belong to a tenant and are row-level secured like any other.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -44,6 +45,8 @@ class TenantRow(Base):
     status: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     on_hold: Mapped[bool] = mapped_column(Boolean, default=False)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[str | None] = mapped_column(String(120))
 
 
 class ProvisioningRow(Base):
@@ -58,7 +61,15 @@ class ProvisioningRow(Base):
 
 def _tenant(r: TenantRow) -> Tenant:
     return Tenant(
-        r.id, r.slug, r.name, r.partner_id, TenantStatus(r.status), r.created_at, r.on_hold
+        r.id,
+        r.slug,
+        r.name,
+        r.partner_id,
+        TenantStatus(r.status),
+        r.created_at,
+        r.on_hold,
+        r.cancelled_at,
+        r.cancelled_by,
     )
 
 
@@ -103,6 +114,8 @@ class PostgresTenantStore:
             "status": tenant.status.value,
             "on_hold": tenant.on_hold,
             "created_at": tenant.created_at,
+            "cancelled_at": tenant.cancelled_at,
+            "cancelled_by": tenant.cancelled_by,
         }
         stmt = insert(TenantRow).values(**values)
         stmt = stmt.on_conflict_do_update(index_elements=[TenantRow.id], set_=values)
@@ -153,23 +166,29 @@ class PostgresTenantStore:
 
 
 class InMemoryTenantStore:
+    """Copies on the way in and out, as a database does. Holding the caller's object
+    let a status change made through one app reach the module-level seed, and from it
+    every app built after (found when a cancelled Bakers Inn outlived its test)."""
+
     def __init__(self) -> None:
         self._tenants: dict[UUID, Tenant] = {}
         self._partners: dict[UUID, Partner] = {}
         self._records: dict[str, ProvisioningRecord] = {}
 
     async def get(self, tenant_id: UUID) -> Tenant | None:
-        return self._tenants.get(tenant_id)
+        t = self._tenants.get(tenant_id)
+        return replace(t) if t else None
 
     async def get_by_slug(self, slug: str) -> Tenant | None:
-        return next((t for t in self._tenants.values() if t.slug == slug), None)
+        t = next((t for t in self._tenants.values() if t.slug == slug), None)
+        return replace(t) if t else None
 
     async def list_all(self, *, partner_id: UUID | None = None) -> list[Tenant]:
-        rows = [t for t in self._tenants.values() if partner_id in (None, t.partner_id)]
+        rows = [replace(t) for t in self._tenants.values() if partner_id in (None, t.partner_id)]
         return sorted(rows, key=lambda t: t.name)
 
     async def save(self, tenant: Tenant) -> None:
-        self._tenants[tenant.id] = tenant
+        self._tenants[tenant.id] = replace(tenant)
 
     async def get_partner(self, partner_id: UUID) -> Partner | None:
         return self._partners.get(partner_id)

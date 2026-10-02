@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     run_analysis_worker: bool = True
     # Signs the short-lived links that let <img>/<video> load report objects without a token.
     object_link_secret: str = "dev-only-object-link-secret-change-me"
+    # signs deletion certificates (M8, T8.5) so a stored one cannot be quietly edited
+    certificate_secret: str = "dev-only-certificate-secret-change-me"
+    # a cancelled tenant's data is kept this long, then may be purged; 90 is the
+    # evidence window confirmed for Bakers Inn (proposal §3.3)
+    cancel_retention_days: int = 90
     cors_origins: list[str] = ["http://localhost:5173"]
     seed_demo_data: bool = True
     # empty = no media server (dev): cameras are stored but no stream is provisioned

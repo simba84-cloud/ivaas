@@ -49,6 +49,7 @@ from ivaas.application.cameras import (
     RegisterCamera,
     RemoveCamera,
 )
+from ivaas.application.lifecycle import TenantLifecycle
 from ivaas.application.manifests import ReconcileManifests
 from ivaas.application.onboarding import Onboarding
 from ivaas.application.overview import OperationsOverview, Overview
@@ -190,6 +191,8 @@ class Container:
     edge: Any
     availability: Any
     break_glass: Any
+    tenant_data: Any
+    certificates: Any
     ingest: Any
     ml_models: Any
     evidence: Any
@@ -458,6 +461,22 @@ class Container:
             render_csv=to_csv,
         )
 
+    def lifecycle(self) -> TenantLifecycle:
+        async def refresh(tenant_id: Any) -> None:
+            with tenant_context(tenant_id):
+                await self.billing().refresh_status()
+
+        return TenantLifecycle(
+            self.tenants,
+            self.tenant_data,
+            self.objects,
+            self.certificates,
+            self.clock,
+            retention=timedelta(days=self.settings.cancel_retention_days),
+            secret=self.settings.certificate_secret,
+            refresh=refresh,
+        )
+
     def onboarding(self) -> Onboarding:
         return Onboarding(
             self.tenants,
@@ -690,6 +709,11 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.break_glass_postgres import PostgresBreakGlassStore
 
         break_glass: Any = PostgresBreakGlassStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.certificates_postgres import PostgresCertificateStore
+        from ivaas.adapters.persistence.tenant_data_postgres import PostgresTenantData
+
+        tenant_data: Any = PostgresTenantData(pg_sessionmaker.unscoped)
+        certificates: Any = PostgresCertificateStore(pg_sessionmaker)
         from ivaas.adapters.persistence.ingest_postgres import PostgresIngestLedger
 
         ingest: Any = PostgresIngestLedger(pg_sessionmaker)
@@ -756,6 +780,10 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.break_glass_postgres import InMemoryBreakGlassStore
 
         break_glass = InMemoryBreakGlassStore()
+        from ivaas.adapters.persistence.certificates_postgres import InMemoryCertificateStore
+
+        tenant_data = None  # export and purge read the catalogue: Postgres only
+        certificates = InMemoryCertificateStore()
         from ivaas.adapters.persistence.ingest_postgres import InMemoryIngestLedger
 
         ingest = PerTenant(InMemoryIngestLedger)
@@ -916,6 +944,8 @@ async def build_container(settings: Settings) -> Container:
         price_book=PriceBook.load(settings.price_book),
         availability=availability,
         break_glass=break_glass,
+        tenant_data=tenant_data,
+        certificates=certificates,
         _closers=closers,
     )
     # read through the container at publish time: its clock and store are the live ones

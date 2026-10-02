@@ -14,6 +14,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 from collections.abc import Callable
+from datetime import timedelta
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, WebSocket
@@ -272,6 +273,8 @@ def require(permission: Permission, *, scoped: bool = False) -> Callable:
 #: what still works while a tenant is suspended: looking, and the edge counting
 _SAFE = {"GET", "HEAD", "OPTIONS"}
 _NEVER_STOPPED = {Permission.INGEST_WRITE}
+#: all a cancelled tenant can still reach: its account, to see when it goes and export
+_STILL_OPEN_WHEN_CANCELLED = "/api/v1/account/"
 
 
 async def refuse_changes_while_suspended(
@@ -279,10 +282,26 @@ async def refuse_changes_while_suspended(
 ) -> None:
     """A suspended tenant's people can look but not change anything (T7.6, T7.10).
     Counting never stops for a billing reason: what the edge sends always lands."""
-    if principal.tenant_id is None or request.method in _SAFE or permission in _NEVER_STOPPED:
+    if principal.tenant_id is None:
         return
+    container = request.app.state.container
     with system_context():
-        tenant = await request.app.state.container.tenants.get(principal.tenant_id)
+        tenant = await container.tenants.get(principal.tenant_id)
+    if tenant is not None and tenant.status.value == "cancelled":
+        # §3.3: a cancelled tenant keeps its export, and nothing else, not even counting
+        if not request.url.path.startswith(_STILL_OPEN_WHEN_CANCELLED):
+            until = ""
+            if tenant.cancelled_at is not None:
+                days = container.settings.cancel_retention_days
+                kept = tenant.cancelled_at + timedelta(days=days)
+                until = f" until {kept:%Y-%m-%d}"
+            raise HTTPException(
+                403,
+                f"this account is cancelled: only its data export remains{until}",
+            )
+        return
+    if request.method in _SAFE or permission in _NEVER_STOPPED:
+        return
     if tenant is not None and tenant.status.value == "suspended":
         why = "its partner has put it on hold" if tenant.on_hold else "an invoice is unpaid"
         raise HTTPException(

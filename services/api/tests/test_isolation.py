@@ -104,6 +104,11 @@ NOT_TENANT_RESOURCES = {
     ("GET", "/api/v1/platform/tenants/{tenant_id}/onboarding"),
     ("POST", "/api/v1/platform/tenants/{tenant_id}/onboarding/site"),
     ("POST", "/api/v1/platform/tenants/{tenant_id}/onboarding/enrollment-tokens"),
+    # a tenant's end of life: Cassava's platform admins only (test_lifecycle)
+    ("GET", "/api/v1/platform/tenants/{tenant_id}/lifecycle"),
+    ("POST", "/api/v1/platform/tenants/{tenant_id}/cancel"),
+    ("POST", "/api/v1/platform/tenants/{tenant_id}/reinstate"),
+    ("POST", "/api/v1/platform/tenants/{tenant_id}/purge"),
     # support's own break-glass requests: support only, never a tenant (test_break_glass)
     ("POST", "/api/v1/platform/tenants/{tenant_id}/break-glass"),
     ("POST", "/api/v1/platform/break-glass/{grant_id}/end"),

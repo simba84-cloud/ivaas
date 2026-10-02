@@ -31,6 +31,7 @@ import {
   Handshake,
   UserPlus,
   LifeBuoy,
+  FileCheck,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
@@ -114,6 +115,7 @@ const NAV = [
       { to: "/billing", label: "Billing", icon: Receipt, needs: "invoice.read" },
       { to: "/users", label: "Users", icon: Users, needs: "user.manage" },
       { to: "/support-access", label: "Support Access", icon: LifeBuoy, needs: "support.approve" },
+      { to: "/account", label: "Account", icon: Building2, needs: "data.export" },
       { to: "/audit", label: "Audit Log", icon: ScrollText, needs: "audit.read" },
       { to: "/settings", label: "Settings", icon: SlidersHorizontal, needs: "settings.manage" },
     ],
@@ -131,15 +133,21 @@ const STAFF_NAV = [
       { to: "/console/onboard", label: "Onboard a Tenant", icon: UserPlus, needs: "tenant.create" },
       { to: "/console/partners", label: "Partner Invoices", icon: Handshake, needs: "invoice.read" },
       { to: "/console/support", label: "Support Access", icon: LifeBuoy, needs: "support.request" },
+      { to: "/console/certificates", label: "Deletion Certificates", icon: FileCheck, needs: "tenant.suspend" },
     ],
   },
 ];
 
 export const isStaff = (me: Me | undefined) => !!me && !me.tenant;
 
+/** A cancelled tenant keeps its account page, to export, and nothing else (§3.3). */
+const CANCELLED_NAV = [{ group: "Account", items: [{ to: "/account", label: "Account", icon: Building2, needs: "data.export" }] }];
+
+export const isCancelled = (me: Me | undefined) => me?.tenant?.status === "cancelled";
+
 /** A page someone cannot use is not advertised to them: they would only meet a refusal. */
 const visible = (me: Me | undefined) =>
-  (isStaff(me) ? STAFF_NAV : NAV).map((g) => ({
+  (isStaff(me) ? STAFF_NAV : isCancelled(me) ? CANCELLED_NAV : NAV).map((g) => ({
     ...g,
     items: g.items.filter((i) => !("needs" in i && i.needs) || can(me, i.needs as Permission)),
   })).filter((g) => g.items.length);

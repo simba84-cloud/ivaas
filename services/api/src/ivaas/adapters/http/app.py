@@ -34,6 +34,7 @@ from ivaas.adapters.http.break_glass_routes import add_break_glass_routes
 from ivaas.adapters.http.edge_routes import add_edge_routes
 from ivaas.adapters.http.evidence_routes import add_evidence_routes, sweep_expired
 from ivaas.adapters.http.fleet_routes import add_fleet_routes
+from ivaas.adapters.http.lifecycle_routes import add_lifecycle_routes
 from ivaas.adapters.http.manifest_routes import add_manifest_routes
 from ivaas.adapters.http.media import files
 from ivaas.adapters.http.model_routes import add_model_routes
@@ -1285,6 +1286,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_webhook_routes(app, get_container, audit)
     add_billing_routes(app, get_container, audit)
     add_break_glass_routes(app, get_container, audit)
+    add_lifecycle_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}", **files("The stored object, as stored", "*/*"))
     async def get_object(
