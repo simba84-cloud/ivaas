@@ -127,6 +127,8 @@ const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon; tone: stri
   tenant_reinstated: { label: "Reinstated the account", icon: Building2, tone: "text-good bg-good/10" },
   tenant_exported: { label: "Exported all the account's data", icon: Download, tone: "text-warn bg-warn/10" },
   tenant_purged: { label: "Purged a tenant's data", icon: Eraser, tone: "text-bad bg-bad/10" },
+  sso_configured: { label: "Set up single sign-on", icon: KeyRound, tone: "text-warn bg-warn/10" },
+  sso_removed: { label: "Turned single sign-on off", icon: KeyRound, tone: "text-warn bg-warn/10" },
 };
 
 const WINDOWS = [

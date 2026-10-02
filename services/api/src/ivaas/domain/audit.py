@@ -79,6 +79,8 @@ class AuditAction(StrEnum):
     TENANT_REINSTATED = "tenant_reinstated"
     TENANT_EXPORTED = "tenant_exported"
     TENANT_PURGED = "tenant_purged"
+    SSO_CONFIGURED = "sso_configured"
+    SSO_REMOVED = "sso_removed"
 
 
 @dataclass(frozen=True)

@@ -49,6 +49,7 @@ import PartnerInvoices from "./pages/PartnerInvoices";
 import SupportAccess from "./pages/SupportAccess";
 import Account from "./pages/Account";
 import Certificates from "./pages/Certificates";
+import SingleSignOn from "./pages/SingleSignOn";
 import SupportConsole from "./pages/SupportConsole";
 
 function OidcCallback({ config }: { config: AuthConfig }) {
@@ -107,6 +108,14 @@ export default function App() {
 
   if (!config.data) return null;
   if (location.pathname === "/auth/callback") return <OidcCallback config={config.data} />;
+  if (location.pathname === "/auth/sso") {
+    // back from a tenant's identity provider: the session is in the fragment, which
+    // never reaches a server or a log; take it, and leave nothing in the address bar
+    const fresh = new URLSearchParams(window.location.hash.slice(1)).get("token");
+    window.history.replaceState(null, "", "/");
+    if (fresh) adoptToken(fresh);
+    return null;
+  }
   if (!token) return <Login config={config.data} />;
   if (me.isPending) return null;
   // The API refuses everything but /auth/me and /auth/password while a temporary
@@ -148,6 +157,7 @@ export default function App() {
           <Route path="/console/certificates" element={<Certificates />} />
           <Route path="/account" element={<Account me={me.data} />} />
           <Route path="/support-access" element={<SupportAccess />} />
+          <Route path="/sso" element={<SingleSignOn />} />
           <Route path="/command" element={<Command />} />
           <Route path="/alerts" element={<Alerts me={me.data} />} />
           <Route path="/security" element={<Security me={me.data} />} />

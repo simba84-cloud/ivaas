@@ -894,6 +894,69 @@ async def test_break_glass_grants_round_trip_and_are_found_across_tenants_only_b
         assert (await grants.get(old.id)).tenant_id == BAKERS_INN_ID
 
 
+# --- SSO settings (M8, T8.2) ------------------------------------------------------------
+@pytest_asyncio.fixture
+async def sso_store(request):
+    from ivaas.adapters.persistence.sso_postgres import InMemorySsoStore, PostgresSsoStore
+
+    if request.param == "memory":
+        yield InMemorySsoStore(), None
+        return
+
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+
+    box = SecretBox([SecretBox.generate_key()])
+    postgres_url = request.getfixturevalue("postgres_url")
+    _s, _b, _c, _se, dispose, sm = await build_postgres_repositories(
+        postgres_url, seed=(SITE, BAY, []), box=box
+    )
+    async with sm.begin() as db:
+        await db.execute(text("DELETE FROM sso_configs"))
+    yield PostgresSsoStore(sm, box), sm
+    await dispose()
+
+
+@pytest.mark.parametrize(
+    "sso_store", ["memory", pytest.param("postgres", marks=pytest.mark.postgres)], indirect=True
+)
+async def test_sso_settings_round_trip_with_the_secret_sealed_and_per_tenant(sso_store):
+    from ivaas.domain.rbac import Role
+    from ivaas.domain.sso import SsoConfig
+    from ivaas.domain.tenancy import ISOLATION_TEST_ID
+
+    store, sm = sso_store
+    config = SsoConfig(
+        tenant_id=BAKERS_INN_ID,
+        issuer="https://login.microsoftonline.com/t/v2.0/",
+        client_id="ivaas",
+        client_secret="s3cret-value",
+        domains=["BakersInn.co.zw", "@bakersinn.com"],
+        default_role=Role.BAY_OPERATOR,
+        required=True,
+        updated_by="admin",
+        updated_at=T0,
+    )
+    await store.save(config)
+    got = await store.get(BAKERS_INN_ID)
+    assert got.client_secret == "s3cret-value" and got.issuer.endswith("/v2.0")
+    assert (
+        got.domains == ["bakersinn.co.zw", "bakersinn.com"]
+        and got.default_role is Role.BAY_OPERATOR
+    )
+    if sm is not None:  # sealed in the row: the database never holds the secret in clear
+        from sqlalchemy import text
+
+        async with sm() as db:
+            raw = (await db.execute(text("SELECT client_secret FROM sso_configs"))).scalar_one()
+        assert "s3cret" not in raw
+    with tenant_context(ISOLATION_TEST_ID):
+        assert await store.get(BAKERS_INN_ID) is None
+    await store.delete(BAKERS_INN_ID)
+    assert await store.get(BAKERS_INN_ID) is None
+
+
 # --- billing (M7) ---------------------------------------------------------------------
 @pytest_asyncio.fixture
 async def billing(request):

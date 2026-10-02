@@ -19,6 +19,7 @@ from ivaas.adapters.auth.jwt_verifiers import (
     LocalTokenVerifier,
     OidcTokenVerifier,
 )
+from ivaas.adapters.auth.oidc_client import OidcClient
 from ivaas.adapters.auth.passwords import Argon2PasswordHasher
 from ivaas.adapters.http.signed import ObjectLinkSigner
 from ivaas.adapters.messaging.fanout import FanoutEventPublisher, WebSocketHub
@@ -72,6 +73,7 @@ from ivaas.application.sessions import (
     RecordCrateCrossing,
     RecordPlateRead,
 )
+from ivaas.application.sso import SsoSignIn
 from ivaas.application.summarise import SummariseReport
 from ivaas.application.tally import RematchTallySheets, SaveTallySheets
 from ivaas.application.users import UserAdmin
@@ -193,6 +195,8 @@ class Container:
     break_glass: Any
     tenant_data: Any
     certificates: Any
+    sso_configs: Any
+    oidc: Any
     ingest: Any
     ml_models: Any
     evidence: Any
@@ -243,6 +247,7 @@ class Container:
     edge_security: dict[Any, Any] = field(default_factory=dict)
     _face_encoder: Any = None
     _face_encoder_missing: bool = False
+    _sso: Any = None
 
     async def effective(self, key: str, default: Any) -> Any:
         """The value in force for the tenant in context: its override, else the environment."""
@@ -460,6 +465,14 @@ class Container:
             render_pdf=to_pdf,
             render_csv=to_csv,
         )
+
+    def sso(self) -> SsoSignIn:
+        """One for the process: it holds the sign-ins started and not yet finished."""
+        if self._sso is None:
+            self._sso = SsoSignIn(
+                self.sso_configs, self.users, self.tenants, self.hasher, self.clock, self.oidc
+            )
+        return self._sso
 
     def lifecycle(self) -> TenantLifecycle:
         async def refresh(tenant_id: Any) -> None:
@@ -714,6 +727,9 @@ async def build_container(settings: Settings) -> Container:
 
         tenant_data: Any = PostgresTenantData(pg_sessionmaker.unscoped)
         certificates: Any = PostgresCertificateStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.sso_postgres import PostgresSsoStore
+
+        sso_configs: Any = PostgresSsoStore(pg_sessionmaker, box)
         from ivaas.adapters.persistence.ingest_postgres import PostgresIngestLedger
 
         ingest: Any = PostgresIngestLedger(pg_sessionmaker)
@@ -784,6 +800,9 @@ async def build_container(settings: Settings) -> Container:
 
         tenant_data = None  # export and purge read the catalogue: Postgres only
         certificates = InMemoryCertificateStore()
+        from ivaas.adapters.persistence.sso_postgres import InMemorySsoStore
+
+        sso_configs = InMemorySsoStore()
         from ivaas.adapters.persistence.ingest_postgres import InMemoryIngestLedger
 
         ingest = PerTenant(InMemoryIngestLedger)
@@ -946,6 +965,8 @@ async def build_container(settings: Settings) -> Container:
         break_glass=break_glass,
         tenant_data=tenant_data,
         certificates=certificates,
+        sso_configs=sso_configs,
+        oidc=OidcClient(),
         _closers=closers,
     )
     # read through the container at publish time: its clock and store are the live ones

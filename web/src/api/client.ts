@@ -62,6 +62,7 @@ import type {
   CertificateView,
   CommissionView,
   LifecycleView,
+  SsoView,
 } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -225,6 +226,16 @@ export const api = {
       body: JSON.stringify({ confirm }),
     }),
   certificates: () => request<CertificateView[]>("/api/v1/platform/deletion-certificates"),
+  sso: () => request<SsoView>("/api/v1/sso"),
+  saveSso: (body: {
+    issuer: string;
+    client_id: string;
+    client_secret: string;
+    domains: string[];
+    default_role: string | null;
+    required: boolean;
+  }) => request<SsoView>("/api/v1/sso", { method: "PUT", body: JSON.stringify(body) }),
+  removeSso: () => request<SsoView>("/api/v1/sso", { method: "DELETE" }),
   webhooks: () => request<Webhook[]>("/api/v1/webhooks"),
   createWebhook: (url: string, events: WebhookEvent[], description: string) =>
     request<WebhookCreated>("/api/v1/webhooks", {

@@ -1,5 +1,5 @@
 import { motion, useReducedMotion } from "framer-motion";
-import { LogIn, ShieldCheck } from "lucide-react";
+import { Building2, LogIn, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { type AuthConfig, loginLocal, loginOidc } from "../auth/session";
 import { BRAND_GRADIENT, CrateMotif, LOGIN_STACKS } from "../components/brand";
@@ -15,6 +15,25 @@ export default function Login({ config }: { config: AuthConfig }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // why single sign-on refused, when the provider sent the person back here
+  const [ssoError] = useState(() => new URLSearchParams(window.location.search).get("sso_error"));
+  const [org, setOrg] = useState(() => {
+    try {
+      return localStorage.getItem("ivaas.sso-org") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const viaSso = (e: React.FormEvent) => {
+    e.preventDefault();
+    const slug = org.trim().toLowerCase();
+    try {
+      localStorage.setItem("ivaas.sso-org", slug);
+    } catch {
+      /* storage blocked: they type it next time */
+    }
+    window.location.assign(`/api/v1/auth/sso/start?org=${encodeURIComponent(slug)}`);
+  };
   // Entrances move, they do not fade in: content parked at opacity 0 is invisible
   // if the animation never runs, and a sign-in card that does that is unusable.
   const still = useReducedMotion();
@@ -174,6 +193,31 @@ export default function Login({ config }: { config: AuthConfig }) {
                   )}
                   <button className="btn-primary w-full" disabled={busy}>
                     <LogIn size={16} /> {busy ? "Signing in…" : "Sign in"}
+                  </button>
+                </form>
+              )}
+              {config.mode === "local" && (
+                <form onSubmit={viaSso} className="mt-5 space-y-3 border-t border-line pt-4">
+                  <div>
+                    <label htmlFor="sso-org" className="label">
+                      Or sign in with your organisation
+                    </label>
+                    <input
+                      id="sso-org"
+                      className="input"
+                      placeholder="Your organisation's short name, e.g. bakers-inn"
+                      value={org}
+                      onChange={(e) => setOrg(e.target.value)}
+                      required
+                    />
+                  </div>
+                  {ssoError && (
+                    <p role="alert" className="rounded-lg bg-bad/10 px-3 py-2 text-sm text-bad">
+                      {ssoError}
+                    </p>
+                  )}
+                  <button className="btn-ghost w-full">
+                    <Building2 size={16} /> Continue with single sign-on
                   </button>
                 </form>
               )}

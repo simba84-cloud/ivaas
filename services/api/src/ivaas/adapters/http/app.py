@@ -97,12 +97,14 @@ from ivaas.adapters.http.scope import (
     visible_bays,
 )
 from ivaas.adapters.http.security_routes import add_security_routes
+from ivaas.adapters.http.sso_routes import add_sso_routes
 from ivaas.adapters.http.tally_routes import add_tally_routes
 from ivaas.adapters.http.webhook_routes import add_webhook_routes
 from ivaas.adapters.storage.objects import LocalObjectStore
 from ivaas.adapters.streaming.mediamtx import StreamGatewayError
 from ivaas.adapters.streaming.onvif import is_lan_device_url
 from ivaas.application.analysis import job_worker
+from ivaas.application.sso import password_allowed
 from ivaas.config.container import Container, build_container
 from ivaas.config.settings import Settings
 from ivaas.domain.alerts import InvalidAlertKeyError
@@ -1287,6 +1289,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_billing_routes(app, get_container, audit)
     add_break_glass_routes(app, get_container, audit)
     add_lifecycle_routes(app, get_container, audit)
+    add_sso_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}", **files("The stored object, as stored", "*/*"))
     async def get_object(
@@ -1385,6 +1388,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ok = False
         if not ok or user is None:
             raise HTTPException(401, "invalid username or password")
+        if user.tenant_id is not None:
+            with system_context():
+                sso = await c.sso_configs.get(user.tenant_id)
+            if not password_allowed(sso, user):
+                # said only to someone who knew the password
+                raise HTTPException(
+                    403, "your organisation signs in with single sign-on: use that instead"
+                )
 
         if c.hasher.needs_rehash(user.password_hash):
             user.password_hash = c.hasher.hash(body.password)  # upgrade quietly on sign-in
