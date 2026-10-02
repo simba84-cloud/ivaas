@@ -166,6 +166,8 @@ def add_platform_routes(
     def refused(exc: Exception) -> HTTPException:
         if "suspended" in str(exc):
             return HTTPException(402, str(exc))
+        if "cancelled" in str(exc):
+            return HTTPException(409, str(exc))
         if "already has a site" in str(exc):
             return HTTPException(409, str(exc))
         return HTTPException(422, str(exc))
