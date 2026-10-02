@@ -181,3 +181,19 @@ def test_a_grant_works_for_its_own_tenant_and_its_own_requester_only(glass):
         assert r.status_code == 403, who
     assert c.get("/api/v1/sessions", headers=as_support(c, "not-a-uuid")).status_code == 403
     assert ISOLATION_TEST_ID  # the second tenant is seeded in every test app
+
+
+def test_a_refused_request_gives_nothing_and_support_may_ask_again(glass):
+    c, _ = glass
+    owner = login(c, "owner")
+    g = ask(c).json()
+    refused = c.post(f"/api/v1/support-access/{g['id']}/deny", headers=owner)
+    assert refused.status_code == 200, refused.text
+    assert refused.json()["state"] == "denied" and refused.json()["expires_at"] is None
+    assert c.get("/api/v1/sessions", headers=as_support(c, g["id"])).status_code == 403
+    # decided once: it cannot be approved after the refusal
+    again = c.post(f"/api/v1/support-access/{g['id']}/approve", headers=owner)
+    assert again.status_code == 409 and "denied" in again.json()["detail"]
+    assert ask(c).status_code == 201  # a refusal does not block a new, better-argued request
+    actions = [e["action"] for e in c.get("/api/v1/audit", headers=owner).json()]
+    assert "break_glass_denied" in actions
