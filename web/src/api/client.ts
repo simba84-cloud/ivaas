@@ -1,4 +1,4 @@
-import { getToken, type Me } from "../auth/session";
+import { getBreakGlass, getToken, type Me } from "../auth/session";
 import type {
   Acknowledgement,
   BadgeEvent,
@@ -58,6 +58,7 @@ import type {
   PartnerRecord,
   Provisioned,
   TenantRecord,
+  BreakGlassGrant,
 } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -68,6 +69,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // a FormData body sets its own multipart content type, boundary included
       ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(getBreakGlass() ? { "X-IVaaS-Break-Glass": getBreakGlass()! } : {}),
       ...init?.headers,
     },
   });
@@ -76,6 +78,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 403 && /^break-glass access has ended/.test(body.detail ?? "")) {
+      window.dispatchEvent(new Event("ivaas:break-glass-ended"));
+    }
     throw new Error(body.detail ?? `${res.status} ${res.statusText}`);
   }
   return res.status === 204 ? (undefined as T) : res.json();
@@ -171,6 +176,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ amount, reference }),
     }),
+  // break-glass (M8): support asks, the tenant's owner decides
+  requestBreakGlass: (tenantId: string, reason: string, minutes: number) =>
+    request<BreakGlassGrant>(`/api/v1/platform/tenants/${tenantId}/break-glass`, {
+      method: "POST",
+      body: JSON.stringify({ reason, minutes }),
+    }),
+  myBreakGlass: () => request<BreakGlassGrant[]>("/api/v1/platform/break-glass"),
+  endMyBreakGlass: (id: string) =>
+    request<BreakGlassGrant>(`/api/v1/platform/break-glass/${id}/end`, { method: "POST" }),
+  supportAccess: () => request<BreakGlassGrant[]>("/api/v1/support-access"),
+  decideSupportAccess: (id: string, action: "approve" | "deny" | "end") =>
+    request<BreakGlassGrant>(`/api/v1/support-access/${id}/${action}`, { method: "POST" }),
   webhooks: () => request<Webhook[]>("/api/v1/webhooks"),
   createWebhook: (url: string, events: WebhookEvent[], description: string) =>
     request<WebhookCreated>("/api/v1/webhooks", {

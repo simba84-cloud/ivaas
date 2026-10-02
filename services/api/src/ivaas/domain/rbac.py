@@ -46,6 +46,8 @@ class Permission(StrEnum):
     USER_MANAGE = "user.manage"  # change roles, enable/disable, reset passwords
     SECURITY_MANAGE = "security.manage"  # enrol faces: sensitive personal data
     INGEST_WRITE = "ingest.write"  # the edge pipeline posting what it saw
+    SUPPORT_REQUEST = "support.request"  # ask a tenant for break-glass access (M8)
+    SUPPORT_APPROVE = "support.approve"  # grant or refuse it: the tenant's owner only
 
 
 class Role(StrEnum):
@@ -60,17 +62,20 @@ class Role(StrEnum):
     BAY_OPERATOR = "bay_operator"
     AUDITOR = "auditor"
     INTEGRATION = "integration"
+    #: what an approved break-glass grant gives support, inside one tenant, for its
+    #: duration. Never stored on an account: made per request from the grant.
+    BREAK_GLASS = "break_glass"
 
 
 P = Permission
 
-#: §4.2, one row per role. Platform Support holds nothing by default: tenant data is
-#: reached only through break-glass access (M8), never through a standing grant.
+#: §4.2, one row per role. Platform Support holds no tenant data by default: it may
+#: only ask for break-glass access (M8), which the tenant's owner grants or refuses.
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
     Role.PLATFORM_ADMIN: frozenset(
         {P.TENANT_CREATE, P.TENANT_SUSPEND, P.SUBSCRIPTION_MANAGE, P.INVOICE_READ, P.AUDIT_READ}
     ),
-    Role.PLATFORM_SUPPORT: frozenset(),
+    Role.PLATFORM_SUPPORT: frozenset({P.SUPPORT_REQUEST}),
     Role.PLATFORM_BILLING: frozenset({P.SUBSCRIPTION_MANAGE, P.INVOICE_READ}),
     Role.PARTNER_ADMIN: frozenset(
         {
@@ -101,6 +106,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             P.SITE_MANAGE,
             P.SETTINGS_MANAGE,
             P.USER_MANAGE,
+            P.SUPPORT_APPROVE,
         }
     ),
     Role.TENANT_ADMIN: frozenset(
@@ -156,6 +162,9 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
         }
     ),
     Role.INTEGRATION: frozenset({P.COUNT_READ, P.REPORT_EXPORT, P.TOPOLOGY_READ, P.INGEST_WRITE}),
+    # §4.2's 🔓: counts and live video, and the topology to find them. Read-only, and
+    # the API refuses every change made with it whatever the permission says.
+    Role.BREAK_GLASS: frozenset({P.COUNT_READ, P.VIDEO_LIVE_VIEW, P.TOPOLOGY_READ}),
 }
 
 #: The scopes each role may be bound at (§4.1 "Scope" column).
@@ -171,6 +180,7 @@ ALLOWED_SCOPES: dict[Role, frozenset[ScopeType]] = {
     Role.BAY_OPERATOR: frozenset({ScopeType.TENANT, ScopeType.SITE, ScopeType.BAY}),
     Role.AUDITOR: frozenset({ScopeType.TENANT}),
     Role.INTEGRATION: frozenset({ScopeType.TENANT, ScopeType.SITE}),
+    Role.BREAK_GLASS: frozenset({ScopeType.TENANT}),
 }
 
 #: Roles a tenant can hand out to its own people. Platform and partner roles are

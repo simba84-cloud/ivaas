@@ -142,6 +142,7 @@ def _demo_accounts() -> list[tuple[str, UUID | None, list[RoleBinding]]]:
     t = ScopeType
     return [
         ("platform", None, [RoleBinding(Role.PLATFORM_ADMIN, t.PLATFORM)]),
+        ("support", None, [RoleBinding(Role.PLATFORM_SUPPORT, t.PLATFORM)]),
         ("litzim", None, [RoleBinding(Role.PARTNER_ADMIN, t.PARTNER, LITZIM_ID)]),
         (
             "b-admin",
@@ -188,6 +189,7 @@ class Container:
     tenants: Any
     edge: Any
     availability: Any
+    break_glass: Any
     ingest: Any
     ml_models: Any
     evidence: Any
@@ -685,6 +687,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.availability_postgres import PostgresAvailabilityStore
 
         availability: Any = PostgresAvailabilityStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.break_glass_postgres import PostgresBreakGlassStore
+
+        break_glass: Any = PostgresBreakGlassStore(pg_sessionmaker)
         from ivaas.adapters.persistence.ingest_postgres import PostgresIngestLedger
 
         ingest: Any = PostgresIngestLedger(pg_sessionmaker)
@@ -748,6 +753,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.availability_postgres import InMemoryAvailabilityStore
 
         availability = PerTenant(InMemoryAvailabilityStore)
+        from ivaas.adapters.persistence.break_glass_postgres import InMemoryBreakGlassStore
+
+        break_glass = InMemoryBreakGlassStore()
         from ivaas.adapters.persistence.ingest_postgres import InMemoryIngestLedger
 
         ingest = PerTenant(InMemoryIngestLedger)
@@ -907,6 +915,7 @@ async def build_container(settings: Settings) -> Container:
         partner_invoices=partner_invoices,
         price_book=PriceBook.load(settings.price_book),
         availability=availability,
+        break_glass=break_glass,
         _closers=closers,
     )
     # read through the container at publish time: its clock and store are the live ones

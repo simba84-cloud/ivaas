@@ -34,7 +34,9 @@ export type Permission =
   | "site.manage"
   | "session.operate"
   | "settings.manage"
-  | "security.manage";
+  | "security.manage"
+  | "support.request"
+  | "support.approve";
 
 export interface Me {
   subject: string;
@@ -45,9 +47,38 @@ export interface Me {
   /** Null for platform and partner staff, who belong to no tenant. */
   tenant?: { id: string; slug: string; name: string; status: string } | null;
   must_change_password?: boolean;
+  /** Set while platform support works inside a tenant on an approved grant: read-only. */
+  break_glass?: { grant_id: string; expires_at: string } | null;
 }
 
 const KEY = "ivaas.token";
+const GLASS = "ivaas.break-glass";
+
+/**
+ * The break-glass grant support is working under, for this tab only. Every request
+ * carries it; the API decides whether it still counts.
+ */
+export function getBreakGlass(): string | null {
+  try {
+    return sessionStorage.getItem(GLASS);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Enter or leave a tenant on a grant, then load `then` afresh so nothing cached in one
+ * tenant is shown in another. Without `then`, only the header stops being sent.
+ */
+export function switchBreakGlass(grantId: string | null, then?: string) {
+  try {
+    if (grantId) sessionStorage.setItem(GLASS, grantId);
+    else sessionStorage.removeItem(GLASS);
+  } catch {
+    /* storage blocked: break-glass cannot be carried across requests */
+  }
+  if (then) window.location.assign(then);
+}
 let userManager: UserManager | undefined;
 const listeners = new Set<() => void>();
 

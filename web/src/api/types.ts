@@ -208,7 +208,20 @@ export type AuditAction =
   | "session_identified"
   | "count_overridden"
   | "manifest_imported"
-  | "exception_resolved";
+  | "exception_resolved"
+  | "webhook_created"
+  | "webhook_deleted"
+  | "webhook_replayed"
+  | "subscription_changed"
+  | "invoice_issued"
+  | "payment_recorded"
+  | "tenant_held"
+  | "tenant_released"
+  | "break_glass_requested"
+  | "break_glass_approved"
+  | "break_glass_denied"
+  | "break_glass_ended"
+  | "break_glass_used";
 
 export interface AuditEntry {
   id: string;
@@ -835,4 +848,25 @@ export interface PartnerInvoiceView {
   due_date: string | null;
   paid: string;
   settled: boolean;
+}
+
+// --- break-glass support access (M8, T8.3) ----------------------------------------------
+
+export type GrantState = "pending" | "active" | "denied" | "ended" | "expired" | "lapsed";
+
+export interface BreakGlassGrant {
+  id: string;
+  tenant_id: string;
+  tenant_name: string;
+  requested_by: string;
+  reason: string;
+  minutes: number;
+  requested_at: string;
+  state: GrantState;
+  decided_by: string | null;
+  decided_at: string | null;
+  /** null until approved */
+  expires_at: string | null;
+  ended_by: string | null;
+  ended_at: string | null;
 }

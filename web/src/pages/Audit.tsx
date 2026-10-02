@@ -27,6 +27,10 @@ import {
   UserPlus,
   UserX,
   Warehouse,
+  Webhook,
+  Receipt,
+  LifeBuoy,
+  Eye,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
@@ -105,6 +109,19 @@ const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon; tone: stri
   count_overridden: { label: "Corrected a count", icon: PenTool, tone: "text-warn bg-warn/10" },
   manifest_imported: { label: "Imported a dispatch manifest", icon: ClipboardList, tone: "text-brand bg-brand-tint" },
   exception_resolved: { label: "Resolved a manifest exception", icon: BadgeCheck, tone: "text-good bg-good/10" },
+  webhook_created: { label: "Added a webhook", icon: Webhook, tone: "text-brand bg-brand-tint" },
+  webhook_deleted: { label: "Removed a webhook", icon: Webhook, tone: "text-bad bg-bad/10" },
+  webhook_replayed: { label: "Replayed a webhook delivery", icon: Webhook, tone: "text-warn bg-warn/10" },
+  subscription_changed: { label: "Changed the plan", icon: Receipt, tone: "text-warn bg-warn/10" },
+  invoice_issued: { label: "Issued an invoice", icon: Receipt, tone: "text-brand bg-brand-tint" },
+  payment_recorded: { label: "Recorded a payment", icon: Receipt, tone: "text-good bg-good/10" },
+  tenant_held: { label: "Put the account on hold", icon: ShieldAlert, tone: "text-bad bg-bad/10" },
+  tenant_released: { label: "Lifted the hold", icon: ShieldAlert, tone: "text-good bg-good/10" },
+  break_glass_requested: { label: "Support asked for access", icon: LifeBuoy, tone: "text-warn bg-warn/10" },
+  break_glass_approved: { label: "Approved support access", icon: LifeBuoy, tone: "text-warn bg-warn/10" },
+  break_glass_denied: { label: "Refused support access", icon: LifeBuoy, tone: "text-muted bg-ground" },
+  break_glass_ended: { label: "Ended support access", icon: LifeBuoy, tone: "text-muted bg-ground" },
+  break_glass_used: { label: "Support looked at", icon: Eye, tone: "text-bad bg-bad/10" },
 };
 
 const WINDOWS = [

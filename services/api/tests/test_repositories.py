@@ -840,6 +840,60 @@ async def test_enrollment_tokens_are_listed_oldest_first_and_per_tenant(edge):
         assert await edge.list_tokens() == []
 
 
+# --- break-glass grants (M8) -----------------------------------------------------------
+@pytest_asyncio.fixture
+async def grants(request):
+    from ivaas.adapters.persistence.break_glass_postgres import (
+        InMemoryBreakGlassStore,
+        PostgresBreakGlassStore,
+    )
+
+    if request.param == "memory":
+        yield InMemoryBreakGlassStore()
+        return
+
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+
+    postgres_url = request.getfixturevalue("postgres_url")
+    _s, _b, _c, _se, dispose, sm = await build_postgres_repositories(
+        postgres_url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
+    )
+    async with sm.begin() as db:
+        await db.execute(text("DELETE FROM break_glass_grants"))
+    yield PostgresBreakGlassStore(sm)
+    await dispose()
+
+
+@pytest.mark.parametrize(
+    "grants", ["memory", pytest.param("postgres", marks=pytest.mark.postgres)], indirect=True
+)
+async def test_break_glass_grants_round_trip_and_are_found_across_tenants_only_by_the_system(
+    grants,
+):
+    from ivaas.domain.break_glass import BreakGlassGrant, GrantState
+    from ivaas.domain.tenancy import ISOLATION_TEST_ID
+    from ivaas.tenancy import system_context
+
+    old = BreakGlassGrant.request(BAKERS_INN_ID, "support", "why", timedelta(hours=1), T0)
+    new = BreakGlassGrant.request(
+        BAKERS_INN_ID, "support", "again", timedelta(minutes=15), T0 + timedelta(hours=2)
+    )
+    await grants.save(old)
+    await grants.save(new)
+    new.decide(True, "owner", T0 + timedelta(hours=3))
+    await grants.save(new)
+    got = await grants.get(new.id)
+    assert got.duration == timedelta(minutes=15) and got.approved and got.decided_by == "owner"
+    assert got.state(T0 + timedelta(hours=3, minutes=5)) is GrantState.ACTIVE
+    assert [g.reason for g in await grants.list_all()] == ["again", "why"]
+    with tenant_context(ISOLATION_TEST_ID):
+        assert await grants.get(new.id) is None and await grants.list_all() == []
+    with system_context():
+        assert (await grants.get(old.id)).tenant_id == BAKERS_INN_ID
+
+
 # --- billing (M7) ---------------------------------------------------------------------
 @pytest_asyncio.fixture
 async def billing(request):

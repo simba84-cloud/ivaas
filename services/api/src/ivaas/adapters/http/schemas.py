@@ -648,6 +648,11 @@ class ChangePasswordIn(BaseModel):
     new_password: str = Field(min_length=1, max_length=200)
 
 
+class BreakGlassMeOut(BaseModel):
+    grant_id: UUID
+    expires_at: datetime
+
+
 class MeOut(BaseModel):
     subject: str
     name: str
@@ -659,6 +664,8 @@ class MeOut(BaseModel):
     tenant: TenantRefOut | None = None
     #: the portal must show the password screen and nothing else
     must_change_password: bool = False
+    #: set while support works under a break-glass grant: read-only, and recorded
+    break_glass: BreakGlassMeOut | None = None
 
 
 class AuthConfigOut(BaseModel):

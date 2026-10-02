@@ -66,7 +66,8 @@ MATRIX: dict[str, set[Role]] = {
     },
 }
 #: §4.2 has no column for Platform Billing; §4.1 gives it plans, pricing and invoices.
-NOT_IN_TABLE = {R.PLATFORM_BILLING}
+#: Break-glass is the 🔓 cells, made per request from an approved grant: tested below.
+NOT_IN_TABLE = {R.PLATFORM_BILLING, R.BREAK_GLASS}
 
 
 @pytest.mark.parametrize("permission", sorted(MATRIX))
@@ -76,13 +77,24 @@ def test_every_cell_of_the_matrix(role, permission):
     assert (Permission(permission) in ROLE_PERMISSIONS[role]) is expected, (role, permission)
 
 
-def test_platform_support_has_no_standing_access_at_all():
-    assert ROLE_PERMISSIONS[Role.PLATFORM_SUPPORT] == frozenset()
+def test_platform_support_has_no_standing_access_only_the_right_to_ask():
+    """§4.1: support "uses time-boxed break-glass access that the tenant approves"."""
+    assert ROLE_PERMISSIONS[Role.PLATFORM_SUPPORT] == {Permission.SUPPORT_REQUEST}
+
+
+def test_break_glass_is_the_unlocked_cells_and_the_topology_to_reach_them():
+    """§4.2's 🔓: live video and counts. Topology too, or nothing can be found."""
+    assert ROLE_PERMISSIONS[Role.BREAK_GLASS] == {
+        Permission.VIDEO_LIVE_VIEW,
+        Permission.COUNT_READ,
+        Permission.TOPOLOGY_READ,
+    }
 
 
 def test_additions_to_the_matrix_never_reach_platform_or_partner_staff():
     """Permissions added beyond §4.2 are for a tenant's own people only."""
-    additions = set(Permission) - {Permission(p) for p in MATRIX}
+    # asking for break-glass is §4.1's support workflow; deciding on it is the tenant's
+    additions = set(Permission) - {Permission(p) for p in MATRIX} - {Permission.SUPPORT_REQUEST}
     for role in (R.PLATFORM_ADMIN, R.PLATFORM_SUPPORT, R.PLATFORM_BILLING, R.PARTNER_ADMIN):
         assert not (ROLE_PERMISSIONS[role] & additions), role
 
