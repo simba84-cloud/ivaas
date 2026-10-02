@@ -63,6 +63,8 @@ import type {
   CommissionView,
   LifecycleView,
   SsoView,
+  RevenueView,
+  TenantFleet,
 } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -236,6 +238,8 @@ export const api = {
     required: boolean;
   }) => request<SsoView>("/api/v1/sso", { method: "PUT", body: JSON.stringify(body) }),
   removeSso: () => request<SsoView>("/api/v1/sso", { method: "DELETE" }),
+  fleetView: () => request<TenantFleet[]>("/api/v1/platform/fleet"),
+  revenue: (months = 6) => request<RevenueView>(`/api/v1/platform/revenue?months=${months}`),
   webhooks: () => request<Webhook[]>("/api/v1/webhooks"),
   createWebhook: (url: string, events: WebhookEvent[], description: string) =>
     request<WebhookCreated>("/api/v1/webhooks", {

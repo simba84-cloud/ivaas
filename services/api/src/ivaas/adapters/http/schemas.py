@@ -1241,3 +1241,87 @@ class OverrideIn(BaseModel):
     count: int = Field(ge=0, le=100_000)
     reason: OverrideReason
     note: str | None = Field(default=None, max_length=280)
+
+
+# --- the console's views across tenants (M8) -----------------------------------------
+class FleetNodeOut(BaseModel):
+    id: UUID
+    name: str
+    #: never_seen, online, stale, offline or revoked
+    health: str
+    last_seen_at: datetime | None
+    version: str | None
+    #: from its last report; null when it has never reported its cameras
+    cameras_reported: int | None
+    cameras_connected: int | None
+    spool_pending: int | None
+
+
+class TenantFleetOut(BaseModel):
+    tenant: TenantOut
+    nodes: list[FleetNodeOut]
+    #: how many nodes are in each health state
+    health: dict[str, int]
+    #: a node not online, or one dropping a camera; false with no nodes
+    needs_attention: bool
+
+    @staticmethod
+    def of(v) -> TenantFleetOut:
+        return TenantFleetOut(
+            tenant=TenantOut.of(v.tenant),
+            nodes=[FleetNodeOut(**{**n.__dict__, "health": n.health.value}) for n in v.nodes],
+            health=dict(v.health),
+            needs_attention=v.needs_attention,
+        )
+
+
+class MonthRevenueOut(BaseModel):
+    period: str
+    invoices: int
+    #: null when nothing was issued for the month: not invoiced yet is not zero
+    subtotal: str | None
+    tax: str | None
+    total: str | None
+    paid: str | None
+    outstanding: str | None
+    direct: str | None
+    wholesale: str | None
+    placeholder: bool
+
+
+class RevenueOut(BaseModel):
+    currency: str
+    months: list[MonthRevenueOut]
+    overdue: int
+    overdue_amount: str
+    #: issued, before tax, by who was invoiced, over the months shown
+    by_payer: dict[str, str]
+    placeholder: bool
+
+    @staticmethod
+    def of(r) -> RevenueOut:
+        def money_or_none(m, value):
+            return f"{value:.2f}" if m.invoices else None
+
+        return RevenueOut(
+            currency=r.currency,
+            months=[
+                MonthRevenueOut(
+                    period=m.period,
+                    invoices=m.invoices,
+                    subtotal=money_or_none(m, m.subtotal),
+                    tax=money_or_none(m, m.tax),
+                    total=money_or_none(m, m.total),
+                    paid=money_or_none(m, m.paid),
+                    outstanding=money_or_none(m, m.outstanding),
+                    direct=money_or_none(m, m.direct),
+                    wholesale=money_or_none(m, m.wholesale),
+                    placeholder=m.placeholder,
+                )
+                for m in r.months
+            ],
+            overdue=r.overdue,
+            overdue_amount=f"{r.overdue_amount:.2f}",
+            by_payer={k: f"{v:.2f}" for k, v in sorted(r.by_payer.items())},
+            placeholder=r.placeholder,
+        )

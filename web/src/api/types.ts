@@ -946,3 +946,47 @@ export interface SsoView {
   redirect_uri: string;
   sign_in_url: string;
 }
+
+// --- Cassava's console across tenants (M8) ----------------------------------------------
+
+export interface FleetNode {
+  id: string;
+  name: string;
+  health: "never_seen" | "online" | "stale" | "offline" | "revoked";
+  last_seen_at: string | null;
+  version: string | null;
+  /** null when the node has never reported its cameras */
+  cameras_reported: number | null;
+  cameras_connected: number | null;
+  spool_pending: number | null;
+}
+
+export interface TenantFleet {
+  tenant: TenantRecord;
+  nodes: FleetNode[];
+  health: Record<string, number>;
+  needs_attention: boolean;
+}
+
+export interface MonthRevenue {
+  period: string;
+  invoices: number;
+  /** null when nothing was issued for the month */
+  subtotal: string | null;
+  tax: string | null;
+  total: string | null;
+  paid: string | null;
+  outstanding: string | null;
+  direct: string | null;
+  wholesale: string | null;
+  placeholder: boolean;
+}
+
+export interface RevenueView {
+  currency: string;
+  months: MonthRevenue[];
+  overdue: number;
+  overdue_amount: string;
+  by_payer: Record<string, string>;
+  placeholder: boolean;
+}
