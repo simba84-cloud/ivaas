@@ -234,3 +234,41 @@ def test_an_invoice_is_paid_in_full_once_and_only_when_issued():
     assert inv.settled
     with pytest.raises(BillingError, match="already paid"):
         inv.pay(pay)
+
+
+# --- M8: the partner's commission statement ------------------------------------------
+def test_litzims_october_commission_is_list_less_wholesale_customer_by_customer():
+    from ivaas.domain.billing import commission
+
+    bakers = Subscription(uuid4())
+    bakers.change(Segment(at(5), "poc-trial", {}))  # 5-18 Oct
+    acme = standard()  # the whole month
+    st = commission(
+        BOOK,
+        uuid4(),
+        "litzim",
+        "LITZIM",
+        [("Bakers Inn", bakers, {}), ("Acme Foods", acme, {})],
+        *OCT,
+    )
+    by = {x.tenant_name: (x.at_list, x.at_wholesale, x.margin) for x in st.lines}
+    # Bakers Inn: 487.74 at list (the POC test above), 341.42 wholesale (T7.9)
+    assert by["Bakers Inn"] == (D("487.74"), D("341.42"), D("146.32"))
+    # Acme: 250 + 16 x 45 + 60 = 1,030.00 at list; 721.00 wholesale
+    assert by["Acme Foods"] == (D("1030.00"), D("721.00"), D("309.00"))
+    assert (st.at_list, st.at_wholesale, st.margin) == (D("1517.74"), D("1062.42"), D("455.32"))
+    assert st.at_wholesale == D("1062.42")  # the same figure as LITZIM's wholesale invoice
+    assert st.discount == D("0.30") and st.placeholder
+
+
+def test_a_customer_with_nothing_to_bill_is_not_a_line_of_zeroes():
+    from ivaas.domain.billing import commission
+
+    later = Subscription(uuid4())
+    later.change(Segment(datetime(2026, 11, 1, tzinfo=UTC), "standard", {}))  # starts next month
+    st = commission(BOOK, uuid4(), "litzim", "LITZIM", [("Later Ltd", later, {})], *OCT)
+    assert st.lines == [] and st.margin == D("0.00")
+    # found live: storage metered for the day before the plan began rates as 0.00 lines
+    metered = {"storage_gb_month": D("0.006"), "active_channel_days": D(0)}
+    st = commission(BOOK, uuid4(), "litzim", "LITZIM", [("Later Ltd", later, metered)], *OCT)
+    assert st.lines == []

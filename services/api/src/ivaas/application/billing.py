@@ -10,6 +10,7 @@ from uuid import UUID
 
 from ivaas.domain.billing import (
     BillingError,
+    CommissionStatement,
     Entitlements,
     Invoice,
     PartnerInvoice,
@@ -20,6 +21,7 @@ from ivaas.domain.billing import (
     UsageEvent,
     billing_status,
     check_channel,
+    commission,
     entitlements,
     month,
     rate,
@@ -212,6 +214,17 @@ class PartnerBilling:
         return partner, customers
 
     async def draft(self, partner_id: UUID, period: str) -> PartnerInvoice:
+        partner, rated, start, end = await self._month(partner_id, period)
+        return wholesale(self.book, partner.id, partner.slug, partner.name, rated, start, end)
+
+    async def commission(self, partner_id: UUID, period: str) -> CommissionStatement:
+        """Each customer at list and at wholesale: the partner's margin at list price."""
+        partner, rated, start, end = await self._month(partner_id, period)
+        return commission(self.book, partner.id, partner.slug, partner.name, rated, start, end)
+
+    async def _month(self, partner_id: UUID, period: str):
+        """The partner, and each customer with a plan: its subscription and the month's
+        usage, ready to rate."""
         partner, customers = await self._partner(partner_id)
         start, end = month(period)
         tz = self.clock.now().tzinfo
@@ -227,7 +240,7 @@ class PartnerBilling:
                     datetime.combine(end + timedelta(days=1), time.min, tz),
                 )
             rated.append((t.name, sub, usage))
-        return wholesale(self.book, partner.id, partner.slug, partner.name, rated, start, end)
+        return partner, rated, start, end
 
     async def issue(self, partner_id: UUID, period: str) -> PartnerInvoice:
         start, end = month(period)

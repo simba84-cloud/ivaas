@@ -355,8 +355,20 @@ is therefore a console, not the tenant pages: they sign in and land on `/console
   (draft, issue, record payment), and the partner hold.
 - **Partner invoices:** the wholesale draft broken down by customer. Cassava issues
   invoices and records payments; a partner reads its own.
-- **Still open in M8:** SSO (T8.2), silo (T8.6), commission statements, and the fleet
-  and revenue views. Export and purge are §2a-x.
+- **Commission statements:** `GET /api/v1/platform/partners/{id}/commission?period=`
+  for Cassava or that partner. For each customer it gives what the month's usage is
+  worth at Cassava's list prices, the partner's wholesale cost, and the difference.
+  - Figures are before tax, because list and wholesale are taxed alike.
+  - It is computed by the same rating as the invoices: wholesale here equals the
+    wholesale invoice's subtotal.
+  - Cassava does not know what the partner actually charges its customers, so the
+    statement claims only the margin that list price would give.
+  - A customer with nothing billable in the month is left out rather than shown as
+    zeroes.
+  - It names Cassava's wholesale invoice for the month once one is issued, and says
+    when none is.
+- **Still open in M8:** SSO (T8.2), silo (T8.6), and the fleet and revenue views.
+  Export and purge are §2a-x.
 
 ## 2a-ix. Break-glass support access (M8, T8.3)
 

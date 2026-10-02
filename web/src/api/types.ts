@@ -908,3 +908,22 @@ export interface CertificateView {
   signature: string;
   valid: boolean;
 }
+
+/** A partner's margin on each customer at Cassava's list prices (M8). Before tax. */
+export interface CommissionView {
+  partner: string;
+  period_start: string;
+  period_end: string;
+  currency: string;
+  discount: string;
+  lines: { tenant_id: string; tenant_name: string; at_list: string; at_wholesale: string; margin: string }[];
+  at_list: string;
+  at_wholesale: string;
+  margin: string;
+  tax_note: string;
+  /** Cassava's wholesale invoice for the month, once issued */
+  wholesale_invoice: string | null;
+  price_book: string;
+  placeholder: boolean;
+  stamp: string | null;
+}

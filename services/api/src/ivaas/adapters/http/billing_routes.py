@@ -23,7 +23,14 @@ from ivaas.adapters.http.auth import current_principal, require
 from ivaas.adapters.http.platform_routes import _partners_of, _sees
 from ivaas.application.billing import period_of
 from ivaas.domain.audit import AuditAction
-from ivaas.domain.billing import METERS, BillingError, Entitlements, Invoice, PartnerInvoice
+from ivaas.domain.billing import (
+    METERS,
+    BillingError,
+    CommissionStatement,
+    Entitlements,
+    Invoice,
+    PartnerInvoice,
+)
 from ivaas.domain.models import NotFoundError
 from ivaas.domain.rbac import Permission as P
 from ivaas.ports.auth import Principal
@@ -256,6 +263,65 @@ class PartnerInvoiceOut(BaseModel):
             due_date=inv.due_date,
             paid=str(inv.paid),
             settled=inv.number is not None and inv.settled,
+        )
+
+
+class CommissionLineOut(BaseModel):
+    tenant_id: UUID
+    tenant_name: str
+    at_list: str
+    at_wholesale: str
+    margin: str
+
+
+class CommissionOut(BaseModel):
+    """The partner's margin on each customer at Cassava's list prices. What the partner
+    actually charges is its own business: Cassava does not know it."""
+
+    partner: str
+    period_start: date
+    period_end: date
+    currency: str
+    #: off list, e.g. "0.30"
+    discount: str
+    lines: list[CommissionLineOut]
+    at_list: str
+    at_wholesale: str
+    margin: str
+    #: before tax, as list and wholesale are taxed alike
+    tax_note: str
+    #: Cassava's wholesale invoice for this month, once issued
+    wholesale_invoice: str | None
+    price_book: str
+    placeholder: bool
+    stamp: str | None
+
+    @staticmethod
+    def of(st: CommissionStatement, invoice: str | None) -> CommissionOut:
+        return CommissionOut(
+            partner=st.partner_name,
+            period_start=st.period_start,
+            period_end=st.period_end,
+            currency=st.currency,
+            discount=f"{st.discount:f}",
+            lines=[
+                CommissionLineOut(
+                    tenant_id=x.tenant_id,
+                    tenant_name=x.tenant_name,
+                    at_list=f"{x.at_list:f}",
+                    at_wholesale=f"{x.at_wholesale:f}",
+                    margin=f"{x.margin:f}",
+                )
+                for x in st.lines
+            ],
+            at_list=f"{st.at_list:f}",
+            at_wholesale=f"{st.at_wholesale:f}",
+            margin=f"{st.margin:f}",
+            tax_note="before tax",
+            wholesale_invoice=invoice,
+            price_book=st.price_book,
+            placeholder=st.placeholder,
+            stamp=NOT_FOR_ISSUE if st.placeholder else None,
         )
 
 
@@ -584,6 +650,35 @@ def add_billing_routes(app: FastAPI, get_container: Callable[[Request], Any], au
             return PartnerInvoiceOut.of(await c.partner_billing().draft(partner_id, period))
         except BillingError as exc:
             raise HTTPException(404 if "no partner" in str(exc) else 422, str(exc)) from exc
+
+    @app.get(
+        "/api/v1/platform/partners/{partner_id}/commission",
+        response_model=CommissionOut,
+        dependencies=[Depends(require(P.INVOICE_READ))],
+    )
+    async def partner_commission(
+        partner_id: UUID,
+        period: str = Query(pattern=r"^\d{4}-\d{2}$"),
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> CommissionOut:
+        """The partner's commission statement: each customer at list and at wholesale."""
+        await billed_partner(principal, partner_id)
+        try:
+            st = await c.partner_billing().commission(partner_id, period)
+        except BillingError as exc:
+            raise HTTPException(404 if "no partner" in str(exc) else 422, str(exc)) from exc
+        with system_context():
+            issued = await c.partner_invoices.for_partner(partner_id)
+        number = next(
+            (
+                i.number
+                for i in issued
+                if (i.period_start, i.period_end) == (st.period_start, st.period_end)
+            ),
+            None,
+        )
+        return CommissionOut.of(st, number)
 
     @app.get(
         "/api/v1/platform/partners/{partner_id}/invoices",

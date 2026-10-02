@@ -8,6 +8,7 @@ every figure checked here is worked by hand in tests/test_billing.py.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import uuid4
 
 import pytest
 from conftest import SERVICE, login, make_client
@@ -503,3 +504,31 @@ def test_the_model_adapter_reads_reported_usage():
     assert asyncio.run(run({"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})) == 15
     assert asyncio.run(run(None)) is None
     assert asyncio.run(run({"total_tokens": "lots"})) is None
+
+
+# --- M8: commission statements --------------------------------------------------------
+def test_litzim_reads_its_commission_statement_and_no_other_partners(billed):
+    c, clock = billed
+    litzim_id, _ = litzims_october(c, clock)
+    base = f"/api/v1/platform/partners/{litzim_id}/commission"
+    st = c.get(base, params={"period": "2026-10"}, headers=login(c, "litzim")).json()
+    by = {x["tenant_name"]: (x["at_list"], x["at_wholesale"], x["margin"]) for x in st["lines"]}
+    assert by == {  # hand-worked in tests/test_billing.py
+        "Bakers Inn": ("487.74", "341.42", "146.32"),
+        "Isolation Test Foods": ("1030.00", "721.00", "309.00"),
+    }
+    assert (st["at_list"], st["at_wholesale"], st["margin"]) == ("1517.74", "1062.42", "455.32")
+    assert st["discount"] == "0.30" and st["stamp"] and st["tax_note"] == "before tax"
+    assert st["wholesale_invoice"] is None  # not issued yet: said so, not guessed
+    issued = c.post(
+        f"/api/v1/platform/partners/{litzim_id}/invoices",
+        params={"period": "2026-10"},
+        headers=login(c, "platform"),
+    ).json()
+    again = c.get(base, params={"period": "2026-10"}, headers=login(c, "platform")).json()
+    assert again["wholesale_invoice"] == issued["number"]
+    # another partner's, or a customer of LITZIM's: not found, never confirmed to exist
+    other = f"/api/v1/platform/partners/{uuid4()}/commission"
+    assert c.get(other, params={"period": "2026-10"}, headers=login(c, "litzim")).status_code == 404
+    r = c.get(base, params={"period": "2026-10"}, headers=login(c, "owner"))
+    assert r.status_code == 404

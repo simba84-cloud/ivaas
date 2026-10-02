@@ -480,6 +480,91 @@ def wholesale(
     )
 
 
+# --- the partner's commission statement (M8) -------------------------------------------
+@dataclass(frozen=True)
+class CommissionLine:
+    """One customer's month: what it used is worth at Cassava's list prices, what the
+    partner pays Cassava for it wholesale, and the difference the partner keeps when
+    it re-bills at list. Before tax, as both are taxed the same way."""
+
+    tenant_id: UUID
+    tenant_name: str
+    at_list: Decimal
+    at_wholesale: Decimal
+
+    @property
+    def margin(self) -> Decimal:
+        return self.at_list - self.at_wholesale
+
+
+@dataclass(frozen=True)
+class CommissionStatement:
+    partner_id: UUID
+    partner_name: str
+    period_start: date
+    period_end: date
+    currency: str
+    #: the partner's discount off list, as the price book gives it
+    discount: Decimal
+    lines: list[CommissionLine]
+    price_book: str
+    placeholder: bool
+
+    @property
+    def at_list(self) -> Decimal:
+        return money(sum((x.at_list for x in self.lines), Decimal(0)))
+
+    @property
+    def at_wholesale(self) -> Decimal:
+        return money(sum((x.at_wholesale for x in self.lines), Decimal(0)))
+
+    @property
+    def margin(self) -> Decimal:
+        return self.at_list - self.at_wholesale
+
+
+def commission(
+    book: PriceBook,
+    partner_id: UUID,
+    partner_slug: str,
+    partner_name: str,
+    customers: list[tuple[str, Subscription, dict[str, Decimal]]],
+    start: date,
+    end: date,
+) -> CommissionStatement:
+    """The partner's margin on each customer at list price. What the partner actually
+    charges its customers is between it and them: Cassava does not know it, so this
+    says what list price would give, and no more."""
+    wholesale_book = book.for_partner(partner_slug)
+    lines = []
+    for name, sub, usage in customers:
+        listed = rate(book, sub, start, end, usage)
+        if not any(line.amount for line in listed.lines):
+            # nothing billable: usage within an allowance rates as lines of 0.00, and a
+            # customer is not a line of zeroes (found live: usage metered for the day
+            # before its plan began)
+            continue
+        lines.append(
+            CommissionLine(
+                sub.tenant_id,
+                name,
+                listed.subtotal,
+                rate(wholesale_book, sub, start, end, usage).subtotal,
+            )
+        )
+    return CommissionStatement(
+        partner_id=partner_id,
+        partner_name=partner_name,
+        period_start=start,
+        period_end=end,
+        currency=book.currency,
+        discount=book.wholesale[partner_slug],
+        lines=lines,
+        price_book=wholesale_book.version,
+        placeholder=book.placeholder,
+    )
+
+
 # --- the tenant's billing state (T7.6, T7.8, T7.10) -------------------------------------
 def billing_status(
     *,

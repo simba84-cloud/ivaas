@@ -201,6 +201,24 @@ describe("consoles", () => {
     };
     server.use(
       http.get("/api/v1/platform/partners/p1/invoices/draft", () => HttpResponse.json(draft)),
+      http.get("/api/v1/platform/partners/p1/commission", () =>
+        HttpResponse.json({
+          partner: "LITZIM",
+          period_start: "2026-10-01",
+          period_end: "2026-10-31",
+          currency: "USD",
+          discount: "0.30",
+          lines: [{ tenant_id: "t", tenant_name: "Bakers Inn", at_list: "487.74", at_wholesale: "341.42", margin: "146.32" }],
+          at_list: "1517.74",
+          at_wholesale: "1062.42",
+          margin: "455.32",
+          tax_note: "before tax",
+          wholesale_invoice: null,
+          price_book: "2026-10-placeholder+wholesale-litzim",
+          placeholder: true,
+          stamp: "PLACEHOLDER PRICES: NOT FOR ISSUE",
+        }),
+      ),
       http.get("/api/v1/platform/partners/p1/invoices", () =>
         HttpResponse.json([{ ...draft, number: "IVAAS-2026-000003", due_date: "2026-11-16" }]),
       ),
@@ -213,6 +231,12 @@ describe("consoles", () => {
 
     renderPage(<PartnerInvoices me={staffAs("litzim")} />);
     expect(await screen.findByText("IVAAS-2026-000003")).toBeInTheDocument();
+    // the commission statement: margin at list, said to be no more than that
+    const statement = await screen.findByLabelText("LITZIM commission");
+    expect(within(statement).getByText("146.32")).toBeInTheDocument();
+    expect(within(statement).getByText(/455.32 USD/)).toBeInTheDocument();
+    expect(within(statement).getByText(/30% wholesale discount, before tax/)).toBeInTheDocument();
+    expect(within(statement).getByText(/not issued yet/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Issue/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Record payment" })).not.toBeInTheDocument();
   });
