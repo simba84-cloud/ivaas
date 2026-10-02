@@ -28,4 +28,4 @@ services:
       SIM_STREAMS: /sim/rehearsal-streams.txt
 
 volumes:
-  rehearsalspool:
+  rehearsalspool: { name: ivaas_rehearsalspool }

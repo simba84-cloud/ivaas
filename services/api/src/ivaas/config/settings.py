@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # a cancelled tenant's data is kept this long, then may be purged; 90 is the
     # evidence window confirmed for Bakers Inn (proposal §3.3)
     cancel_retention_days: int = 90
+    # where people reach the portal: SSO sends them back here, and registers
+    # <public_url>/api/v1/auth/sso/callback at each tenant's identity provider
+    public_url: str = "http://localhost:8088"
     cors_origins: list[str] = ["http://localhost:5173"]
     seed_demo_data: bool = True
     # empty = no media server (dev): cameras are stored but no stream is provisioned

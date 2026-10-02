@@ -32,6 +32,7 @@ import {
   UserPlus,
   LifeBuoy,
   FileCheck,
+  KeyRound,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
@@ -114,6 +115,7 @@ const NAV = [
       { to: "/webhooks", label: "Webhooks", icon: Webhook, needs: "apikey.manage" },
       { to: "/billing", label: "Billing", icon: Receipt, needs: "invoice.read" },
       { to: "/users", label: "Users", icon: Users, needs: "user.manage" },
+      { to: "/sso", label: "Single Sign-On", icon: KeyRound, needs: "user.manage" },
       { to: "/support-access", label: "Support Access", icon: LifeBuoy, needs: "support.approve" },
       { to: "/account", label: "Account", icon: Building2, needs: "data.export" },
       { to: "/audit", label: "Audit Log", icon: ScrollText, needs: "audit.read" },

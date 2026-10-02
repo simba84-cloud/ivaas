@@ -367,7 +367,7 @@ is therefore a console, not the tenant pages: they sign in and land on `/console
     zeroes.
   - It names Cassava's wholesale invoice for the month once one is issued, and says
     when none is.
-- **Still open in M8:** SSO (T8.2), silo (T8.6), and the fleet and revenue views.
+- **Still open in M8:** silo (T8.6), and the fleet and revenue views. SSO is §2a-xi.
   Export and purge are §2a-x.
 
 ## 2a-ix. Break-glass support access (M8, T8.3)
@@ -402,6 +402,51 @@ it may ask.
   - The live event socket cannot carry the header, so support gets no live feed.
 - **Data:** `break_glass_grants` (migration 0024) is row-level secured like every
   tenant table. The application role cannot delete grants.
+
+## 2a-xi. Per-tenant single sign-on (M8, T8.2)
+
+A tenant's administrators point IVaaS at their own OpenID Connect provider (Azure AD,
+Google Workspace, Okta, Keycloak). They give the issuer, the client IVaaS is
+registered as there (the secret is sealed at rest and never read back), and the email
+domains the provider vouches for. People then sign in at
+`/api/v1/auth/sso/start?org=<short name>`.
+
+- **The flow:** server-side authorization code with PKCE, state and nonce
+  (`adapters/auth/oidc_client.py`). The client secret never reaches the browser. A
+  sign-in started here is kept ten minutes and used once, so a forged or replayed
+  callback finds nothing. The ID token must be signed by the issuer's published key,
+  for this client, unexpired, and carry this sign-in's nonce.
+- **Who gets in** (`domain/sso.py`, `application/sso.py`): the provider proves who
+  someone is; IVaaS decides whether they belong.
+  - **Domain:** the email must be in the tenant's domains, or the person is an
+    outsider (a guest in the directory, say) and is turned away. Azure AD work
+    accounts carry it as `preferred_username`.
+  - **Linking:** the account is linked to the provider's id for the person on first
+    sign-in and matched on it afterwards. An address later reassigned to someone else
+    does not inherit the account, and one provider identity cannot reach two accounts
+    (a unique index).
+  - **Other tenants:** an address whose account belongs to another tenant is refused.
+  - **Newcomers:** someone with no account gets in only if the tenant chose a role for
+    newcomers, never owner, admin or integration.
+- **Required SSO** turns password sign-in off for the tenant's people, except its
+  owners, who keep a password so that a broken provider never locks a tenant out of
+  itself. It is said only to someone who knew the password.
+- **The result** is an ordinary IVaaS session in the fragment of the portal URL
+  (`/auth/sso#token=`), which never reaches a server or a log. Roles, scope, audit
+  (`signed_in` with `via: sso`), break-glass and suspension all work as for a
+  password sign-in.
+- **Why not Keycloak organisations,** as §2 of the proposal suggested: the platform
+  runs on its own accounts (`IVAAS_AUTH_MODE=local`), with roles, password resets,
+  break-glass and purge built on them. Brokering through Keycloak would move every
+  tenant's identity into a second system to keep in step. Speaking OIDC to the
+  tenant's provider directly covers Azure AD and Google, the two the proposal names.
+  - Keycloak stays the route for SAML-only providers, by brokering them to OIDC and
+    pointing a tenant at it like any other issuer.
+- **Limits:**
+  - Sign-ins in progress are held in the API process. That is right for one API, and
+    needs a shared store if the API is ever scaled out.
+  - Leaving the provider does not end an IVaaS session already open; disabling the
+    account here does, as for any account.
 
 ## 2a-x. Cancellation, export and purge (M8, T8.4 and T8.5)
 

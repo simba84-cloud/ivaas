@@ -613,7 +613,8 @@ class UserOut(BaseModel):
 
 
 class CreateUserIn(BaseModel):
-    username: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    #: an email is a username too: how people who sign in with SSO are added ahead
+    username: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z0-9._@-]+$")
     display_name: str = Field(default="", max_length=120)
     roles: list[Role] = Field(min_length=1)
 

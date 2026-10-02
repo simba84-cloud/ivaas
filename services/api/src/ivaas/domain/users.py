@@ -94,6 +94,10 @@ class User:
     #: tokens issued before this moment are refused, so a reset ends open sessions
     password_changed_at: datetime | None = None
     last_login_at: datetime | None = None
+    #: the tenant's identity provider and its id for this person, once they have signed
+    #: in through it: later sign-ins must be the same person, not just the same email
+    sso_issuer: str | None = None
+    sso_subject: str | None = None
 
     @property
     def roles(self) -> set[Role]:

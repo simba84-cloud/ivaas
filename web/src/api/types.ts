@@ -225,7 +225,9 @@ export type AuditAction =
   | "tenant_cancelled"
   | "tenant_reinstated"
   | "tenant_exported"
-  | "tenant_purged";
+  | "tenant_purged"
+  | "sso_configured"
+  | "sso_removed";
 
 export interface AuditEntry {
   id: string;
@@ -926,4 +928,21 @@ export interface CommissionView {
   price_book: string;
   placeholder: boolean;
   stamp: string | null;
+}
+
+// --- single sign-on (M8, T8.2) ----------------------------------------------------------
+
+export interface SsoView {
+  configured: boolean;
+  issuer: string | null;
+  client_id: string | null;
+  /** whether a secret is stored; the secret itself is never sent */
+  secret_configured: boolean;
+  domains: string[];
+  default_role: string | null;
+  required: boolean;
+  updated_by: string | null;
+  updated_at: string | null;
+  redirect_uri: string;
+  sign_in_url: string;
 }
