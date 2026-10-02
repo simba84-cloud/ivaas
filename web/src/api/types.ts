@@ -221,7 +221,11 @@ export type AuditAction =
   | "break_glass_approved"
   | "break_glass_denied"
   | "break_glass_ended"
-  | "break_glass_used";
+  | "break_glass_used"
+  | "tenant_cancelled"
+  | "tenant_reinstated"
+  | "tenant_exported"
+  | "tenant_purged";
 
 export interface AuditEntry {
   id: string;
@@ -869,4 +873,38 @@ export interface BreakGlassGrant {
   expires_at: string | null;
   ended_by: string | null;
   ended_at: string | null;
+}
+
+// --- the end of a tenant (M8, T8.4 and T8.5) ---------------------------------------------
+
+export interface LifecycleView {
+  tenant_id: string;
+  slug: string;
+  name: string;
+  status: string;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  /** when its data may be purged; null unless cancelled */
+  purge_after: string | null;
+  retention_days: number;
+  /** false on the in-memory store, which cannot export */
+  export_available: boolean;
+}
+
+export interface CertificateView {
+  id: string;
+  purged_tenant_id: string;
+  tenant_slug: string;
+  tenant_name: string;
+  purged_at: string;
+  purged_by: string;
+  body: {
+    rows_deleted: Record<string, number>;
+    objects_deleted: number;
+    retention_days: number;
+    cancelled_at: string | null;
+    scan: { tables_checked: number; rows_remaining: number; objects_remaining: number; object_prefix: string };
+  };
+  signature: string;
+  valid: boolean;
 }

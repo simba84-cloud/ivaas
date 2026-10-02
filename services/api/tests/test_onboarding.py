@@ -200,3 +200,21 @@ def test_a_suspended_tenant_is_not_installed_into(onboard):
     assert r.status_code == 402 and "suspended" in r.json()["detail"]
     tenants = c.get("/api/v1/platform/tenants", headers=litzim).json()
     assert next(t for t in tenants if t["id"] == tenant)["on_hold"] is True
+
+
+def test_a_cancelled_tenant_is_not_installed_into(onboard):
+    """Found live: the console offered an enrollment token for a cancelled tenant."""
+    c, _ = onboard
+    tenant = provision(c)["tenant"]["id"]
+    base = f"/api/v1/platform/tenants/{tenant}"
+    litzim, platform = login(c, "litzim"), login(c, "platform")
+    site = c.post(
+        f"{base}/onboarding/site", json={"site_name": "S", "bay_name": "B"}, headers=litzim
+    ).json()
+    c.post(f"{base}/cancel", json={"confirm": "chipo-foods"}, headers=platform)
+    r = c.post(
+        f"{base}/onboarding/enrollment-tokens",
+        json={"site_id": site["site"]["id"], "name": "edge"},
+        headers=litzim,
+    )
+    assert r.status_code == 409 and "cancelled" in r.json()["detail"]

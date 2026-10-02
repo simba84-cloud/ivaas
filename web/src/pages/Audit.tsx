@@ -31,6 +31,7 @@ import {
   Receipt,
   LifeBuoy,
   Eye,
+  Download,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
@@ -122,6 +123,10 @@ const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon; tone: stri
   break_glass_denied: { label: "Refused support access", icon: LifeBuoy, tone: "text-muted bg-ground" },
   break_glass_ended: { label: "Ended support access", icon: LifeBuoy, tone: "text-muted bg-ground" },
   break_glass_used: { label: "Support looked at", icon: Eye, tone: "text-bad bg-bad/10" },
+  tenant_cancelled: { label: "Cancelled the account", icon: Building2, tone: "text-bad bg-bad/10" },
+  tenant_reinstated: { label: "Reinstated the account", icon: Building2, tone: "text-good bg-good/10" },
+  tenant_exported: { label: "Exported all the account's data", icon: Download, tone: "text-warn bg-warn/10" },
+  tenant_purged: { label: "Purged a tenant's data", icon: Eraser, tone: "text-bad bg-bad/10" },
 };
 
 const WINDOWS = [

@@ -90,6 +90,9 @@ class Tenant:
     created_at: datetime | None = None
     #: its partner has held it: suspended until the partner lifts it, whatever is paid
     on_hold: bool = False
+    #: when it was cancelled and by whom; its data is kept until the retention elapses
+    cancelled_at: datetime | None = None
+    cancelled_by: str | None = None
 
 
 @dataclass

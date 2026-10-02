@@ -75,6 +75,10 @@ class AuditAction(StrEnum):
     BREAK_GLASS_ENDED = "break_glass_ended"
     #: one per request made under break-glass access: what support looked at
     BREAK_GLASS_USED = "break_glass_used"
+    TENANT_CANCELLED = "tenant_cancelled"
+    TENANT_REINSTATED = "tenant_reinstated"
+    TENANT_EXPORTED = "tenant_exported"
+    TENANT_PURGED = "tenant_purged"
 
 
 @dataclass(frozen=True)

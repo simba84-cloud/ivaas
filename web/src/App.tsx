@@ -47,6 +47,8 @@ import ConsoleTenant from "./pages/ConsoleTenant";
 import Onboard from "./pages/Onboard";
 import PartnerInvoices from "./pages/PartnerInvoices";
 import SupportAccess from "./pages/SupportAccess";
+import Account from "./pages/Account";
+import Certificates from "./pages/Certificates";
 import SupportConsole from "./pages/SupportConsole";
 
 function OidcCallback({ config }: { config: AuthConfig }) {
@@ -126,6 +128,13 @@ export default function App() {
     <ScopeProvider enabled={!!me.data?.tenant}>
       <LiveActivityProvider>
       <Layout connected={connected} me={me.data} onLogout={() => logout(config.data)}>
+        {me.data?.tenant?.status === "cancelled" ? (
+          // §3.3: a cancelled tenant keeps its export and nothing else
+          <Routes>
+            <Route path="/account" element={<Account me={me.data} />} />
+            <Route path="*" element={<Navigate to="/account" replace />} />
+          </Routes>
+        ) : (
         <Routes>
           {/* platform and partner staff belong to no tenant: their home is the console */}
           <Route path="/" element={me.data && !me.data.tenant ? (
@@ -136,6 +145,8 @@ export default function App() {
           <Route path="/console/tenants/:id" element={<ConsoleTenant me={me.data} />} />
           <Route path="/console/partners" element={<PartnerInvoices me={me.data} />} />
           <Route path="/console/support" element={<SupportConsole />} />
+          <Route path="/console/certificates" element={<Certificates />} />
+          <Route path="/account" element={<Account me={me.data} />} />
           <Route path="/support-access" element={<SupportAccess />} />
           <Route path="/command" element={<Command />} />
           <Route path="/alerts" element={<Alerts me={me.data} />} />
@@ -161,6 +172,7 @@ export default function App() {
           <Route path="/assistant" element={<Assistant />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        )}
       </Layout>
       </LiveActivityProvider>
     </ScopeProvider>

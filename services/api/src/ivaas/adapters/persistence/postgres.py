@@ -71,6 +71,12 @@ class TenantScopedSessions:
             },
         )
 
+    @property
+    def unscoped(self) -> async_sessionmaker[AsyncSession]:
+        """The owner's own sessions, with no role or tenant set. Only for the few jobs
+        the application role must not be able to do: a tenant's purge."""
+        return self._sm
+
     @asynccontextmanager
     async def __call__(self) -> AsyncIterator[AsyncSession]:
         async with self._sm() as db:

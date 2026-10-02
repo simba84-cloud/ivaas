@@ -173,3 +173,6 @@ def _names(sites: list[Site], bays: list[Bay]) -> str:
 def _not_suspended(tenant: Tenant) -> None:
     if tenant.status.value == "suspended":
         raise OnboardingError("this tenant is suspended: settle it before installing")
+    if tenant.status.value == "cancelled":
+        # found live: a token made here would enrol a node the tenant can no longer use
+        raise OnboardingError("this tenant is cancelled: reinstate it before installing")

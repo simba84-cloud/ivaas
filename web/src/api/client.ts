@@ -59,6 +59,8 @@ import type {
   Provisioned,
   TenantRecord,
   BreakGlassGrant,
+  CertificateView,
+  LifecycleView,
 } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -188,6 +190,38 @@ export const api = {
   supportAccess: () => request<BreakGlassGrant[]>("/api/v1/support-access"),
   decideSupportAccess: (id: string, action: "approve" | "deny" | "end") =>
     request<BreakGlassGrant>(`/api/v1/support-access/${id}/${action}`, { method: "POST" }),
+  // the end of a tenant (M8)
+  myLifecycle: () => request<LifecycleView>("/api/v1/account/lifecycle"),
+  cancelMine: (confirm: string, reason: string) =>
+    request<LifecycleView>("/api/v1/account/cancel", { method: "POST", body: JSON.stringify({ confirm, reason }) }),
+  /** The whole export, as a file the browser saves. */
+  exportMine: async (): Promise<void> => {
+    const token = getToken();
+    const res = await fetch("/api/v1/account/export", {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail ?? `${res.status} ${res.statusText}`);
+    }
+    const name = /filename="?([^";]+)"?/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "export.zip";
+    const url = URL.createObjectURL(await res.blob());
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+  tenantLifecycle: (id: string) => request<LifecycleView>(`/api/v1/platform/tenants/${id}/lifecycle`),
+  changeLifecycle: (id: string, action: "cancel" | "reinstate", confirm = "", reason = "") =>
+    request<LifecycleView>(`/api/v1/platform/tenants/${id}/${action}`, {
+      method: "POST",
+      body: action === "cancel" ? JSON.stringify({ confirm, reason }) : undefined,
+    }),
+  purgeTenant: (id: string, confirm: string) =>
+    request<CertificateView>(`/api/v1/platform/tenants/${id}/purge`, {
+      method: "POST",
+      body: JSON.stringify({ confirm }),
+    }),
+  certificates: () => request<CertificateView[]>("/api/v1/platform/deletion-certificates"),
   webhooks: () => request<Webhook[]>("/api/v1/webhooks"),
   createWebhook: (url: string, events: WebhookEvent[], description: string) =>
     request<WebhookCreated>("/api/v1/webhooks", {

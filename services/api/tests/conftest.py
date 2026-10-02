@@ -24,7 +24,8 @@ def fresh_objects_dir() -> str:
 
 def make_client(**overrides) -> TestClient:
     overrides.setdefault("objects_dir", fresh_objects_dir())
-    settings = Settings(storage="memory", events="memory", **overrides)
+    overrides.setdefault("storage", "memory")
+    settings = Settings(events="memory", **overrides)
     return TestClient(create_app(settings))
 
 
@@ -87,10 +88,21 @@ def _whole_suite(config) -> bool:
     return not config.option.keyword and not chosen and marks in ("", "notpostgres")
 
 
+#: Operations that can succeed only on the Postgres store: they read every tenant table
+#: from the catalogue (export, purge). The in-memory app answers them 501, so a run
+#: without the Postgres tests cannot cover them; a whole run must.
+POSTGRES_ONLY = {
+    ("GET", "/api/v1/account/export"),
+    ("POST", "/api/v1/platform/tenants/{tenant_id}/purge"),
+}
+
+
 def pytest_sessionfinish(session, exitstatus):
     if exitstatus != 0 or not _whole_suite(session.config):
         return
     missing = CONTRACT.uncovered()
+    if (session.config.option.markexpr or "").replace(" ", "") == "notpostgres":
+        missing = [m for m in missing if m not in POSTGRES_ONLY]
     if missing:
         lines = "\n".join(f"  {m} {p}" for m, p in missing)
         session.config.get_terminal_writer().line(
