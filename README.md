@@ -86,6 +86,10 @@ other OpenID Connect provider via `IVAAS_OIDC_ISSUER` / `IVAAS_OIDC_AUDIENCE`.
 
 API docs: http://localhost:8000/docs · Metrics: `/metrics` · Grafana: `:3000` · MinIO: `:9001`
 
+Host ports other projects may also want are settable in `.env`: `IVAAS_PORTAL_PORT`
+(8080), `IVAAS_GRAFANA_PORT` (3000), `IVAAS_PROMETHEUS_PORT` (9090) and
+`IVAAS_MINIO_CONSOLE_PORT` (9001). The stack runs as compose project `ivaas-poc`.
+
 Use a laptop webcam as a camera (register it as a push camera in the portal first):
 
 ```bash

@@ -70,7 +70,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-ivaas}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-ivaas-secret}
     volumes: [miniodata:/data]
-    ports: ["9001:9001"]
+    ports: ["${IVAAS_MINIO_CONSOLE_PORT:-9001}:9001"]
     restart: unless-stopped
 
   mediamtx:
@@ -164,7 +164,7 @@ services:
   prometheus:
     image: prom/prometheus:latest
     volumes: [./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro]
-    ports: ["9090:9090"]
+    ports: ["${IVAAS_PROMETHEUS_PORT:-9090}:9090"]
     restart: unless-stopped
 
   grafana:
@@ -172,7 +172,7 @@ services:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
     volumes: [grafanadata:/var/lib/grafana]
-    ports: ["3000:3000"]
+    ports: ["${IVAAS_GRAFANA_PORT:-3000}:3000"]
     depends_on: [prometheus]
     restart: unless-stopped
 
