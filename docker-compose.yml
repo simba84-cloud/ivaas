@@ -34,7 +34,7 @@ x-ivaas-env: &ivaas-env
       IVAAS_AUTH_MODE: ${IVAAS_AUTH_MODE:-local}
       IVAAS_AUTH_LOCAL_SECRET: ${IVAAS_AUTH_LOCAL_SECRET:-dev-only-change-me-please-32chars}
       # the browser and the API must agree on the issuer string, so use the host-visible URL
-      IVAAS_OIDC_ISSUER: http://localhost:8180/realms/ivaas
+      IVAAS_OIDC_ISSUER: http://localhost:${IVAAS_KEYCLOAK_PORT:-8180}/realms/ivaas
       IVAAS_OIDC_AUDIENCE: ivaas-portal
       IVAAS_SERVICE_API_KEYS: '{"${IVAAS_PIPELINE_KEY:-change-me-pipeline-key}": "pipeline"}'
       IVAAS_LLM_MODEL: ${IVAAS_LLM_MODEL:-qwen3:8b}
@@ -42,6 +42,9 @@ x-ivaas-env: &ivaas-env
       # where people reach the portal; SSO sends them back here (set it to the real
       # address, https and all, anywhere but a laptop)
       IVAAS_PUBLIC_URL: ${IVAAS_PUBLIC_URL:-http://localhost:${IVAAS_PORTAL_PORT:-8080}}
+      # signing keys: generated per installation for a silo (deploy/silo/silo.py)
+      IVAAS_OBJECT_LINK_SECRET: ${IVAAS_OBJECT_LINK_SECRET:-dev-only-object-link-secret-change-me}
+      IVAAS_CERTIFICATE_SECRET: ${IVAAS_CERTIFICATE_SECRET:-dev-only-certificate-secret-change-me}
 
 services:
   postgres:
@@ -81,8 +84,8 @@ services:
       - ./deploy/mediamtx/mediamtx.yml:/mediamtx.yml:ro
       - mediarecordings:/recordings  # rolling evidence buffer (30 min), see mediamtx.yml
     ports:
-      - "8554:8554" # RTSP in/out
-      - "8889:8889" # WebRTC (WHEP) players used by the portal
+      - "${IVAAS_RTSP_PORT:-8554}:8554" # RTSP in/out
+      - "${IVAAS_WHEP_PORT:-8889}:8889" # WebRTC (WHEP) players used by the portal
       - "8189:8189/udp"
       - "8189:8189"       # WebRTC over TCP fallback
     restart: unless-stopped
@@ -101,7 +104,7 @@ services:
       mediamtx: { condition: service_started }
       keycloak: { condition: service_healthy }
     volumes: [./models:/models:ro]
-    ports: ["8000:8000"]
+    ports: ["${IVAAS_API_PORT:-8000}:8000"]
     extra_hosts: ["localhost:host-gateway"]  # so the API can reach the issuer at localhost:8180
     healthcheck:
       test: ["CMD-SHELL", "/app/.venv/bin/python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')\""]
@@ -139,7 +142,7 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     volumes: [./deploy/keycloak/ivaas-realm.json:/opt/keycloak/data/import/ivaas-realm.json:ro]
-    ports: ["8180:8180"]
+    ports: ["${IVAAS_KEYCLOAK_PORT:-8180}:8180"]
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\n\r\n' >&3 && grep -q UP <&3"]
       interval: 10s
@@ -240,11 +243,19 @@ services:
     restart: unless-stopped
 
 volumes:
-  # pinned to the names they had under project "ivaas": the data stays where it is
-  mediarecordings: { name: ivaas_mediarecordings }
-  pgdata: { name: ivaas_pgdata }
-  natsdata: { name: ivaas_natsdata }
-  miniodata: { name: ivaas_miniodata }
-  grafanadata: { name: ivaas_grafanadata }
-  ollamadata: { name: ivaas_ollamadata }
-  pipelinespool: { name: ivaas_pipelinespool }
+  # pinned to the names they had under project "ivaas": the data stays where it is. A
+  # silo installation (deploy/silo) sets its own prefix, so it shares nothing with this
+  mediarecordings:
+    name: ${IVAAS_VOLUME_PREFIX:-ivaas}_mediarecordings
+  pgdata:
+    name: ${IVAAS_VOLUME_PREFIX:-ivaas}_pgdata
+  natsdata:
+    name: ${IVAAS_VOLUME_PREFIX:-ivaas}_natsdata
+  miniodata:
+    name: ${IVAAS_VOLUME_PREFIX:-ivaas}_miniodata
+  grafanadata:
+    name: ${IVAAS_VOLUME_PREFIX:-ivaas}_grafanadata
+  ollamadata:
+    name: ${IVAAS_VOLUME_PREFIX:-ivaas}_ollamadata
+  pipelinespool:
+    name: ${IVAAS_VOLUME_PREFIX:-ivaas}_pipelinespool

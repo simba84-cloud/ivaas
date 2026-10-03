@@ -123,6 +123,11 @@ def add_platform_routes(
     ) -> ProvisionOut:
         """Create a tenant and its owner. Send the same Idempotency-Key to retry safely:
         a repeat returns the tenant already made, without the owner's password."""
+        silo = c.settings.silo_tenant
+        if silo and body.slug.strip().lower() != silo:
+            raise HTTPException(
+                409, f"this installation is {silo}'s alone: it hosts no other tenant"
+            )
         partner_id = body.partner_id
         mine = _partners_of(principal)
         if mine is not None:  # a partner provisions only its own customers

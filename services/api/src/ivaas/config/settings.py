@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # where people reach the portal: SSO sends them back here, and registers
     # <public_url>/api/v1/auth/sso/callback at each tenant's identity provider
     public_url: str = "http://localhost:8088"
+    # a silo installation (proposal §2.2, T8.6): the one tenant this instance hosts, by
+    # short name. Empty for the pooled platform. A silo provisions no other tenant.
+    silo_tenant: str = ""
     cors_origins: list[str] = ["http://localhost:5173"]
     seed_demo_data: bool = True
     # empty = no media server (dev): cameras are stored but no stream is provisioned

@@ -48,13 +48,22 @@ class PostgresSsoStore:
             tenant_id=r.tenant_id,
             issuer=r.issuer,
             client_id=r.client_id,
-            client_secret=self._box.open(r.client_secret),
+            client_secret=self._secret(r.client_secret),
             domains=list(r.domains),
             default_role=Role(r.default_role) if r.default_role else None,
             required=r.required,
             updated_by=r.updated_by,
             updated_at=r.updated_at,
         )
+
+    def _secret(self, stored: str) -> str:
+        """Empty when it cannot be opened (sealed elsewhere) or was never brought across:
+        an administrator enters it again. Never an error: password sign-in reads this,
+        and a secret it cannot open must not lock a whole tenant out (found live)."""
+        try:
+            return self._box.open(stored) or ""
+        except ValueError:
+            return ""
 
     async def save(self, c: SsoConfig) -> None:
         values = {
