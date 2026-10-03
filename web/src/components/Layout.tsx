@@ -33,6 +33,7 @@ import {
   LifeBuoy,
   FileCheck,
   KeyRound,
+  TrendingUp,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
@@ -133,6 +134,8 @@ const STAFF_NAV = [
     items: [
       { to: "/console", label: "Tenants", icon: Building2, needs: "tenant.create" },
       { to: "/console/onboard", label: "Onboard a Tenant", icon: UserPlus, needs: "tenant.create" },
+      { to: "/console/fleet", label: "Fleet", icon: Cpu, needs: "tenant.create" },
+      { to: "/console/revenue", label: "Revenue", icon: TrendingUp, needs: "invoice.read", platformOnly: true },
       { to: "/console/partners", label: "Partner Invoices", icon: Handshake, needs: "invoice.read" },
       { to: "/console/support", label: "Support Access", icon: LifeBuoy, needs: "support.request" },
       { to: "/console/certificates", label: "Deletion Certificates", icon: FileCheck, needs: "tenant.suspend" },
@@ -151,7 +154,12 @@ export const isCancelled = (me: Me | undefined) => me?.tenant?.status === "cance
 const visible = (me: Me | undefined) =>
   (isStaff(me) ? STAFF_NAV : isCancelled(me) ? CANCELLED_NAV : NAV).map((g) => ({
     ...g,
-    items: g.items.filter((i) => !("needs" in i && i.needs) || can(me, i.needs as Permission)),
+    items: g.items.filter(
+      (i) =>
+        (!("needs" in i && i.needs) || can(me, i.needs as Permission)) &&
+        // Cassava's own figures: a partner holds the permission for its own invoices only
+        (!("platformOnly" in i) || !!me?.roles.some((r) => r.startsWith("platform_"))),
+    ),
   })).filter((g) => g.items.length);
 
 /**

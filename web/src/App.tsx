@@ -50,6 +50,8 @@ import SupportAccess from "./pages/SupportAccess";
 import Account from "./pages/Account";
 import Certificates from "./pages/Certificates";
 import SingleSignOn from "./pages/SingleSignOn";
+import ConsoleFleet from "./pages/ConsoleFleet";
+import ConsoleRevenue from "./pages/ConsoleRevenue";
 import SupportConsole from "./pages/SupportConsole";
 
 function OidcCallback({ config }: { config: AuthConfig }) {
@@ -155,6 +157,8 @@ export default function App() {
           <Route path="/console/partners" element={<PartnerInvoices me={me.data} />} />
           <Route path="/console/support" element={<SupportConsole />} />
           <Route path="/console/certificates" element={<Certificates />} />
+          <Route path="/console/fleet" element={<ConsoleFleet />} />
+          <Route path="/console/revenue" element={<ConsoleRevenue />} />
           <Route path="/account" element={<Account me={me.data} />} />
           <Route path="/support-access" element={<SupportAccess />} />
           <Route path="/sso" element={<SingleSignOn />} />

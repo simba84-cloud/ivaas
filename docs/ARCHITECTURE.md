@@ -367,7 +367,23 @@ is therefore a console, not the tenant pages: they sign in and land on `/console
     zeroes.
   - It names Cassava's wholesale invoice for the month once one is issued, and says
     when none is.
-- **Still open in M8:** silo (T8.6), and the fleet and revenue views. SSO is §2a-xi.
+- **Fleet** (`/api/v1/platform/fleet`, Console → Fleet) covers every edge node of every
+  tenant the caller looks after: Cassava sees all, and a partner sees its customers.
+  - Each node shows its health, its cameras streaming out of those it reported, its
+    queue, its version and when it was last heard from.
+  - It is node state only, never a tenant's counts.
+  - "Never heard from" and "cameras not reported" are shown as such. A tenant with no
+    nodes is "nothing installed", neither flagged nor shown as healthy.
+  - Tenants needing attention come first.
+- **Revenue** (`/api/v1/platform/revenue`, Console → Revenue, Cassava only) is what
+  Cassava has issued, by the month each invoice bills for.
+  - It is split into direct customers and partners wholesale, with tax, total, paid
+    and outstanding, plus overdue invoices.
+  - Drafts are not revenue.
+  - A month with nothing issued shows no figure rather than 0.00, because it may simply
+    not be invoiced yet.
+  - Placeholder prices are flagged.
+- **Still open in M8:** silo (T8.6). SSO is §2a-xi.
   Export and purge are §2a-x.
 
 ## 2a-ix. Break-glass support access (M8, T8.3)

@@ -16,7 +16,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 
 from ivaas.adapters.http.auth import current_principal, require, require_any
 from ivaas.adapters.http.schemas import (
@@ -31,9 +31,12 @@ from ivaas.adapters.http.schemas import (
     PartnerOut,
     ProvisionIn,
     ProvisionOut,
+    RevenueOut,
     SiteOut,
+    TenantFleetOut,
     TenantOut,
 )
+from ivaas.application import platform_views
 from ivaas.application.onboarding import TARGET, OnboardingError
 from ivaas.domain.audit import AuditAction
 from ivaas.domain.edge import EdgeError
@@ -279,3 +282,46 @@ def add_platform_routes(
             bay_id=record.bay_id,
             expires_at=record.expires_at,
         )
+
+    # --- the console's views across tenants (M8) ---------------------------------------
+    @app.get(
+        "/api/v1/platform/fleet",
+        response_model=list[TenantFleetOut],
+        dependencies=[Depends(require(P.TENANT_CREATE))],
+    )
+    async def fleet_view(
+        principal: Principal = Depends(current_principal), c: Any = Depends(get_container)
+    ) -> list[TenantFleetOut]:
+        """Every edge node of every tenant the caller looks after: alive or not, which
+        cameras stream, what is queued. Node state only, never a tenant's counts."""
+        with system_context():
+            tenants = [t for t in await c.tenants.list_all() if _sees(principal, t)]
+        views = await platform_views.fleet(tenants, c.edge, c.clock.now())
+        return [TenantFleetOut.of(v) for v in views]
+
+    @app.get(
+        "/api/v1/platform/revenue",
+        response_model=RevenueOut,
+        dependencies=[Depends(require(P.INVOICE_READ))],
+    )
+    async def revenue_view(
+        months: int = Query(default=6, ge=1, le=24),
+        principal: Principal = Depends(current_principal),
+        c: Any = Depends(get_container),
+    ) -> RevenueOut:
+        """What Cassava has issued, month by month: Cassava's figure, not a partner's."""
+        if _partners_of(principal) is not None:
+            raise HTTPException(403, "revenue is Cassava's: a partner sees its own invoices")
+        with system_context():
+            tenants = await c.tenants.list_all()
+            partners = await c.tenants.list_partners()
+        r = await platform_views.revenue(
+            tenants,
+            partners,
+            c.billing_store,
+            c.partner_invoices,
+            c.clock.now().date(),
+            months,
+            c.price_book.currency,
+        )
+        return RevenueOut.of(r)
