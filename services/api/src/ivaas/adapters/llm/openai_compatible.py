@@ -8,6 +8,7 @@ URL change, not a code change.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -20,6 +21,7 @@ from ivaas.ports.assistant import (
     ToolSpec,
 )
 
+log = logging.getLogger(__name__)
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
@@ -64,9 +66,28 @@ class OpenAiCompatibleChatModel:
             base_url=base_url.rstrip("/"), headers=headers, timeout=timeout_s
         )
         self._model = model
+        self._base = base_url.rstrip("/")
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    async def warm(self) -> None:
+        """Load the model before anyone asks: a local model's first load can outlast a
+        request (found live: a CPU took 4.5 min, the request gave up, the load was
+        thrown away, and every question started it again). One token; any failure is
+        only logged, the first real question will say what is wrong."""
+        try:
+            await self._client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": self._model,
+                    "messages": [{"role": "user", "content": "ok"}],
+                    "max_tokens": 1,
+                    "stream": False,
+                },
+            )
+        except httpx.HTTPError as exc:
+            log.warning("could not warm the language model: %s", type(exc).__name__)
 
     async def check(self) -> str | None:
         """None if the model is ready, else a human-readable problem. Used at startup."""
@@ -81,8 +102,8 @@ class OpenAiCompatibleChatModel:
         }:
             have = sorted(ids) or "none"
             return (
-                f"model '{self._model}' is not installed (have: {have}); "
-                f"run: ollama pull {self._model}"
+                f"the language model server at {self._base} has no model '{self._model}' "
+                f"(have: {have}); on Ollama: ollama pull {self._model}"
             )
         return None
 
@@ -112,8 +133,9 @@ class OpenAiCompatibleChatModel:
             ) from exc
         if r.status_code == 404:
             raise ChatModelUnavailableError(
-                f"model '{self._model}' is not installed on the language model server; "
-                f"run: ollama pull {self._model}"
+                f"the language model server at {self._base} has no model '{self._model}', "
+                "or does not answer at this address (a proxy that routes by name needs its "
+                f"name, not its IP); on Ollama: ollama pull {self._model}"
             )
         if r.status_code >= 400:
             raise ChatModelUnavailableError(
@@ -134,6 +156,13 @@ class OpenAiCompatibleChatModel:
             for i, c in enumerate(message.get("tool_calls") or [])
         )
         content = _THINK.sub("", message.get("content") or "").strip()
+        if not content and not calls:
+            # found live: a model decided to call a tool, and the server dropped the call
+            raise ChatModelUnavailableError(
+                f"model '{self._model}' sent an empty reply. If it meant to call a tool, the "
+                "server is not returning tool calls (vLLM: --enable-auto-tool-choice and a "
+                "--tool-call-parser for this model)"
+            )
         used = (body.get("usage") or {}).get("total_tokens")
         tokens = used if isinstance(used, int) and used >= 0 else None
         return ChatMessage("assistant", content, tool_calls=calls, tokens=tokens)

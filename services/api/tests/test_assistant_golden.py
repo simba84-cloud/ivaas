@@ -16,6 +16,7 @@ import csv
 import io
 import json
 import os
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -239,9 +240,14 @@ def test_a_real_model_answers_the_golden_set_with_the_reports_figures(world):
     # a model on a CPU takes minutes; the idle sweep must not close ABC 1003 meanwhile
     c.portal.call(lambda: [t.cancel() for t in c.app.state.background_tasks])
     model = os.environ.get("IVAAS_EVAL_LLM_MODEL", "qwen3:8b")
-    c.app.state.container.chat_model = OpenAiCompatibleChatModel(LIVE, model, timeout_s=300)
+    # a hosted proxy (LiteLLM) wants a key: from the environment only, never stored
+    key = os.environ.get("IVAAS_EVAL_LLM_API_KEY", "")
+    c.app.state.container.chat_model = OpenAiCompatibleChatModel(
+        LIVE, model, api_key=key, timeout_s=300
+    )
     missed = []
     for g in GOLDEN:
+        started = time.monotonic()
         r = c.post(
             "/api/v1/assistant/chat",
             json={"messages": [{"role": "user", "content": g.question}]},
@@ -255,7 +261,9 @@ def test_a_real_model_answers_the_golden_set_with_the_reports_figures(world):
             any(x in body["reply"] for x in ((w,) if isinstance(w, str) else w)) for w in wanted
         )
         ok = bool({g.tool, *g.also} & set(tools)) and says
-        print(f"\n[{'ok' if ok else 'MISS'}] {g.question}\n  tools={tools}\n  {body['reply']}")
+        took = time.monotonic() - started
+        mark = "ok" if ok else "MISS"
+        print(f"\n[{mark}] ({took:.1f}s) {g.question}\n  tools={tools}\n  {body['reply']}")
         if not ok:
             missed.append(g.question)
     assert not missed, f"{len(missed)} of {len(GOLDEN)} missed: {missed}"

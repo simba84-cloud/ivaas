@@ -288,6 +288,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             problem = await llm.check()
             if problem:
                 log.warning("assistant will not work until fixed: %s", problem)
+            else:  # loaded now, not on someone's first question
+                app.state.warming = asyncio.create_task(llm.warm())
         tasks = [
             asyncio.create_task(_sweep_idle_sessions(app.state.container)),
             asyncio.create_task(_refresh_camera_status(app.state.container)),

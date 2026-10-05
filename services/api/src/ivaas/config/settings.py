@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     llm_url: str = ""
     llm_model: str = "qwen3:8b"  # Apache-2.0 open weights, reliable tool calling
     llm_api_key: str = ""
+    # how long one model reply may take; above a local model's cold load on a CPU
+    llm_timeout_s: float = 300.0
     # Authentication. "oidc" for any OpenID Connect provider (Keycloak in docker-compose);
     # "local" mints HS256 tokens for the demo users below: development only.
     auth_mode: Literal["local", "oidc"] = "local"

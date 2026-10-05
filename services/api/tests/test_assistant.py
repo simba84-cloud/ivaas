@@ -271,3 +271,60 @@ async def test_startup_check_reports_missing_model():
     assert await OpenAiCompatibleChatModel("http://llm", "qwen3:1.7b", client=http).check() is None
     problem = await OpenAiCompatibleChatModel("http://llm", "llama3:70b", client=http).check()
     assert "llama3:70b" in problem and "ollama pull" in problem
+
+
+# --- found live: the assistant gave no answer (2026-10-05) ------------------------------
+@pytest.mark.asyncio
+async def test_an_empty_reply_is_an_error_that_says_why_not_a_blank_answer():
+    """gpt-oss behind vLLM without a tool-call parser decided to call a tool, and the
+    server dropped the call: the reply came back with no content and no tool calls."""
+    reply = {"choices": [{"message": {"role": "assistant", "content": None}}], "usage": {}}
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=reply)),
+        base_url="http://llm",
+    )
+    with pytest.raises(ChatModelUnavailableError, match="empty reply.*tool-call-parser"):
+        await OpenAiCompatibleChatModel("http://llm", "gpt-oss-120b", client=http).complete(
+            [ChatMessage("user", "q")], AnalyticsTools.SPECS
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_404_names_the_server_and_does_not_assume_ollama():
+    """A LiteLLM proxy reached by IP answers 404 for everything: it routes by name."""
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(404)), base_url="http://10.0.0.5"
+    )
+    with pytest.raises(ChatModelUnavailableError) as err:
+        await OpenAiCompatibleChatModel("http://10.0.0.5:30080", "qwen", client=http).complete(
+            [], []
+        )
+    assert "http://10.0.0.5:30080" in str(err.value) and "routes by name" in str(err.value)
+
+
+@pytest.mark.asyncio
+async def test_warming_asks_for_one_token_and_never_raises():
+    """A CPU's cold load outlasted the request, and the half-loaded model was thrown away:
+    the model is loaded at start-up instead, and a failure to warm is only logged."""
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "o"}}]})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://llm")
+    await OpenAiCompatibleChatModel("http://llm", "qwen3:8b", client=http).warm()
+    assert seen["body"]["max_tokens"] == 1 and seen["body"]["model"] == "qwen3:8b"
+
+    def down(request):
+        raise httpx.ConnectError("refused")
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(down), base_url="http://llm")
+    await OpenAiCompatibleChatModel("http://llm", "qwen3:8b", client=http).warm()  # no raise
+
+
+def test_the_model_timeout_is_a_setting_above_a_cold_load():
+    from ivaas.config.settings import Settings
+
+    assert Settings().llm_timeout_s >= 300
+    assert Settings(llm_timeout_s=42).llm_timeout_s == 42
