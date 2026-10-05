@@ -1,0 +1,59 @@
+# A silo installation (proposal §2.2, M8 T8.6): one tenant, with its own database,
+# object store, broker, API and portal. Nothing is shared with the pooled platform.
+# Driven by deploy/silo/silo.py, which gives each silo its own project name, volume
+# prefix, ports, secrets and backup folder (deploy/silo/<tenant>.env, kept out of git).
+#
+#   docker compose -p ivaas-silo-<tenant> --env-file deploy/silo/<tenant>.env \
+#     -f docker-compose.yml -f deploy/silo/silo.compose.yml up -d --build
+services:
+  api:
+    environment: &silo
+      IVAAS_SILO_TENANT: ${IVAAS_SILO_TENANT:?set by deploy/silo/silo.py}
+      # no demo topology, no demo accounts: the tenant's export brings its own
+      IVAAS_SEED_DEMO_DATA: "false"
+      IVAAS_LOCAL_USERS: "{}"
+    # Keycloak is the pooled platform's: a silo signs in locally, or through the
+    # tenant's own provider (SSO, T8.2)
+    depends_on: !override
+      postgres: { condition: service_healthy }
+      nats: { condition: service_started }
+      mediamtx: { condition: service_started }
+
+  worker:
+    environment: *silo
+
+  # the acceptance run (silo.py accept) reaches the silo's Postgres on loopback only
+  postgres:
+    ports: ["127.0.0.1:${IVAAS_SILO_PG_PORT:?set by deploy/silo/silo.py}:5432"]
+
+  # WebRTC's ICE port cannot be moved without moving what MediaMTX advertises; a silo
+  # sharing a host with the pooled stack keeps RTSP and WHEP and leaves ICE to it. On its
+  # own host (production), drop this override.
+  mediamtx:
+    ports: !override
+      - "${IVAAS_RTSP_PORT:?}:8554"
+      - "${IVAAS_WHEP_PORT:?}:8889"
+
+  # the pooled platform's own: a silo does without, or brings its own when sized for it
+  keycloak: { profiles: [silo-full] }
+  ollama: { profiles: [silo-full] }
+  grafana: { profiles: [silo-full] }
+  prometheus: { profiles: [silo-full] }
+
+# Every volume again, with the prefix required: a silo env file without one must fail
+# here, never fall back to "ivaas_" and open the pooled platform's database.
+volumes:
+  mediarecordings:
+    name: ${IVAAS_VOLUME_PREFIX:?a silo needs its own volumes}_mediarecordings
+  pgdata:
+    name: ${IVAAS_VOLUME_PREFIX:?a silo needs its own volumes}_pgdata
+  natsdata:
+    name: ${IVAAS_VOLUME_PREFIX:?a silo needs its own volumes}_natsdata
+  miniodata:
+    name: ${IVAAS_VOLUME_PREFIX:?a silo needs its own volumes}_miniodata
+  grafanadata:
+    name: ${IVAAS_VOLUME_PREFIX:?a silo needs its own volumes}_grafanadata
+  ollamadata:
+    name: ${IVAAS_VOLUME_PREFIX:?a silo needs its own volumes}_ollamadata
+  pipelinespool:
+    name: ${IVAAS_VOLUME_PREFIX:?a silo needs its own volumes}_pipelinespool

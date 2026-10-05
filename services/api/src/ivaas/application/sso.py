@@ -52,6 +52,12 @@ class SsoSignIn:
             raise SsoDenied("single sign-on is not set up for that organisation")
         if tenant.status.value == "cancelled":
             raise SsoDenied(f"{tenant.name}'s account is cancelled")
+        if not config.client_secret:
+            # e.g. moved to a silo: the secret never travels, an administrator re-enters it
+            raise SsoDenied(
+                f"single sign-on for {tenant.name} needs its client secret entered again "
+                "by an administrator"
+            )
         return tenant, config
 
     async def start(self, slug: str, redirect_uri: str) -> str:

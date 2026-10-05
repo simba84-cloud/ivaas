@@ -383,7 +383,17 @@ is therefore a console, not the tenant pages: they sign in and land on `/console
   - A month with nothing issued shows no figure rather than 0.00, because it may simply
     not be invoiced yet.
   - Placeholder prices are flagged.
-- **Still open in M8:** silo (T8.6). SSO is §2a-xi.
+- **Silo installations (T8.6)** are one tenant on an installation of its own,
+  sharing nothing with the pooled platform. See [SILO.md](SILO.md).
+  - `deploy/silo/silo.py` creates one (its own project, volumes, ports and keys),
+    starts it, imports the tenant's export and accepts it.
+  - Secrets never travel. The import replaces every sealed value and closes every
+    account until reset, reporting each.
+  - Acceptance runs the whole T1–T7 suite against the silo's database server.
+  - `IVAAS_SILO_TENANT` makes the API host that tenant alone. It provisions no other,
+    and starts with no tenants, so the export brings its one.
+- **M8 is complete:** T8.1–T8.6, commission statements, and the fleet and revenue
+  views. SSO is §2a-xi.
   Export and purge are §2a-x.
 
 ## 2a-ix. Break-glass support access (M8, T8.3)

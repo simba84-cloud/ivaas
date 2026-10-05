@@ -15,3 +15,6 @@ models/*.json
 
 # database dumps and object mirror (deploy/backup)
 /backups/
+
+# a silo installation's secrets (deploy/silo/silo.py create)
+deploy/silo/*.env

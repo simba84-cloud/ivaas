@@ -30,7 +30,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 #: columns whose values are secrets, whatever table they are in
 WITHHELD_COLUMNS = frozenset(
-    {"password_hash", "credential_hash", "token_hash", "secret", "source_url", "embedding"}
+    {
+        "password_hash",
+        "credential_hash",
+        "token_hash",
+        "secret",
+        "client_secret",
+        "source_url",
+        "embedding",
+    }
 )
 #: setting overrides that hold a secret, by key
 _SECRET_SETTING = re.compile(r"(key|secret|token|password)", re.IGNORECASE)
@@ -144,19 +152,20 @@ class PostgresTenantData:
                     for c in hidden:
                         r[c] = None
                 if t == "platform_settings":
+                    # a secret setting is left out whole: its value is the whole row
                     secret = [r for r in found if _SECRET_SETTING.search(str(r.get("key")))]
-                    for r in secret:
-                        r["value"] = None
+                    found = [r for r in found if r not in secret]
                     if secret:
-                        hidden.append("value, for keys naming a key, secret, token or password")
+                        hidden.append("rows whose key names a key, secret, token or password")
                 if hidden:
                     withheld[t] = hidden
                 rows[t] = found
         return rows, withheld
 
     async def load(self, rows: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
-        """Into this database, parents first, as the owner. A scratch environment's
-        import: the partner may exist already, nothing else may."""
+        """Into this database, parents first, as the owner: a scratch environment, or a
+        silo. The partner may exist already, and the tenant as an empty stub; nothing
+        else may."""
         loaded: dict[str, int] = {}
         async with self._sm.begin() as db:
             await self._system(db)
@@ -170,7 +179,18 @@ class PostgresTenantData:
                         if notnull and r.get(name) is None and name in WITHHELD_COLUMNS:
                             r[name] = "\\x" if typ == "bytea" else WITHHELD_MARK
                 names = ", ".join(_ident(n) for n, _nn, _t, generated in cols if not generated)
-                conflict = " ON CONFLICT DO NOTHING" if table == "partners" else ""
+                conflict = ""
+                if table == "partners":  # the partner may be there already
+                    conflict = " ON CONFLICT DO NOTHING"
+                elif table == "tenants":
+                    # a fresh database holds a stub of the first tenant (migration 0012):
+                    # the export's row, which is the real one, replaces it
+                    sets = ", ".join(
+                        f"{_ident(n)} = EXCLUDED.{_ident(n)}"
+                        for n, _nn, _t, generated in cols
+                        if not generated and n != "id"
+                    )
+                    conflict = f" ON CONFLICT (id) DO UPDATE SET {sets}"
                 q = (
                     f"INSERT INTO {_ident(table)} ({names}) OVERRIDING SYSTEM VALUE "
                     f"SELECT {names} FROM json_populate_recordset(NULL::{_ident(table)}, "
@@ -179,6 +199,14 @@ class PostgresTenantData:
                 await db.execute(text(q), {"rows": json.dumps(found)})
                 loaded[table] = len(found)
         return loaded
+
+    async def execute(self, sql: str, params: dict[str, Any]) -> list[Any]:
+        """One statement as the owner, in the system scope: for a silo's import, which
+        must put right what a foreign key's ciphertext cannot be (tools/silo.py)."""
+        async with self._sm.begin() as db:
+            await self._system(db)
+            result = await db.execute(text(sql), params)
+            return list(result.all()) if result.returns_rows else [result.rowcount]
 
     async def purge(self, tenant_id: UUID) -> dict[str, int]:
         """Every row the tenant has, children first, then the tenant itself."""

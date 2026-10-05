@@ -865,12 +865,15 @@ async def build_container(settings: Settings) -> Container:
         if restored:
             logging.getLogger(__name__).info("restored %d analysis job(s)", restored)
 
-    # The hierarchy every environment starts with. Partners and tenants are platform
-    # records, written in system context; each tenant's own rows in its own.
+    # The hierarchy every pooled environment starts with. Partners and tenants are
+    # platform records, written in system context; each tenant's own rows in its own.
+    # A silo starts with none: its one tenant arrives in its export (found live: a silo
+    # restarted after its import had Bakers Inn back).
     with system_context():
-        if await tenants.get_partner(LITZIM_ID) is None:
+        if not settings.silo_tenant and await tenants.get_partner(LITZIM_ID) is None:
             await tenants.save_partner(LITZIM)
-        for tenant in (BAKERS_INN, ISOLATION_TEST) if seed else (BAKERS_INN,):
+        starting = (BAKERS_INN, ISOLATION_TEST) if seed else (BAKERS_INN,)
+        for tenant in () if settings.silo_tenant else starting:
             if await tenants.get(tenant.id) is None:
                 tenant.created_at = SystemClock().now()
                 await tenants.save(tenant)
