@@ -678,7 +678,12 @@ async def build_container(settings: Settings) -> Container:
     if settings.llm_url:
         from ivaas.adapters.llm.openai_compatible import OpenAiCompatibleChatModel
 
-        llm = OpenAiCompatibleChatModel(settings.llm_url, settings.llm_model, settings.llm_api_key)
+        llm = OpenAiCompatibleChatModel(
+            settings.llm_url,
+            settings.llm_model,
+            settings.llm_api_key,
+            timeout_s=settings.llm_timeout_s,
+        )
         closers.append(llm.aclose)
         chat_model = llm
 
