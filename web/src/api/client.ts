@@ -107,7 +107,7 @@ export interface ReportFile {
   name: string;
 }
 
-/** A report file fetched with the token, named as the API's Content-Disposition says. */
+/** A file fetched with the token, named as the API's Content-Disposition says. */
 async function reportFile(url: string, fallback: string): Promise<ReportFile> {
   const token = getToken();
   const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
@@ -117,6 +117,16 @@ async function reportFile(url: string, fallback: string): Promise<ReportFile> {
   }
   const named = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "");
   return { blob: await res.blob(), name: named?.[1] ?? fallback };
+}
+
+/** Hand a fetched file to the browser to save. */
+export function saveFile({ blob, name }: ReportFile) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export const api = {
@@ -277,6 +287,8 @@ export const api = {
     reportFile(`/api/v1/reports/daily?site_id=${siteId}&day=${day}&format=${format}`, `report.${format}`),
   pocReport: (siteId: string, p: PocParams) =>
     request<PocReport>(`/api/v1/reports/poc?${pocQuery(siteId, p)}`),
+  /** The tally sheet workbook, made for this tenant: its bays are in the drop-down. */
+  tallyTemplate: (): Promise<ReportFile> => reportFile("/api/v1/tally/template", "tally-sheet.xlsx"),
   /** The POC report as a file, fetched with the token. */
   pocReportFile: (siteId: string, p: PocParams, format: ReportFormat): Promise<ReportFile> =>
     reportFile(`/api/v1/reports/poc?${pocQuery(siteId, p)}&format=${format}`, `poc-report.${format}`),

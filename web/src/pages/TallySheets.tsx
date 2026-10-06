@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileSpreadsheet, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Download, FileSpreadsheet, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { type InputHTMLAttributes, useState } from "react";
-import { api } from "../api/client";
+import { api, saveFile } from "../api/client";
 import { useScope } from "../api/scope";
 import type { TallyDirection, TallySheet, TallyStatus } from "../api/types";
 import { useToast } from "../components/toast";
@@ -108,7 +108,8 @@ function ImportCsv({ bayId }: { bayId: string }) {
       </div>
       <p className="mb-3 text-xs text-muted">
         Add the tally workbook itself (.xlsx): its <b>Entry - Sheets</b> and <b>Entry - Stacks</b> tabs are read
-        together. Or save those two tabs as CSV and add them here. Example rows are skipped. If any row has a
+        together. Or save those two tabs as CSV and add them here. Example rows are skipped. No workbook yet? Take
+        the <b>Tally sheet template</b> above: it has the paper form to print and your bays in its drop-down. If any row has a
         problem, nothing is imported and the row is named.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -363,13 +364,24 @@ export default function TallySheets() {
     },
   });
   const rows = (sheets.data ?? []).filter((s) => !bay || s.bay_id === bay.id);
+  const template = useMutation({ mutationFn: async () => saveFile(await api.tallyTemplate()) });
 
   return (
     <>
       <PageHeader
         title="Tally sheets"
         subtitle="Enter the paper counts from the bay. The AI's figure is not shown here, so what you type is what was written."
+        actions={
+          <button className="btn-ghost" onClick={() => template.mutate()} disabled={template.isPending}>
+            <Download size={15} /> Tally sheet template
+          </button>
+        }
       />
+      {template.error && (
+        <p role="alert" className="mb-3 text-xs text-bad">
+          {(template.error as Error).message}
+        </p>
+      )}
       {bay ? (
         <div className="mb-6 grid gap-4 xl:grid-cols-2">
           <ImportCsv bayId={bay.id} />

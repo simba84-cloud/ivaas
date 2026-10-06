@@ -132,6 +132,27 @@ describe("tally sheets", () => {
     expect(screen.getByText(/Add the tally workbook itself \(\.xlsx\)/)).toBeInTheDocument();
   });
 
+  it("hands out the tally sheet template under the name the API gives", async () => {
+    api([]);
+    server.use(
+      http.get("/api/v1/tally/template", () =>
+        new HttpResponse(new Blob(["PK"]), {
+          headers: { "content-disposition": 'attachment; filename="liquid-ivaas-bakers-inn-tally-sheet.xlsx"' },
+        }),
+      ),
+    );
+    const saved: string[] = [];
+    URL.createObjectURL = vi.fn(() => "blob:x");
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      saved.push(this.download);
+    });
+    render();
+    await userEvent.click(await screen.findByRole("button", { name: "Tally sheet template" }));
+    await vi.waitFor(() => expect(saved).toEqual(["liquid-ivaas-bakers-inn-tally-sheet.xlsx"]));
+    click.mockRestore();
+  });
+
   it("shows why a file was refused", async () => {
     api([]);
     server.use(
