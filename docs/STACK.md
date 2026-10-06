@@ -42,7 +42,7 @@ see the [README](../README.md).
 | Billing | Price book (placeholder until finance approves one), subscriptions with daily proration, entitlements enforced at registration and edge config, idempotent usage ledger, Decimal invoices (`/api/v1/billing`) |
 | Backups | `pg_dump` every 15 min with an exact row-count manifest, an hourly MinIO mirror, and a restore drill reporting RPO/RTO (`deploy/backup`) |
 | Daily reports | PDF via ReportLab, CSV via `csv`, Excel via openpyxl; filed after 06:00 site time, and any day on demand (`/api/v1/reports`) |
-| Report branding | The PDFs and Excel workbooks carry the Liquid logo and palette (logo and report name on every page, navy table headers, brand and page number at the foot); every file is named `liquid-ivaas-<site>-…`. The CSVs stay plain, header row first, for imports (`adapters/branding.py`) |
+| Report branding | The PDFs and Excel workbooks carry the Liquid logo and palette (logo and report name on every page, navy table headers, brand and page number at the foot); every file is named `liquid-ivaas-<site>-…`. The accuracy report downloads the same way, as PDF or Excel for the bay in view (`/api/v1/tally/report?format=pdf|xlsx&bay_id=`, `adapters/accuracy_report.py`). The CSVs stay plain, header row first, for imports (`adapters/branding.py`) |
 | Evidence clips | MediaMTX records evidence cameras (30 min buffer); the node cuts clips via its playback server and uploads them; kept per tenant (default 90 days) |
 | Models (OTA) | Registered versions in object storage with SHA-256; nodes verify, cache by digest and swap in place; rollback per node (`/api/v1/models`) |
 | Secrets at rest | `cryptography` (Fernet, key in `IVAAS_SECRETS_KEY`) |

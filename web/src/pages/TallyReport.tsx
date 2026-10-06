@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Scale, Sigma, Target } from "lucide-react";
-import { api } from "../api/client";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { CheckCircle2, Download, Scale, Sigma, Target } from "lucide-react";
+import { api, saveFile } from "../api/client";
 import { useScope } from "../api/scope";
 import { EmptyState, Metric, PageHeader, VarianceBar, pct } from "../components/ui";
 import { TallyBadge } from "./TallySheets";
@@ -23,13 +23,32 @@ export default function TallyReport() {
   const truthSum = scored.reduce((a, x) => a + (x.sheet.truth ?? 0), 0);
   const aggregate = truthSum ? Math.abs(aiSum - truthSum) / truthSum : null;
   const target = r?.target ?? 0.95;
+  // the file covers what the page shows: the bay in view
+  const file = useMutation({
+    mutationFn: async (format: "pdf" | "xlsx") => saveFile(await api.tallyReportFile(format, bay?.id)),
+  });
 
   return (
     <>
       <PageHeader
         title="Accuracy"
         subtitle="AI count against the paper tally sheet, per truck. This is the figure the POC is judged on."
+        actions={
+          <div className="flex gap-2">
+            <button className="btn-ghost" disabled={file.isPending} onClick={() => file.mutate("pdf")}>
+              <Download size={15} /> PDF
+            </button>
+            <button className="btn-ghost" disabled={file.isPending} onClick={() => file.mutate("xlsx")}>
+              <Download size={15} /> Excel
+            </button>
+          </div>
+        }
       />
+      {file.error && (
+        <p role="alert" className="mb-3 text-xs text-bad">
+          {(file.error as Error).message}
+        </p>
+      )}
 
       <div className="card mb-6 grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
         <Metric

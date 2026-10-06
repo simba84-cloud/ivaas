@@ -1,6 +1,7 @@
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TallyReport as Report, TallyReportRow, TallySheet } from "../api/types";
 import { bay, site } from "../test/fixtures";
 import { renderPage } from "../test/render";
@@ -89,5 +90,34 @@ describe("accuracy against tally sheets", () => {
     expect(await screen.findByText("No tally sheets yet")).toBeInTheDocument();
     expect(screen.getByText("No sheet has reconciled a load yet")).toBeInTheDocument();
     expect(screen.queryByText("0.0%")).not.toBeInTheDocument();
+  });
+
+  it("downloads the bay in view as PDF or Excel, under the name the API gives", async () => {
+    api([]);
+    const asked: string[] = [];
+    server.use(
+      http.get("/api/v1/tally/report", ({ request }) => {
+        const q = new URL(request.url).searchParams;
+        if (!q.get("format")) return undefined; // the page's own JSON: the handler above
+        asked.push(`${q.get("format")} ${q.get("bay_id")}`);
+        return new HttpResponse(new Blob(["%PDF"]), {
+          headers: { "content-disposition": `attachment; filename="liquid-ivaas-bakers-inn-accuracy.${q.get("format")}"` },
+        });
+      }),
+    );
+    const saved: string[] = [];
+    URL.createObjectURL = vi.fn(() => "blob:x");
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      saved.push(this.download);
+    });
+    render();
+    await screen.findByText("No tally sheets yet");
+    await userEvent.click(screen.getByRole("button", { name: "Excel" }));
+    await vi.waitFor(() => expect(saved).toEqual(["liquid-ivaas-bakers-inn-accuracy.xlsx"]));
+    await userEvent.click(screen.getByRole("button", { name: "PDF" }));
+    await vi.waitFor(() => expect(saved).toHaveLength(2));
+    expect(asked).toEqual([`xlsx ${bay.id}`, `pdf ${bay.id}`]);
+    click.mockRestore();
   });
 });
