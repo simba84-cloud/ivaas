@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Download, FileText } from "lucide-react";
 import { useState } from "react";
-import { api, type ReportFile, type ReportFormat } from "../api/client";
+import { api, saveFile as save, type ReportFormat } from "../api/client";
 import type { PocParams, PocReport } from "../api/types";
 import { useScope } from "../api/scope";
 import { EmptyState, dateTime } from "../components/ui";
@@ -9,15 +9,6 @@ import { MotionRow, SkeletonRows } from "../motion";
 
 /** The day as a date input wants it, in the browser's own day. */
 const today = () => new Date().toLocaleDateString("en-CA");
-
-function save({ blob, name }: ReportFile) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 /** Any day, built now: today's is as far as the day has got. */
 function OnDemand() {

@@ -13,8 +13,11 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 
+from ivaas.adapters.branding import filename
 from ivaas.adapters.http.auth import current_principal, require
+from ivaas.adapters.http.media import files
 from ivaas.adapters.http.schemas import (
     TallyImportOut,
     TallyRematchOut,
@@ -32,6 +35,7 @@ from ivaas.adapters.spreadsheet import (
     sheet_csv,
 )
 from ivaas.adapters.tally_csv import decode, parse_upload
+from ivaas.adapters.tally_template import tally_template
 from ivaas.domain.audit import AuditAction
 from ivaas.domain.platform_settings import RECONCILE_TOLERANCE
 from ivaas.domain.rbac import Permission as P
@@ -51,6 +55,9 @@ Audit = Callable[..., Awaitable[None]]
 MAX_CSV_BYTES = 2 * 1024 * 1024
 #: listed in an import error before "and N more"
 MAX_ERRORS_SHOWN = 15
+
+
+XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def add_tally_routes(
@@ -200,6 +207,35 @@ def add_tally_routes(
         limit: int = 200, c: Container = Depends(get_container)
     ) -> list[TallySheetOut]:
         return [TallySheetOut.of(s) for s in await c.tally.list_recent(limit=limit)]
+
+    @app.get(
+        "/api/v1/tally/template",
+        dependencies=[Depends(require(P.GROUNDTRUTH_ENTER))],
+        **files("The tally sheet workbook, made for this tenant", XLSX_TYPE),
+    )
+    async def tally_sheet_template(
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> Response:
+        """The crate tally sheet workbook: the paper form, the entry sheets the upload
+        reads, and this tenant's bays in the drop-down."""
+        tenant = await c.tenants.get(principal.tenant_id) if principal.tenant_id else None
+        name = tenant.name if tenant else "IVaaS"
+        target = float(await c.effective(RECONCILE_TOLERANCE, c.settings.reconcile_tolerance))
+        body = tally_template(
+            name,
+            [b.name for b in await c.bays.list_all()],
+            target=target,
+            made=c.clock.now().date(),
+        )
+        return Response(
+            body,
+            media_type=XLSX_TYPE,
+            headers={
+                "Content-Disposition": "attachment; "
+                f'filename="{filename(name, "tally-sheet", ext="xlsx")}"'
+            },
+        )
 
     @app.post(
         "/api/v1/tally/rematch",
