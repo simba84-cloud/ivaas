@@ -14,7 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ivaas.adapters.persistence.postgres import Base
 from ivaas.application.reports import StoredReport
 
-_FIELDS = ("id", "site_id", "day", "pdf_key", "csv_key", "loads", "generated_at")
+_FIELDS = ("id", "site_id", "day", "pdf_key", "csv_key", "xlsx_key", "loads", "generated_at")
 
 
 class ReportRow(Base):
@@ -24,6 +24,7 @@ class ReportRow(Base):
     day: Mapped[date] = mapped_column(Date)
     pdf_key: Mapped[str] = mapped_column(String(300))
     csv_key: Mapped[str] = mapped_column(String(300))
+    xlsx_key: Mapped[str | None] = mapped_column(String(300), nullable=True)
     loads: Mapped[int] = mapped_column(Integer)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

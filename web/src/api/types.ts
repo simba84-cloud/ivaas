@@ -605,6 +605,10 @@ export interface FiledReport {
   generated_at: string;
   pdf_url: string;
   csv_url: string;
+  /** only for reports filed since workbooks were filed */
+  xlsx_url: string | null;
+  /** what to save the files as, before the extension: liquid-ivaas-<site>-<day> */
+  file_stem: string;
 }
 
 export type WebhookEvent = "session.closed" | "exception.raised";

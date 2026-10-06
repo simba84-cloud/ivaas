@@ -20,7 +20,7 @@ from uuid import UUID, uuid4
 DEFAULT_RETENTION = timedelta(days=90)
 #: row columns that name an object in the store: how objects written before keys
 #: carried the tenant's prefix are still found
-OBJECT_KEY_COLUMNS = frozenset({"object_key", "csv_key", "pdf_key", "snapshot_key"})
+OBJECT_KEY_COLUMNS = frozenset({"object_key", "csv_key", "pdf_key", "xlsx_key", "snapshot_key"})
 
 
 class LifecycleError(ValueError):

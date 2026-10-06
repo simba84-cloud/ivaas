@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Download, FileText } from "lucide-react";
 import { useState } from "react";
-import { api } from "../api/client";
+import { api, type ReportFile, type ReportFormat } from "../api/client";
 import type { PocParams, PocReport } from "../api/types";
 import { useScope } from "../api/scope";
 import { EmptyState, dateTime } from "../components/ui";
@@ -10,7 +10,7 @@ import { MotionRow, SkeletonRows } from "../motion";
 /** The day as a date input wants it, in the browser's own day. */
 const today = () => new Date().toLocaleDateString("en-CA");
 
-function save(blob: Blob, name: string) {
+function save({ blob, name }: ReportFile) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -24,10 +24,7 @@ function OnDemand() {
   const { site } = useScope();
   const [day, setDay] = useState(today());
   const fetchIt = useMutation({
-    mutationFn: async (format: "pdf" | "csv") => {
-      const blob = await api.dailyReport(site!.id, day, format);
-      save(blob, `${(site?.name ?? "site").toLowerCase().replace(/\s+/g, "-")}-${day}.${format}`);
-    },
+    mutationFn: async (format: ReportFormat) => save(await api.dailyReport(site!.id, day, format)),
   });
   return (
     <section aria-label="A day's report" className="card mb-4 flex flex-wrap items-end gap-2 p-3">
@@ -42,6 +39,9 @@ function OnDemand() {
       </button>
       <button className="btn-ghost" disabled={!site || fetchIt.isPending} onClick={() => fetchIt.mutate("csv")}>
         <Download size={15} /> CSV
+      </button>
+      <button className="btn-ghost" disabled={!site || fetchIt.isPending} onClick={() => fetchIt.mutate("xlsx")}>
+        <Download size={15} /> Excel
       </button>
       <span className="pb-2 text-xs text-muted">for {site?.name ?? "this site"}</span>
       {fetchIt.error && (
@@ -86,10 +86,7 @@ function PocReportPanel() {
   });
   const measure = useMutation({ mutationFn: () => api.pocReport(site!.id, params()) });
   const file = useMutation({
-    mutationFn: async (format: "pdf" | "csv") => {
-      const blob = await api.pocReportFile(site!.id, params(), format);
-      save(blob, `${(site?.name ?? "site").toLowerCase().replace(/\s+/g, "-")}-poc-${start}-to-${end}.${format}`);
-    },
+    mutationFn: async (format: ReportFormat) => save(await api.pocReportFile(site!.id, params(), format)),
   });
   const r = measure.data;
   return (
@@ -134,6 +131,9 @@ function PocReportPanel() {
         </button>
         <button className="btn-ghost" disabled={!site || file.isPending} onClick={() => file.mutate("csv")}>
           <Download size={15} /> CSV
+        </button>
+        <button className="btn-ghost" disabled={!site || file.isPending} onClick={() => file.mutate("xlsx")}>
+          <Download size={15} /> Excel
         </button>
       </div>
       {(measure.error || file.error) && (
@@ -226,12 +226,20 @@ export default function Reports() {
                   <td className="td num text-right">{r.loads}</td>
                   <td className="td text-xs text-muted">{dateTime(r.generated_at)}</td>
                   <td className="td text-right">
-                    <a className="btn-ghost btn-sm" href={r.pdf_url}>
+                    <a className="btn-ghost btn-sm" href={r.pdf_url} download={`${r.file_stem}.pdf`}>
                       PDF
                     </a>{" "}
-                    <a className="btn-ghost btn-sm" href={r.csv_url}>
+                    <a className="btn-ghost btn-sm" href={r.csv_url} download={`${r.file_stem}.csv`}>
                       CSV
                     </a>
+                    {r.xlsx_url && (
+                      <>
+                        {" "}
+                        <a className="btn-ghost btn-sm" href={r.xlsx_url} download={`${r.file_stem}.xlsx`}>
+                          Excel
+                        </a>
+                      </>
+                    )}
                   </td>
                 </MotionRow>
               ))}

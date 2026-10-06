@@ -101,6 +101,24 @@ function pocQuery(siteId: string, p: PocParams): string {
   return q.toString();
 }
 
+export type ReportFormat = "pdf" | "csv" | "xlsx";
+export interface ReportFile {
+  blob: Blob;
+  name: string;
+}
+
+/** A report file fetched with the token, named as the API's Content-Disposition says. */
+async function reportFile(url: string, fallback: string): Promise<ReportFile> {
+  const token = getToken();
+  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body.detail === "string" ? body.detail : `${res.status} ${res.statusText}`);
+  }
+  const named = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "");
+  return { blob: await res.blob(), name: named?.[1] ?? fallback };
+}
+
 export const api = {
   me: () => request<Me>("/api/v1/auth/me"),
   edgeNodes: () => request<EdgeNode[]>("/api/v1/edge/nodes"),
@@ -253,32 +271,15 @@ export const api = {
     request<WebhookDelivery>(`/api/v1/webhooks/${id}/test`, { method: "POST" }),
   replayDelivery: (id: string) =>
     request<WebhookDelivery>(`/api/v1/webhooks/deliveries/${id}/replay`, { method: "POST" }),
-  /** Any day's report, built now; fetched with the token and handed back as a file. */
-  dailyReport: async (siteId: string, day: string, format: "pdf" | "csv"): Promise<Blob> => {
-    const token = getToken();
-    const res = await fetch(`/api/v1/reports/daily?site_id=${siteId}&day=${day}&format=${format}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.detail ?? `${res.status} ${res.statusText}`);
-    }
-    return res.blob();
-  },
+  /** Any day's report, built now; fetched with the token and handed back as a file,
+   *  under the name the API gives it (liquid-ivaas-<site>-<day>). */
+  dailyReport: (siteId: string, day: string, format: ReportFormat): Promise<ReportFile> =>
+    reportFile(`/api/v1/reports/daily?site_id=${siteId}&day=${day}&format=${format}`, `report.${format}`),
   pocReport: (siteId: string, p: PocParams) =>
     request<PocReport>(`/api/v1/reports/poc?${pocQuery(siteId, p)}`),
   /** The POC report as a file, fetched with the token. */
-  pocReportFile: async (siteId: string, p: PocParams, format: "pdf" | "csv"): Promise<Blob> => {
-    const token = getToken();
-    const res = await fetch(`/api/v1/reports/poc?${pocQuery(siteId, p)}&format=${format}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(typeof body.detail === "string" ? body.detail : `${res.status} ${res.statusText}`);
-    }
-    return res.blob();
-  },
+  pocReportFile: (siteId: string, p: PocParams, format: ReportFormat): Promise<ReportFile> =>
+    reportFile(`/api/v1/reports/poc?${pocQuery(siteId, p)}&format=${format}`, `poc-report.${format}`),
   balances: (by: "truck" | "route" | "day", days: number) =>
     request<Balance[]>(`/api/v1/balances?by=${by}&days=${days}`),
   exceptions: (status: "open" | "resolved") =>
