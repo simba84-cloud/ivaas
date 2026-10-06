@@ -399,6 +399,7 @@ def add_edge_routes(app: FastAPI, get_container: Callable[[Request], Any], audit
             name=node.name,
             site_id=node.site_id,
             bay_id=node.bay_id,
+            entitlement_public_key=c.entitlement_signer.public_key,
         )
 
     @app.post(
@@ -484,7 +485,7 @@ def add_edge_routes(app: FastAPI, get_container: Callable[[Request], Any], audit
             cfg["model"] = {**await model_ref(c, cfg["model"]["version_id"]), "arch": arch}
         if cfg.get("layers_model_id"):
             cfg["layers_model_ref"] = await model_ref(c, cfg.pop("layers_model_id"))
-        return {
+        served = {
             **cfg,
             "configured": True,
             "config_version": node.config_version,
@@ -494,3 +495,14 @@ def add_edge_routes(app: FastAPI, get_container: Callable[[Request], Any], audit
             #: configured, but beyond the plan's channels: not run until it is upgraded
             "not_entitled": refused,
         }
+        # signed, with this configuration's hash inside: what the node may run when it
+        # starts without the cloud (T7.7)
+        served["entitlement"] = c.entitlement_signer.snapshot(
+            node_id=str(node.id),
+            tenant_id=str(node.tenant_id),
+            plan=ents.plan if ents else None,
+            limits=({k: ents.limits[k] for k in ("od_channels", "lpr_channels")} if ents else None),
+            config=served,
+            now=c.clock.now(),
+        )
+        return served

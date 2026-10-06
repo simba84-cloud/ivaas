@@ -50,8 +50,9 @@ import sys
 import threading
 
 import httpx
+from prometheus_client import Gauge
 
-from ivaas_pipeline.adapters import evidence, fleet, models
+from ivaas_pipeline.adapters import entitlement, evidence, fleet, models
 from ivaas_pipeline.adapters.delivery import SpooledDelivery
 from ivaas_pipeline.adapters.http_sink import HttpCrossingSink, HttpPlateSink
 from ivaas_pipeline.adapters.onnx_layers import OnnxLayerCounter
@@ -151,15 +152,77 @@ def start_security(
     return threads
 
 
+# --- the signed entitlement snapshot (T7.7) -------------------------------------------
+ENTITLEMENT_STATE = Gauge(
+    "ivaas_entitlement_state",
+    "1 for the node's entitlement state now: valid, grace, expired or none",
+    ["state"],
+)
+
+
+def _fresh(identity, kept: entitlement.ConfigCache, ent: dict, cfg: dict) -> dict:
+    """A configuration from the API: kept for offline use if its snapshot verifies."""
+    snapshot = entitlement.keep(cfg, identity.node_id, identity.entitlement_public_key, kept)
+    if snapshot is not None:
+        ent["snapshot"] = snapshot
+    return cfg
+
+
+def _start_config(identity, kept: entitlement.ConfigCache, ent: dict) -> dict:
+    """The API's configuration if it answers within a minute; else the kept one, so a
+    node restarted in an outage counts again at once. With nothing kept (a node never
+    configured), wait for the API as before: it cannot know what to count."""
+    tries = int(os.environ.get("IVAAS_OFFLINE_AFTER_TRIES", "6"))
+    try:
+        cfg = fleet.fetch_config(identity.client(), wait_s=10, attempts=tries)
+        return _fresh(identity, kept, ent, cfg)
+    except fleet.Unreachable:
+        found = entitlement.fallback(identity.node_id, identity.entitlement_public_key, kept)
+        if found is not None:
+            cfg, ent["snapshot"] = found
+            return cfg
+        log.warning("API unreachable and nothing kept to run: waiting for the API")
+        return _fresh(identity, kept, ent, fleet.fetch_config(identity.client()))
+
+
+def _renew_entitlement(identity, kept: entitlement.ConfigCache, ent: dict, stop) -> None:
+    """Every 30 minutes: renew the snapshot while the API answers, so the node meets an
+    outage with its full validity; say where it stands, loudly once expired."""
+    every = float(os.environ.get("IVAAS_ENTITLEMENT_RENEW_S", "1800"))
+    while not stop.is_set():
+        try:
+            _fresh(identity, kept, ent, fleet.fetch_config(identity.client(), attempts=1))
+        except (fleet.Unreachable, fleet.EnrollmentError):
+            pass  # offline: the kept snapshot stands; revoked: the heartbeat says so
+        where = entitlement.report(ent["snapshot"])["state"]
+        for name in ("valid", "grace", "expired", "none"):
+            ENTITLEMENT_STATE.labels(state=name).set(1 if name == where else 0)
+        if where == entitlement.GRACE:
+            log.warning(
+                "entitlement in its grace period until %s: reconnect the node",
+                ent["snapshot"]["grace_until"],
+            )
+        elif where == entitlement.EXPIRED:
+            log.error(
+                "ALERT: entitlement expired %s; counting carries on, reconnect the node",
+                ent["snapshot"]["grace_until"],
+            )
+        stop.wait(every)
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     if sys.argv[1:2] == ["enroll"]:
         return fleet.main(sys.argv[2:])
 
     identity = fleet.load_identity(os.environ.get("IVAAS_NODE_FILE", fleet.DEFAULT_NODE_FILE))
+    kept = entitlement.ConfigCache(
+        os.environ.get("IVAAS_CONFIG_CACHE", entitlement.DEFAULT_CACHE_FILE)
+    )
+    ent: dict = {"snapshot": None}
     if identity is not None:
         try:
-            cfg = fleet.fetch_config(identity.client())
+            cfg = _start_config(identity, kept, ent)
         except fleet.EnrollmentError as exc:
             log.error("%s; enroll again with a new token", exc)
             return 2
@@ -309,7 +372,7 @@ def main() -> int:
     heartbeat: fleet.Heartbeat | None = None
     applier = models.ConfigApplier(
         current=cfg,
-        fetch=lambda: fleet.fetch_config(identity.client(), wait_s=10),
+        fetch=lambda: _fresh(identity, kept, ent, fleet.fetch_config(identity.client(), wait_s=10)),
         switcher=models.ModelSwitcher(
             cache,
             make_detector,
@@ -328,9 +391,13 @@ def main() -> int:
         spool_pending=lambda: delivery.pending,
         on_new_config=applier.on_new_version,
         status=applier.status,
+        entitlement=lambda: entitlement.report(ent["snapshot"]),
     )
     threading.Thread(
         target=heartbeat.run_forever, args=(stop,), name="heartbeat", daemon=True
+    ).start()
+    threading.Thread(
+        target=_renew_entitlement, args=(identity, kept, ent, stop), name="entitlement", daemon=True
     ).start()
     replaced.wait()
     stop.set()

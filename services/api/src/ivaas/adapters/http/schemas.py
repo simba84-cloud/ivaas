@@ -1057,6 +1057,8 @@ class EnrolledOut(BaseModel):
     name: str
     site_id: UUID
     bay_id: UUID | None
+    #: what the node checks its entitlement snapshots with, pinned at enrolment (T7.7)
+    entitlement_public_key: str
 
 
 class CameraReportIn(BaseModel):
@@ -1076,6 +1078,8 @@ class HeartbeatIn(BaseModel):
     models: dict = Field(default={})
     #: set when the node refused a new model and kept the one it had
     model_error: str | None = Field(default=None, max_length=500)
+    #: where the node's signed entitlement snapshot stands: valid, grace, expired or none
+    entitlement: dict | None = None
 
 
 class HeartbeatOut(BaseModel):

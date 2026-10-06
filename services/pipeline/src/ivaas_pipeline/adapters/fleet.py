@@ -33,12 +33,19 @@ class EnrollmentError(RuntimeError):
     pass
 
 
+class Unreachable(RuntimeError):
+    """The API did not answer in the tries allowed: time to run from what was kept."""
+
+
 @dataclass(frozen=True)
 class NodeIdentity:
     api_url: str
     node_id: str
     credential: str
     name: str
+    #: the platform's key for entitlement snapshots, pinned at enrolment (T7.7); None
+    #: for a node enrolled before them, which then takes the key its first config carries
+    entitlement_public_key: str | None = None
 
     @property
     def headers(self) -> dict[str, str]:
@@ -82,7 +89,13 @@ def enroll(
             detail = r.text
         raise EnrollmentError(f"enrollment refused ({r.status_code}): {detail}")
     body = r.json()
-    identity = NodeIdentity(api_url, body["node_id"], body["credential"], body["name"])
+    identity = NodeIdentity(
+        api_url,
+        body["node_id"],
+        body["credential"],
+        body["name"],
+        body.get("entitlement_public_key"),
+    )
     # created 0600 from the start: never world-readable, not even for a moment
     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as fh:
@@ -99,10 +112,17 @@ def load_identity(path: str | Path) -> NodeIdentity | None:
 
 
 def fetch_config(
-    client: httpx.Client, *, wait_s: float = 30.0, sleep: Callable[[float], None] = time.sleep
+    client: httpx.Client,
+    *,
+    wait_s: float = 30.0,
+    sleep: Callable[[float], None] = time.sleep,
+    attempts: int | None = None,
 ) -> dict:
     """The configuration the API holds for this node. Waits, saying why, until there is one:
-    a node with no cameras configured must not start and count nothing."""
+    a node with no cameras configured must not start and count nothing. With `attempts`,
+    gives up after that many failures to reach the API (Unreachable), so a node can run
+    from its kept configuration instead of waiting out an outage (T7.7)."""
+    failures = 0
     while True:
         try:
             r = client.get("/api/v1/edge/config")
@@ -114,6 +134,9 @@ def fetch_config(
                 return cfg
             log.warning("no configuration for this node yet; set it in the portal")
         except httpx.HTTPError as exc:
+            failures += 1
+            if attempts is not None and failures >= attempts:
+                raise Unreachable(f"API unreachable after {failures} tries") from exc
             log.warning("could not fetch configuration (%s); retrying", type(exc).__name__)
         sleep(wait_s)
 
@@ -136,6 +159,7 @@ class Heartbeat:
         on_new_config: Callable[[str], None],
         every_s: float = 30.0,
         status: Callable[[], dict] | None = None,
+        entitlement: Callable[[], dict] | None = None,
     ) -> None:
         self._client = client
         self._version = config_version
@@ -144,6 +168,7 @@ class Heartbeat:
         self._on_new = on_new_config
         self._every = every_s
         self._status = status or dict
+        self._entitlement = entitlement
         self._started = time.monotonic()
 
     def adopt(self, config_version: str) -> None:
@@ -158,6 +183,7 @@ class Heartbeat:
             "config_version": self._version,
             "uptime_s": round(time.monotonic() - self._started, 1),
             "spool_pending": self._pending(),
+            **({"entitlement": self._entitlement()} if self._entitlement else {}),
             "cameras": [
                 {"api_camera_id": self._ids[key], **state}
                 for key, state in seen.items()

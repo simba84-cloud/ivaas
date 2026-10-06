@@ -98,6 +98,7 @@ def create(tenant: str, slot: int) -> None:
         "IVAAS_PIPELINE_KEY": secrets.token_urlsafe(24),
         "IVAAS_OBJECT_LINK_SECRET": secrets.token_urlsafe(32),
         "IVAAS_CERTIFICATE_SECRET": secrets.token_urlsafe(32),
+        "IVAAS_ENTITLEMENT_SEED": secrets.token_urlsafe(32),
         "POSTGRES_PASSWORD": secrets.token_urlsafe(24),
         "MINIO_ROOT_PASSWORD": secrets.token_urlsafe(24),
     }
