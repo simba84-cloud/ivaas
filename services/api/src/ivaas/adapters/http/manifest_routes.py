@@ -13,6 +13,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from ivaas.adapters.http.auth import current_principal, require
+from ivaas.adapters.http.uploads import upload_text
 from ivaas.domain.audit import AuditAction
 from ivaas.domain.manifests import (
     Balance,
@@ -136,22 +137,19 @@ def add_manifest_routes(
         principal: Principal = Depends(current_principal),
         c: Any = Depends(get_container),
     ) -> ManifestImportOut:
-        """A CSV: date, plate (or fleet_number), direction (LOAD/RETURN), expected,
-        reference, and optionally route and site. A reference already imported is
-        updated. Matching and exceptions run straight after."""
-        raw = await file.read(MAX_IMPORT_BYTES + 1)
-        if len(raw) > MAX_IMPORT_BYTES:
-            raise HTTPException(413, "a manifest CSV is at most 5 MB")
-        try:
-            rows = csv.DictReader(io.StringIO(raw.decode("utf-8-sig")))
-        except UnicodeDecodeError as exc:
-            raise HTTPException(422, "the file is not UTF-8 text") from exc
+        """A CSV or Excel workbook (.xlsx): date, plate (or fleet_number), direction
+        (LOAD/RETURN), expected, reference, and optionally route and site. A reference
+        already imported is updated. Matching and exceptions run straight after."""
+        text = await upload_text(
+            file, MAX_IMPORT_BYTES, needs={"date", "direction", "expected", "reference"}
+        )
+        rows = csv.DictReader(io.StringIO(text))
         headers = {(h or "").strip().lower() for h in rows.fieldnames or []}
         missing = {"date", "direction", "expected", "reference"} - headers
         if missing or not headers & {"plate", "fleet_number"}:
             raise HTTPException(
                 422,
-                "the CSV needs date, direction, expected, reference, and plate or fleet_number",
+                "the file needs date, direction, expected, reference, and plate or fleet_number",
             )
         sites = await c.sites.list_all()
         by_name = {s.name.strip().lower(): s for s in sites}

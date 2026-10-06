@@ -107,30 +107,31 @@ function ImportCsv({ bayId }: { bayId: string }) {
         <h2 className="panel-title">Import from the tally workbook</h2>
       </div>
       <p className="mb-3 text-xs text-muted">
-        Save the <b>Entry - Sheets</b> and <b>Entry - Stacks</b> tabs as CSV and add them here. Example rows are
-        skipped. If any row has a problem, nothing is imported and the row is named.
+        Add the tally workbook itself (.xlsx): its <b>Entry - Sheets</b> and <b>Entry - Stacks</b> tabs are read
+        together. Or save those two tabs as CSV and add them here. Example rows are skipped. If any row has a
+        problem, nothing is imported and the row is named.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label htmlFor="tally-sheets" className="label">
-            Sheets CSV
+            Workbook, or Sheets CSV
           </label>
           <input
             id="tally-sheets"
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="input h-auto py-1.5"
             onChange={(e) => setSheets(e.target.files?.[0] ?? null)}
           />
         </div>
         <div>
           <label htmlFor="tally-stacks" className="label">
-            Stacks CSV (optional)
+            Stacks CSV (not needed with the workbook)
           </label>
           <input
             id="tally-stacks"
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="input h-auto py-1.5"
             onChange={(e) => setStacks(e.target.files?.[0] ?? null)}
           />

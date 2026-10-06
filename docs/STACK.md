@@ -35,6 +35,7 @@ see the [README](../README.md).
 | Roles | Scoped bindings (platform / partner / tenant / site / bay), matrix in `domain/rbac.py` |
 | Edge nodes | Enrolled with a single-use token; authenticate with `X-IVaaS-Node`, bound to one site; heartbeat and pulled config (`/api/v1/edge/*`) |
 | Fleet register | Trucks per tenant; plate reads matched with OCR-confusion folding (`domain/plates.py`, `domain/fleet.py`) |
+| Sheet uploads | Tally sheets, manifests and the fleet register as CSV or Excel (.xlsx, via openpyxl, MIT). A workbook sheet is turned into the CSV the importer reads, so both get the same rules and messages; the whole tally workbook can be uploaded once (`adapters/spreadsheet.py`) |
 | Manifests and balances | Dispatch manifests matched to loads; exceptions per mismatch, missing or unexpected truck; balances from counts of record (`domain/manifests.py`) |
 | Webhooks | `session.closed`, `exception.raised`; Standard Webhooks signing (HMAC-SHA256), retried on backoff, replayable, sent with httpx (`/api/v1/webhooks`) |
 | POC report | Accuracy, speed, reliability, LPR and ROI over the POC window; PDF, CSV and JSON (`/api/v1/reports/poc`), from edge availability history (`/api/v1/edge/nodes/{id}/availability`) |

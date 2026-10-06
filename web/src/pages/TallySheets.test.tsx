@@ -114,14 +114,22 @@ describe("tally sheets", () => {
     render();
 
     const csv = (name: string) => new File(["sheet_id\n"], name, { type: "text/csv" });
-    await userEvent.upload(await screen.findByLabelText("Sheets CSV"), csv("Entry - Sheets.csv"));
-    await userEvent.upload(screen.getByLabelText("Stacks CSV (optional)"), csv("Entry - Stacks.csv"));
+    await userEvent.upload(await screen.findByLabelText("Workbook, or Sheets CSV"), csv("Entry - Sheets.csv"));
+    await userEvent.upload(screen.getByLabelText("Stacks CSV (not needed with the workbook)"), csv("Entry - Stacks.csv"));
     await userEvent.click(screen.getByRole("button", { name: "Import" }));
 
     expect(await screen.findByText("2 sheets imported")).toBeInTheDocument();
     expect(screen.getByText("1 reconciled · 1 with no matching truck")).toBeInTheDocument();
     expect(screen.getByText("Skipped: Sheets row 2: EXAMPLE-1 is the example row")).toBeInTheDocument();
     expect(seen).toHaveBeenCalledWith(bay.id);
+  });
+
+  it("takes the tally workbook itself, not only its CSVs", async () => {
+    api([]);
+    render();
+    const picker = await screen.findByLabelText("Workbook, or Sheets CSV");
+    expect(picker).toHaveAttribute("accept", expect.stringContaining(".xlsx"));
+    expect(screen.getByText(/Add the tally workbook itself \(\.xlsx\)/)).toBeInTheDocument();
   });
 
   it("shows why a file was refused", async () => {
@@ -136,7 +144,7 @@ describe("tally sheets", () => {
     );
     render();
 
-    await userEvent.upload(await screen.findByLabelText("Sheets CSV"), new File(["x"], "s.csv"));
+    await userEvent.upload(await screen.findByLabelText("Workbook, or Sheets CSV"), new File(["x"], "s.csv"));
     await userEvent.click(screen.getByRole("button", { name: "Import" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Sheets row 3 (BI-1): direction must be LOAD or RETURN");

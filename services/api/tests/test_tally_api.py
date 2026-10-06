@@ -175,7 +175,8 @@ def test_a_bad_file_imports_nothing_and_says_why(anon, roles, bay):
 
     only_example = sheets_csv().splitlines()[:2]
     r = upload(anon, bay, op, "\n".join(only_example))
-    assert r.status_code == 422 and "No sheets found" in r.json()["detail"]
+    # only the example filled in: said so, rather than a bare "no sheets found"
+    assert r.status_code == 422 and "Only the EXAMPLE rows are filled in" in r.json()["detail"]
 
 
 def test_form_entry(anon, roles, bay):

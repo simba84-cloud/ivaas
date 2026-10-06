@@ -24,6 +24,7 @@ from ivaas.adapters.http.schemas import (
     VehicleOut,
 )
 from ivaas.adapters.http.scope import require_session
+from ivaas.adapters.http.uploads import upload_text
 from ivaas.domain.audit import AuditAction
 from ivaas.domain.fleet import FleetError, Vehicle
 from ivaas.domain.models import NotFoundError
@@ -113,22 +114,17 @@ def add_fleet_routes(app: FastAPI, get_container: Callable[[Request], Any], audi
         principal: Principal = Depends(current_principal),
         c: Any = Depends(get_container),
     ) -> FleetImportOut:
-        """A CSV with a `plate` column, and optionally fleet_number, operator, notes.
+        """A CSV or Excel workbook (.xlsx) with a `plate` column, and optionally
+        fleet_number, operator, notes.
 
         A plate already registered (under any spelling) is updated, not duplicated.
         Rows that cannot be used are reported by line; the rest are saved.
         """
-        raw = await file.read(MAX_IMPORT_BYTES + 1)
-        if len(raw) > MAX_IMPORT_BYTES:
-            raise HTTPException(413, "a fleet register CSV is at most 2 MB")
-        try:
-            text = raw.decode("utf-8-sig")
-        except UnicodeDecodeError as exc:
-            raise HTTPException(422, "the file is not UTF-8 text") from exc
+        text = await upload_text(file, MAX_IMPORT_BYTES, needs={"plate"})
         rows = csv.DictReader(io.StringIO(text))
         headers = {(h or "").strip().lower() for h in rows.fieldnames or []}
         if "plate" not in headers:
-            raise HTTPException(422, "the CSV needs a 'plate' column")
+            raise HTTPException(422, "the file needs a 'plate' column")
         existing = {v.key: v for v in await c.fleet.list_all()}
         added = updated = 0
         errors: list[str] = []

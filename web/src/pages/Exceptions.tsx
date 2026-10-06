@@ -30,9 +30,9 @@ function ImportManifest() {
       <input
         ref={input}
         type="file"
-        accept=".csv,text/csv"
+        accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         className="hidden"
-        aria-label="Manifest CSV"
+        aria-label="Manifest, CSV or Excel"
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) upload.mutate(f);
