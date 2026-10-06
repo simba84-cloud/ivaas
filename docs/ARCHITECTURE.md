@@ -324,9 +324,29 @@ a container holding a shared key.
 - **Portal:** Configure → Billing shows the plan and its limits, this month's usage
   against the allowances, the draft invoice or the statement, and invoices with what is
   paid and due. The owner can change the plan.
-- **Still open for M7:** the signed entitlement snapshot that lets an edge node keep
-  counting on its last plan while offline (T7.7). It is not needed while ingest is never
-  refused for billing. Platform and partner billing screens are M8's consoles (§2a-viii).
+- **Signed entitlement snapshot (T7.7).** Every configuration the API serves a node
+  carries a snapshot signed with the platform's Ed25519 key
+  (`adapters/entitlement_signing.py`). It holds the plan's channel limits, a SHA-256 of
+  that exact configuration, and its validity: 7 days, then 7 days' grace (both
+  settings). The node pinned the public key at enrolment, so it can check a snapshot
+  but never make one.
+  - **Kept copy:** the node keeps the last verified configuration on disk
+    (`/var/lib/ivaas/config-cache.json`, mode 600, on the node's volume) and renews it
+    every 30 minutes while the API answers.
+  - **Starting in an outage:** after about a minute without the API, the node runs from
+    that copy.
+    - Valid: as normal.
+    - In grace: with a warning.
+    - Expired: an alert (log, the `ivaas_entitlement_state` metric, and the heartbeat
+      once reconnected), and **it never stops counting**.
+  - **What it refuses:** an edited copy (more cameras than were signed) or a snapshot
+    under another key does not verify and does not run. A node never configured waits
+    for the API, as before.
+  - **Before this:** a node restarted during an outage counted nothing until the cloud
+    came back.
+  - **Per installation:** `IVAAS_ENTITLEMENT_SEED` is generated for each silo by
+    `deploy/silo/silo.py`. Changing it means enrolling the nodes again.
+  - Platform and partner billing screens are M8's consoles (§2a-viii).
 
 ## 2a-viii. Consoles and onboarding (M8, first slice)
 

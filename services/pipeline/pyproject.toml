@@ -9,6 +9,8 @@ dependencies = [
     "onnxruntime>=1.20",
     "httpx>=0.27",
     "prometheus-client>=0.21",
+    # verifies the API's signed entitlement snapshots (Ed25519, T7.7)
+    "cryptography>=43",
 ]
 
 [project.optional-dependencies]

@@ -1104,6 +1104,7 @@ name = "ivaas-pipeline"
 version = "0.1.0"
 source = { editable = "../pipeline" }
 dependencies = [
+    { name = "cryptography" },
     { name = "httpx" },
     { name = "numpy" },
     { name = "onnxruntime" },
@@ -1118,6 +1119,7 @@ lpr = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=43" },
     { name = "fast-alpr", marker = "extra == 'lpr'", specifier = ">=0.1" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "numpy", specifier = ">=2.0" },

@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     object_link_secret: str = "dev-only-object-link-secret-change-me"
     # signs deletion certificates (M8, T8.5) so a stored one cannot be quietly edited
     certificate_secret: str = "dev-only-certificate-secret-change-me"
+    # signs edge nodes' entitlement snapshots (T7.7): one per installation. A node
+    # started while the cloud is unreachable runs on its last snapshot for `valid`, then
+    # `grace` more days, then alerts; it never stops counting for this
+    entitlement_seed: str = "dev-only-entitlement-seed-change-me"
+    entitlement_valid_days: int = 7
+    entitlement_grace_days: int = 7
     # a cancelled tenant's data is kept this long, then may be purged; 90 is the
     # evidence window confirmed for Bakers Inn (proposal §3.3)
     cancel_retention_days: int = 90

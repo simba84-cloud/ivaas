@@ -21,6 +21,7 @@ from ivaas.adapters.auth.jwt_verifiers import (
 )
 from ivaas.adapters.auth.oidc_client import OidcClient
 from ivaas.adapters.auth.passwords import Argon2PasswordHasher
+from ivaas.adapters.entitlement_signing import EntitlementSigner
 from ivaas.adapters.http.signed import ObjectLinkSigner
 from ivaas.adapters.messaging.fanout import FanoutEventPublisher, WebSocketHub
 from ivaas.adapters.persistence.jobs import PersistentJobStore
@@ -197,6 +198,7 @@ class Container:
     certificates: Any
     sso_configs: Any
     oidc: Any
+    entitlement_signer: Any
     ingest: Any
     ml_models: Any
     evidence: Any
@@ -975,6 +977,11 @@ async def build_container(settings: Settings) -> Container:
         certificates=certificates,
         sso_configs=sso_configs,
         oidc=OidcClient(),
+        entitlement_signer=EntitlementSigner(
+            settings.entitlement_seed,
+            timedelta(days=settings.entitlement_valid_days),
+            timedelta(days=settings.entitlement_grace_days),
+        ),
         _closers=closers,
     )
     # read through the container at publish time: its clock and store are the live ones

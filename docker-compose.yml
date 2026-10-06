@@ -48,6 +48,9 @@ x-ivaas-env: &ivaas-env
       # signing keys: generated per installation for a silo (deploy/silo/silo.py)
       IVAAS_OBJECT_LINK_SECRET: ${IVAAS_OBJECT_LINK_SECRET:-dev-only-object-link-secret-change-me}
       IVAAS_CERTIFICATE_SECRET: ${IVAAS_CERTIFICATE_SECRET:-dev-only-certificate-secret-change-me}
+      # signs edge nodes' entitlement snapshots (T7.7); its public half is pinned by each
+      # node at enrolment, so changing it means enrolling the nodes again
+      IVAAS_ENTITLEMENT_SEED: ${IVAAS_ENTITLEMENT_SEED:-dev-only-entitlement-seed-change-me}
 
 services:
   postgres:
