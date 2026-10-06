@@ -22,6 +22,8 @@ dependencies = [
     "ivaas-pipeline[lpr]",
     "argon2-cffi>=25.1.0",
     "reportlab>=4.2",
+    # sheet uploads as Excel workbooks (.xlsx), not only CSV
+    "openpyxl>=3.1",
 ]
 
 [tool.uv.sources]

@@ -23,6 +23,14 @@ from ivaas.adapters.http.schemas import (
     TallySheetIn,
     TallySheetOut,
 )
+from ivaas.adapters.spreadsheet import (
+    MAX_XLSX_BYTES,
+    SpreadsheetError,
+    has_sheet,
+    is_xlsx,
+    refuse_old_xls,
+    sheet_csv,
+)
 from ivaas.adapters.tally_csv import decode, parse_upload
 from ivaas.domain.audit import AuditAction
 from ivaas.domain.platform_settings import RECONCILE_TOLERANCE
@@ -80,14 +88,27 @@ def add_tally_routes(
                 )
         return saved
 
-    async def _read(upload: UploadFile | None) -> str | None:
+    async def _raw(upload: UploadFile | None) -> bytes | None:
         if upload is None:
             return None
-        raw = await upload.read(MAX_CSV_BYTES + 1)
-        if len(raw) > MAX_CSV_BYTES:
+        raw = await upload.read(MAX_XLSX_BYTES + 1)
+        limit = MAX_XLSX_BYTES if is_xlsx(raw) else MAX_CSV_BYTES
+        if len(raw) > limit:
             raise HTTPException(
-                413, f"{upload.filename} is larger than 2 MB; is it the right file?"
+                413, f"{upload.filename} is larger than {limit // 2**20} MB; is it the right file?"
             )
+        return raw
+
+    def _text(raw: bytes | None, sheet: str, needs: set[str]) -> str | None:
+        """CSV as it was, or that sheet of an Excel workbook as the same CSV text."""
+        if raw is None:
+            return None
+        try:
+            if is_xlsx(raw):
+                return sheet_csv(raw, name=sheet, needs=needs)
+            refuse_old_xls(raw)
+        except SpreadsheetError as exc:
+            raise HTTPException(422, str(exc)) from exc
         return decode(raw)
 
     @app.post(
@@ -103,10 +124,15 @@ def add_tally_routes(
         c: Container = Depends(get_container),
     ) -> TallyImportOut:
         await _bay_or_404(c, bay_id)
-        sheets_csv = await _read(sheets)
+        sheets_raw, stacks_raw = await _raw(sheets), await _raw(stacks)
+        sheets_csv = _text(sheets_raw, "Entry - Sheets", {"sheet_id", "date", "direction"})
+        if stacks_raw is None and sheets_raw is not None and is_xlsx(sheets_raw):
+            # the whole tally workbook, uploaded once: its stacks are in the same file
+            if has_sheet(sheets_raw, "Entry - Stacks"):
+                stacks_raw = sheets_raw
         parsed = parse_upload(
             sheets_csv or "",
-            await _read(stacks),
+            _text(stacks_raw, "Entry - Stacks", {"sheet_id", "crates"}),
             bay_id=bay_id,
             entered_by_user=principal.name,
             entered_at=c.clock.now(),
@@ -118,8 +144,14 @@ def add_tally_routes(
                 "Nothing was imported. " + "; ".join(shown) + (f"; and {more} more" if more else "")
             )
             raise HTTPException(422, detail)
+        if not parsed.sheets and parsed.skipped:
+            raise HTTPException(
+                422, "Only the EXAMPLE rows are filled in: add each sheet's row below them."
+            )
         if not parsed.sheets:
-            raise HTTPException(422, "No sheets found. Is this the 'Entry - Sheets' CSV?")
+            raise HTTPException(
+                422, "No sheets found. Is this the tally workbook, or its 'Entry - Sheets' CSV?"
+            )
         saved = await _save(c, principal, parsed.sheets)
         return TallyImportOut(saved=[TallySheetOut.of(s) for s in saved], skipped=parsed.skipped)
 

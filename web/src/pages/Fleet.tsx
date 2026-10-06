@@ -92,9 +92,9 @@ function ImportCsv() {
       <input
         ref={input}
         type="file"
-        accept=".csv,text/csv"
+        accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         className="hidden"
-        aria-label="Fleet CSV"
+        aria-label="Fleet register, CSV or Excel"
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) upload.mutate(f);
@@ -102,7 +102,7 @@ function ImportCsv() {
         }}
       />
       <button className="btn-ghost" onClick={() => input.current?.click()} disabled={upload.isPending}>
-        <Upload size={15} /> Import CSV
+        <Upload size={15} /> Import CSV or Excel
       </button>
       {result && (
         <div className="mt-1 text-xs text-muted" role="status">
@@ -177,7 +177,7 @@ export default function Fleet({ me }: { me: Me | undefined }) {
         ) : (
           <EmptyState
             title="No trucks registered"
-            body="Until trucks are registered, plate reads are kept as read and not checked against a fleet. Add trucks or import a CSV with a plate column."
+            body="Until trucks are registered, plate reads are kept as read and not checked against a fleet. Add trucks, or import a CSV or Excel sheet with a plate column."
           />
         )}
       </div>
