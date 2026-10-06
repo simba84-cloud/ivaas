@@ -65,6 +65,57 @@
   color-scheme: dark;
 }
 
+/* Printing (the analysis report's "Print / PDF"): paper is light whatever the screen's
+   theme, the portal's navigation stays off the page, and every page carries the brand
+   and its number at the foot. The logo and title at the top are the report's own
+   print-only header (PrintBrand). */
+@media print {
+  :root,
+  :root[data-theme="dark"],
+  :root:not([data-theme="light"]) {
+    --ground: 255 255 255;
+    --surface: 255 255 255;
+    --raised: 255 255 255;
+    --line: 213 217 230;
+    --ink: 26 34 71;
+    --muted: 91 98 117;
+    --faint: 158 164 190;
+    --brand: 39 60 135;
+    --brand-deep: 29 45 102;
+    --brand-tint: 233 236 245;
+    --accent: 200 24 125;
+    --accent-tint: 251 232 243;
+    --good: 31 157 99;
+    --warn: 217 139 19;
+    --bad: 209 59 59;
+    color-scheme: light;
+  }
+  [data-print="hide"] {
+    display: none !important;
+  }
+  [data-print="flat"] {
+    padding-left: 0 !important;
+  }
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+@page {
+  size: A4;
+  margin: 14mm 12mm 16mm;
+  @bottom-left {
+    content: "IVaaS crate counting  ·  Liquid Intelligent Technologies";
+    font: 7.5pt Helvetica, Arial, sans-serif;
+    color: #5b6275;
+  }
+  @bottom-right {
+    content: "Page " counter(page);
+    font: 7.5pt Helvetica, Arial, sans-serif;
+    color: #5b6275;
+  }
+}
+
 @keyframes hud-sweep {
   to {
     transform: translateY(400%);

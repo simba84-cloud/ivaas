@@ -24,6 +24,14 @@ describe("analysis report", () => {
     expect(screen.getByRole("button", { name: /Print/ })).toBeInTheDocument();
   });
 
+  it("prints under the Liquid logo and the report's name, kept off the screen", async () => {
+    at(job());
+    const brand = await screen.findByTestId("print-brand");
+    expect(brand).toHaveClass("hidden", "print:flex");
+    expect(brand.querySelector("img")).toHaveAttribute("src", "/logo-liquid.png");
+    expect(brand).toHaveTextContent("Video analysis report");
+  });
+
   it("shows progress while running and no report sections", async () => {
     at(job({ status: "running", progress: 0.4, loads: [], timeline: [], summary: null }));
     expect(await screen.findByText("running")).toBeInTheDocument();

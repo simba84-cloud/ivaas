@@ -349,6 +349,7 @@ export function Layout({
     <div className="flex min-h-full">
       {/* navigation rail: a lit brand surface, the same in both themes */}
       <aside
+        data-print="hide"
         className="fixed inset-y-0 left-0 hidden w-64 flex-col overflow-hidden text-white lg:flex"
         style={{ background: RAIL_GRADIENT }}
       >
@@ -445,8 +446,9 @@ export function Layout({
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col lg:pl-64">
+      <div data-print="flat" className="flex min-w-0 flex-1 flex-col lg:pl-64">
         <header
+          data-print="hide"
           className="sticky z-10 flex h-14 items-center justify-between gap-4 border-b border-line bg-surface/85 px-4 backdrop-blur sm:px-6"
           style={{ top: "env(safe-area-inset-top, 0px)" }}
         >
@@ -505,7 +507,7 @@ export function Layout({
           </div>
         </header>
 
-        <nav className="flex gap-1 overflow-x-auto border-b border-line bg-surface px-2 lg:hidden">
+        <nav data-print="hide" className="flex gap-1 overflow-x-auto border-b border-line bg-surface px-2 lg:hidden">
           {nav.flatMap((g) => g.items).map(({ to, label, ...rest }) => (
             <NavLink
               key={to}

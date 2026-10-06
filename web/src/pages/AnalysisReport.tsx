@@ -3,6 +3,7 @@ import { ArrowLeft, Boxes, Clock, Layers, Printer, Truck } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { TimelineEvent } from "../api/types";
+import { PrintBrand } from "../components/PrintBrand";
 import { EmptyState, PageHeader, StatCard, dateTime } from "../components/ui";
 import { Progress, Skeleton } from "../motion";
 import { fmtSeconds } from "./Analysis";
@@ -51,6 +52,7 @@ export default function AnalysisReport() {
 
   return (
     <div className="print:text-black">
+      <PrintBrand title="Video analysis report" />
       <PageHeader
         title={`Report · ${j.filename}`}
         subtitle={`Submitted ${dateTime(j.created_at)} by ${j.created_by}${
