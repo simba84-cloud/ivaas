@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
@@ -14,7 +14,7 @@ const scope = () =>
   );
 
 describe("daily reports", () => {
-  it("lists filed reports with their PDF and CSV", async () => {
+  it("lists filed reports with their PDF, CSV and Excel, saved under the Liquid name", async () => {
     scope();
     server.use(
       http.get("/api/v1/reports", () =>
@@ -27,14 +27,65 @@ describe("daily reports", () => {
             generated_at: "2026-10-02T04:30:00Z",
             pdf_url: "/api/v1/objects/r.pdf?sig=x",
             csv_url: "/api/v1/objects/r.csv?sig=x",
+            xlsx_url: "/api/v1/objects/r.xlsx?sig=x",
+            file_stem: "liquid-ivaas-bakery-industrial-site-2026-10-01",
+          },
+          {
+            site_id: site.id,
+            site: "Bakery Industrial Site",
+            day: "2026-09-30",
+            loads: 3,
+            generated_at: "2026-10-01T04:30:00Z",
+            pdf_url: "/api/v1/objects/o.pdf?sig=x",
+            csv_url: "/api/v1/objects/o.csv?sig=x",
+            xlsx_url: null, // filed before workbooks were
+            file_stem: "liquid-ivaas-bakery-industrial-site-2026-09-30",
           },
         ]),
       ),
     );
     renderPage(<Reports />, { path: "/reports", route: "/reports" });
     expect(await screen.findByText("2026-10-01")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "PDF" })).toHaveAttribute("href", "/api/v1/objects/r.pdf?sig=x");
-    expect(screen.getByRole("link", { name: "CSV" })).toHaveAttribute("href", "/api/v1/objects/r.csv?sig=x");
+    const [pdf] = screen.getAllByRole("link", { name: "PDF" });
+    expect(pdf).toHaveAttribute("href", "/api/v1/objects/r.pdf?sig=x");
+    expect(pdf).toHaveAttribute("download", "liquid-ivaas-bakery-industrial-site-2026-10-01.pdf");
+    expect(screen.getAllByRole("link", { name: "CSV" })[0]).toHaveAttribute("href", "/api/v1/objects/r.csv?sig=x");
+    // only the report that has a workbook offers one
+    const excel = screen.getAllByRole("link", { name: "Excel" });
+    expect(excel).toHaveLength(1);
+    expect(excel[0]).toHaveAttribute("href", "/api/v1/objects/r.xlsx?sig=x");
+    expect(excel[0]).toHaveAttribute("download", "liquid-ivaas-bakery-industrial-site-2026-10-01.xlsx");
+  });
+
+  it("builds any day as Excel and saves it under the name the API gives", async () => {
+    scope();
+    let asked = "";
+    server.use(
+      http.get("/api/v1/reports", () => HttpResponse.json([])),
+      http.get("/api/v1/reports/daily", ({ request }) => {
+        asked = new URL(request.url).searchParams.get("format") ?? "";
+        return new HttpResponse(new Blob(["PK"]), {
+          headers: {
+            "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "content-disposition": 'attachment; filename="liquid-ivaas-bakery-industrial-site-2026-10-01.xlsx"',
+          },
+        });
+      }),
+    );
+    const saved: string[] = [];
+    URL.createObjectURL = vi.fn(() => "blob:x");
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      saved.push(this.download);
+    });
+    renderPage(<Reports />, { path: "/reports", route: "/reports" });
+    const day = await screen.findByRole("region", { name: "A day's report" });
+    const button = within(day).getByRole("button", { name: "Excel" });
+    await vi.waitFor(() => expect(button).toBeEnabled());
+    await userEvent.click(button);
+    await vi.waitFor(() => expect(saved).toEqual(["liquid-ivaas-bakery-industrial-site-2026-10-01.xlsx"]));
+    expect(asked).toBe("xlsx");
+    click.mockRestore();
   });
 
   it("says when the first report will come, and offers any day now", async () => {

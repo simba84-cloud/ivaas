@@ -1,16 +1,17 @@
-"""The POC report as files: a PDF to sign, and every load as CSV to check it against."""
+"""The POC report as files: a PDF to sign, every load as CSV to check it against, and
+the same as a branded Excel workbook. The PDF and the workbook carry the Liquid brand
+(`branding`); the CSV stays plain."""
 
 from __future__ import annotations
 
 import csv
 import io
 
-from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import PageBreak, Paragraph, Spacer, Table
 
+from ivaas.adapters import branding
 from ivaas.domain.manifests import local_day, site_tz
 from ivaas.domain.poc import PocReport
 
@@ -35,22 +36,11 @@ VERDICT = {
     "incomplete": "At least one criterion could not be measured from the records; "
     "the report is not a pass until it is.",
 }
-_GRID = TableStyle(
-    [
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E8EAF0")),
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#B8BCC8")),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ]
-)
 
 
 def _table(rows: list[list[str]]) -> Table:
-    t = Table(rows, repeatRows=1)
-    t.setStyle(_GRID)
+    t = Table(rows, repeatRows=1, hAlign="LEFT")
+    t.setStyle(branding.GRID)
     return t
 
 
@@ -81,18 +71,11 @@ def to_csv(report: PocReport) -> bytes:
 
 
 def to_pdf(report: PocReport) -> bytes:
-    styles = getSampleStyleSheet()
-    h1, h2, body = styles["Heading1"], styles["Heading3"], styles["BodyText"]
+    styles = branding.pdf_styles()
+    h1, h2, body = styles["h1"], styles["h2"], styles["body"]
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=landscape(A4),
-        leftMargin=12 * mm,
-        rightMargin=12 * mm,
-        topMargin=12 * mm,
-        bottomMargin=12 * mm,
-        title=f"{report.site} POC report {report.start} to {report.end}",
-        author="IVaaS",
+    doc = branding.pdf_document(
+        buf, landscape(A4), f"{report.site} POC report {report.start} to {report.end}"
     )
     b = report.balance
     story: list = [
@@ -211,5 +194,103 @@ def to_pdf(report: PocReport) -> bytes:
         )
     else:
         story.append(Paragraph("No loads were counted at this site in the window.", body))
-    doc.build(story)
+    page = branding.pdf_page(f"Proof of concept · {report.start:%d %b} to {report.end:%d %b %Y}")
+    doc.build(story, onFirstPage=page, onLaterPages=page)
     return buf.getvalue()
+
+
+def to_xlsx(report: PocReport) -> bytes:
+    """Result and Every load, branded; the same figures as the PDF, as numbers."""
+    wb = branding.workbook(f"{report.site} POC report {report.start} to {report.end}")
+    title = f"{report.site}: proof of concept, {report.start:%d %B} to {report.end:%d %B %Y}"
+    sub = (
+        f"{report.tenant}. Times are {report.timezone}. Generated "
+        f"{report.generated_at:%Y-%m-%d %H:%M} UTC from the platform's own records."
+    )
+    b = report.balance
+
+    s = branding.Sheet(wb, "Result", title, sub)
+    s.heading(f"Result: {report.verdict.upper()}")
+    s.note(VERDICT[report.verdict])
+    s.gap()
+    s.table(
+        ["Criterion", "Result", "Measured", "Target", "How"],
+        [[c.name, c.result, c.figure, c.target, c.how] for c in report.criteria],
+    )
+    s.heading("Return on investment: what the records show")
+    s.table(
+        [
+            "Loads out",
+            "Loads back",
+            "Crates dispatched",
+            "Crates returned",
+            "Not yet back",
+            "Still at the bay",
+        ],
+        [[b.loads_out, b.loads_back, b.dispatched, b.returned, b.outstanding, b.in_progress]],
+    )
+    if report.outstanding_value is not None:
+        s.table(
+            [f"Crates not yet back, valued ({report.currency})"],
+            [[report.outstanding_value]],
+            formats={0: "#,##0.00"},
+        )
+    else:
+        s.note("No crate value was given, so the crates not yet back are not priced.")
+    s.note(
+        f"People corrected {report.corrections} load(s), changing the count of record by "
+        f"{report.correction_crates:+,} crates in all."
+    )
+    s.gap()
+    s.heading("Manifest exceptions")
+    if report.exceptions:
+        s.table(
+            ["Manifest exception", "Status", "Count"],
+            [[k.replace("_", " "), st, n] for (k, st), n in sorted(report.exceptions.items())],
+        )
+    else:
+        s.note("No manifest exceptions were raised in the window.")
+
+    tz = site_tz(report.timezone)
+    loads = branding.Sheet(wb, "Every load", title, sub)
+    if report.loads:
+        loads.table(
+            [
+                "Day",
+                "Opened",
+                "Closed",
+                "Truck",
+                "Read by camera",
+                "Identified by",
+                "Direction",
+                "AI",
+                "Corrected",
+                "Of record",
+                "Tally",
+                "Accuracy",
+                "Status",
+            ],
+            [
+                [
+                    local_day(x.opened_at, tz),
+                    x.opened_at.astimezone(tz).strftime("%H:%M"),
+                    x.closed_at.astimezone(tz).strftime("%H:%M") if x.closed_at else "",
+                    x.plate or "no plate",
+                    x.plate_read or "",
+                    x.identified_by or "",
+                    x.direction.value,
+                    x.ai_count,
+                    "" if x.override_count is None else x.override_count,
+                    x.count_of_record,
+                    "" if x.manual_count is None else x.manual_count,
+                    "" if x.accuracy is None else x.accuracy,
+                    x.status.value,
+                ]
+                for x in report.loads
+            ],
+            formats={0: "yyyy-mm-dd", 11: "0.0%"},
+            filterable=True,
+        )
+    else:
+        loads.note("No loads were counted at this site in the window.")
+    return branding.xlsx_bytes(wb)

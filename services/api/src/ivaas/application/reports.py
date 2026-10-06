@@ -16,6 +16,7 @@ from ivaas.tenancy import object_key
 
 #: yesterday's report is filed once the site's day has properly started
 FILE_AFTER = time(6, 0)
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 @dataclass
@@ -27,6 +28,8 @@ class StoredReport:
     loads: int
     generated_at: datetime
     id: UUID | None = None
+    #: reports filed before workbooks were filed have none
+    xlsx_key: str | None = None
 
     def __post_init__(self) -> None:
         self.id = self.id or uuid4()
@@ -83,9 +86,11 @@ class FileDailyReports:
     reports: Any
     objects: Any
     clock: Any
-    #: the renderers are adapters (ReportLab, csv); the composition root supplies them
+    #: the renderers are adapters (ReportLab, csv, openpyxl); the composition root
+    #: supplies them
     render_pdf: Callable[[DailyReport], bytes]
     render_csv: Callable[[DailyReport], bytes]
+    render_xlsx: Callable[[DailyReport], bytes] | None = None
 
     async def __call__(self) -> list[StoredReport]:
         filed = []
@@ -107,11 +112,16 @@ class FileDailyReports:
         pdf_key, csv_key = f"{base}.pdf", f"{base}.csv"
         await self.objects.put(pdf_key, self.render_pdf(report), "application/pdf")
         await self.objects.put(csv_key, self.render_csv(report), "text/csv")
+        xlsx_key = None
+        if self.render_xlsx is not None:
+            xlsx_key = f"{base}.xlsx"
+            await self.objects.put(xlsx_key, self.render_xlsx(report), XLSX)
         stored = StoredReport(
             site_id=site_id,
             day=day,
             pdf_key=pdf_key,
             csv_key=csv_key,
+            xlsx_key=xlsx_key,
             loads=len(report.loads),
             generated_at=self.clock.now(),
         )

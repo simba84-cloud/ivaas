@@ -456,7 +456,7 @@ class Container:
         )
 
     async def file_daily_reports_uc(self) -> FileDailyReports:
-        from ivaas.adapters.reports import to_csv, to_pdf
+        from ivaas.adapters.reports import to_csv, to_pdf, to_xlsx
 
         return FileDailyReports(
             await self.build_daily_report_uc(),
@@ -466,6 +466,7 @@ class Container:
             self.clock,
             render_pdf=to_pdf,
             render_csv=to_csv,
+            render_xlsx=to_xlsx,
         )
 
     def sso(self) -> SsoSignIn:

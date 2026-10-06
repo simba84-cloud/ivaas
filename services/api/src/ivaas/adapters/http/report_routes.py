@@ -13,13 +13,21 @@ from pydantic import BaseModel
 
 # named apart from the poc_report route below, which would otherwise shadow it
 from ivaas.adapters import poc_report as poc_files
+from ivaas.adapters.branding import filename
 from ivaas.adapters.http.auth import require
 from ivaas.adapters.http.media import files
-from ivaas.adapters.reports import to_csv, to_pdf
+from ivaas.adapters.reports import to_csv, to_pdf, to_xlsx
 from ivaas.domain.poc import PocReport
 from ivaas.domain.rbac import Permission as P
 
 Audit = Callable[..., Awaitable[None]]
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _file(body: bytes, media: str, name: str) -> Response:
+    return Response(
+        body, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'}
+    )
 
 
 class FiledReportOut(BaseModel):
@@ -31,6 +39,10 @@ class FiledReportOut(BaseModel):
     #: signed, short-lived: a download link cannot carry a bearer token
     pdf_url: str
     csv_url: str
+    #: reports filed before workbooks were filed have none
+    xlsx_url: str | None = None
+    #: what to save the files as: liquid-ivaas-<site>-<day>, then the extension
+    file_stem: str
 
 
 class CriterionOut(BaseModel):
@@ -139,6 +151,8 @@ def add_report_routes(app: FastAPI, get_container: Callable[[Request], Any], aud
                 generated_at=r.generated_at,
                 pdf_url=c.signer.sign(r.pdf_key),
                 csv_url=c.signer.sign(r.csv_key),
+                xlsx_url=c.signer.sign(r.xlsx_key) if r.xlsx_key else None,
+                file_stem=filename(names.get(r.site_id, ""), r.day.isoformat(), ext="")[:-1],
             )
             for r in await c.reports.since(since)
         ]
@@ -147,13 +161,13 @@ def add_report_routes(app: FastAPI, get_container: Callable[[Request], Any], aud
         "/api/v1/reports/poc",
         response_model=PocReportOut,
         dependencies=[Depends(require(P.REPORT_EXPORT))],
-        responses={200: {"content": {"application/pdf": {}, "text/csv": {}}}},
+        responses={200: {"content": {"application/pdf": {}, "text/csv": {}, XLSX: {}}}},
     )
     async def poc_report(
         site_id: UUID,
         start: date,
         end: date,
-        format: Literal["json", "pdf", "csv"] = "json",
+        format: Literal["json", "pdf", "csv", "xlsx"] = "json",
         uptime_target: float = Query(99.0, gt=0, le=100, description="percent"),
         baseline_minutes: float | None = Query(None, gt=0, description="loading cycle before"),
         crate_value: float | None = Query(None, ge=0),
@@ -176,38 +190,30 @@ def add_report_routes(app: FastAPI, get_container: Callable[[Request], Any], aud
             raise HTTPException(422, str(exc)) from exc
         if format == "json":
             return PocReportOut.of(report)
-        name = f"{report.site or 'site'}-poc-{start}-to-{end}".replace(" ", "-").lower()
+        name = filename(report.site, "poc", str(start), "to", str(end), ext=format)
         if format == "csv":
-            body, media = poc_files.to_csv(report), "text/csv"
-        else:
-            body, media = poc_files.to_pdf(report), "application/pdf"
-        return Response(
-            body,
-            media_type=media,
-            headers={"Content-Disposition": f'attachment; filename="{name}.{format}"'},
-        )
+            return _file(poc_files.to_csv(report), "text/csv", name)
+        if format == "xlsx":
+            return _file(poc_files.to_xlsx(report), XLSX, name)
+        return _file(poc_files.to_pdf(report), "application/pdf", name)
 
     @app.get(
         "/api/v1/reports/daily",
         dependencies=[Depends(require(P.REPORT_EXPORT))],
-        **files("The day's report", "application/pdf", "text/csv"),
+        **files("The day's report", "application/pdf", "text/csv", XLSX),
     )
     async def daily_report(
         site_id: UUID,
         day: date,
-        format: Literal["pdf", "csv"] = "pdf",
+        format: Literal["pdf", "csv", "xlsx"] = "pdf",
         c: Any = Depends(get_container),
     ) -> Response:
         """Any day's report, built now. Today's is as far as the day has got, and the
         report says when it was generated."""
         report = await (await c.build_daily_report_uc())(site_id, day)
-        name = f"{report.site or 'site'}-{day.isoformat()}".replace(" ", "-").lower()
+        name = filename(report.site, day.isoformat(), ext=format)
         if format == "csv":
-            body, media = to_csv(report), "text/csv"
-        else:
-            body, media = to_pdf(report), "application/pdf"
-        return Response(
-            body,
-            media_type=media,
-            headers={"Content-Disposition": f'attachment; filename="{name}.{format}"'},
-        )
+            return _file(to_csv(report), "text/csv", name)
+        if format == "xlsx":
+            return _file(to_xlsx(report), XLSX, name)
+        return _file(to_pdf(report), "application/pdf", name)
