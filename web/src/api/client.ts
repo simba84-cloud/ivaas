@@ -335,6 +335,12 @@ export const api = {
     request<EdgeNode>(`/api/v1/edge/nodes/${nodeId}/rollback`, { method: "POST" }),
   tallySheets: () => request<TallySheet[]>("/api/v1/tally/sheets"),
   tallyReport: () => request<TallyReport>("/api/v1/tally/report"),
+  /** The accuracy report as a branded file, for one bay when given: what the page shows. */
+  tallyReportFile: (format: "pdf" | "xlsx", bayId?: string): Promise<ReportFile> =>
+    reportFile(
+      `/api/v1/tally/report?format=${format}${bayId ? `&bay_id=${bayId}` : ""}`,
+      `accuracy.${format}`,
+    ),
   enterTallySheet: (body: TallySheetInput) =>
     request<TallySheet>("/api/v1/tally/sheets", { method: "POST", body: JSON.stringify(body) }),
   rematchTally: () =>

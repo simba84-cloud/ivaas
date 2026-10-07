@@ -9,12 +9,13 @@ Who may do what:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
+from ivaas.adapters import accuracy_report as accuracy_files
 from ivaas.adapters.branding import filename
 from ivaas.adapters.http.auth import current_principal, require
 from ivaas.adapters.http.media import files
@@ -246,19 +247,14 @@ def add_tally_routes(
         changed = await (await c.rematch_tally_sheets_uc())()
         return TallyRematchOut(changed=[TallySheetOut.of(s) for s in changed])
 
-    @app.get(
-        "/api/v1/tally/report",
-        response_model=TallyReportOut,
-        dependencies=[Depends(require(P.COUNT_READ))],
-    )
-    async def tally_report(
-        limit: int = 500, c: Container = Depends(get_container)
-    ) -> TallyReportOut:
+    async def _accuracy(c: Container, limit: int, bay_id: UUID | None) -> TallyReportOut:
         target = float(await c.effective(RECONCILE_TOLERANCE, c.settings.reconcile_tolerance))
         rows: list[TallyReportRow] = []
         ai_sum = truth_sum = 0
         scored: list[float] = []
         for sheet in await c.tally.list_recent(limit=limit):
+            if bay_id is not None and sheet.bay_id != bay_id:
+                continue
             session = await c.sessions.get(sheet.session_id) if sheet.session_id else None
             # a reconciled sheet's figure *is* the session's manual count, so the session's
             # own accuracy is this sheet's; one formula, in the domain
@@ -292,4 +288,44 @@ def add_tally_routes(
             mean_accuracy=sum(scored) / len(scored) if scored else None,
             aggregate_error=abs(ai_sum - truth_sum) / truth_sum if truth_sum else None,
             rows=rows,
+        )
+
+    @app.get(
+        "/api/v1/tally/report",
+        response_model=TallyReportOut,
+        dependencies=[Depends(require(P.COUNT_READ))],
+        responses={200: {"content": {"application/pdf": {}, XLSX_TYPE: {}}}},
+    )
+    async def tally_report(
+        limit: int = 500,
+        bay_id: UUID | None = None,
+        format: Literal["json", "pdf", "xlsx"] = "json",
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> Any:
+        """Accuracy against the tally sheets, for one bay with `bay_id`; as a PDF or an
+        Excel workbook with `format`."""
+        if bay_id is not None:
+            await _bay_or_404(c, bay_id)
+        report = await _accuracy(c, limit, bay_id)
+        if format == "json":
+            return report
+        tenant = await c.tenants.get(principal.tenant_id) if principal.tenant_id else None
+        name = tenant.name if tenant else "IVaaS"
+        now = c.clock.now()
+        bays = {str(b.id): b.name for b in await c.bays.list_all()}
+        bay = bays.get(str(bay_id)) if bay_id else None
+        args = {"tenant": name, "bays": bays, "generated_at": now, "bay": bay}
+        data = report.model_dump(mode="json")
+        if format == "pdf":
+            body, media = accuracy_files.to_pdf(data, **args), "application/pdf"
+        else:
+            body, media = accuracy_files.to_xlsx(data, **args), XLSX_TYPE
+        file = filename(
+            name, *([bay] if bay else []), "accuracy", now.date().isoformat(), ext=format
+        )
+        return Response(
+            body,
+            media_type=media,
+            headers={"Content-Disposition": f'attachment; filename="{file}"'},
         )
