@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass
 from typing import Protocol
@@ -16,7 +17,7 @@ from ivaas.domain.models import (
     StreamSource,
 )
 from ivaas.ports.repositories import BayReader, CameraReader, CameraWriter, Clock, EventPublisher
-from ivaas.ports.streaming import StreamGateway
+from ivaas.ports.streaming import SourceProbe, StreamGateway
 
 SUBJECT_CAMERA_REGISTERED = "ivaas.camera.registered"
 SUBJECT_CAMERA_REMOVED = "ivaas.camera.removed"
@@ -110,27 +111,39 @@ class RefreshCameraStatus:
     Works for every source type: a pulled RTSP camera that has gone dark and a
     push camera that has started sending both show up correctly, with no need
     for the camera to know about IVaaS at all. Runs on a timer.
+
+    The gateway pulls a camera only while someone watches it, and the portal plays
+    only cameras that are online, so a pulled camera that is not live is asked
+    directly before it is called offline. Without that, a working camera nobody
+    was watching stayed offline and could never be opened.
     """
 
     bays: BayReader
     cameras: _CameraStore
     gateway: StreamGateway
     clock: Clock
+    probe: SourceProbe | None = None
 
     async def __call__(self) -> dict[str, int]:
         live = await self.gateway.live_paths()
         now = self.clock.now()
+        cameras = [
+            c for bay in await self.bays.list_all() for c in await self.cameras.list_for_bay(bay.id)
+        ]
+        idle = [c for c in cameras if c.stream_path not in live and not c.source.is_push]
+        answered = await asyncio.gather(*(self._answers(c) for c in idle))
+        answering = {c.id for c, ok in zip(idle, answered, strict=True) if ok}
         changed = {"online": 0, "offline": 0}
-        for bay in await self.bays.list_all():
-            for camera in await self.cameras.list_for_bay(bay.id):
-                is_live = camera.stream_path in live
-                if is_live:
-                    camera.mark_seen(now)
-                    await self.cameras.save(camera)
-                elif camera.status is not CameraStatus.OFFLINE:
-                    camera.status = CameraStatus.OFFLINE
-                    await self.cameras.save(camera)
-                    changed["offline"] += 1
-                if is_live and camera.last_seen_at == now:
-                    changed["online"] += 1
+        for camera in cameras:
+            if camera.stream_path in live or camera.id in answering:
+                camera.mark_seen(now)
+                await self.cameras.save(camera)
+                changed["online"] += 1
+            elif camera.status is not CameraStatus.OFFLINE:
+                camera.status = CameraStatus.OFFLINE
+                await self.cameras.save(camera)
+                changed["offline"] += 1
         return changed
+
+    async def _answers(self, camera: Camera) -> bool:
+        return self.probe is not None and await self.probe.answers(camera.source)

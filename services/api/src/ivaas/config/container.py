@@ -38,6 +38,7 @@ from ivaas.adapters.persistence.partitioned import PerTenant
 from ivaas.adapters.storage.objects import LocalObjectStore, S3ObjectStore
 from ivaas.adapters.streaming.mediamtx import MediaMtxGateway, NullStreamGateway
 from ivaas.adapters.streaming.onvif import OnvifDiscovery
+from ivaas.adapters.streaming.probe import NetworkSourceProbe
 from ivaas.adapters.streaming.snapshot import OpenCvFrameGrabber
 from ivaas.application.alerts import AcknowledgeAlert, ListAcknowledgements
 from ivaas.application.analysis import RunNextJob, SubmitVideo
@@ -105,7 +106,7 @@ from ivaas.domain.users import User
 from ivaas.ports.assistant import ChatModel
 from ivaas.ports.auth import TokenVerifier
 from ivaas.ports.repositories import Clock, EventPublisher
-from ivaas.ports.streaming import CameraDiscovery, FrameGrabber, StreamGateway
+from ivaas.ports.streaming import CameraDiscovery, FrameGrabber, SourceProbe, StreamGateway
 from ivaas.tenancy import current_tenant, system_context, tenant_context
 
 # Camera array from section 4.1 of the POC scope: 16 volumetric + 1 LPR.
@@ -231,6 +232,7 @@ class Container:
     gateway: StreamGateway
     discovery: CameraDiscovery
     frames: FrameGrabber
+    probe: SourceProbe
     chat_model: ChatModel | None
     verifiers: dict[str, TokenVerifier]
     local_auth: LocalTokenVerifier | None
@@ -355,7 +357,7 @@ class Container:
 
     @property
     def refresh_camera_status(self) -> RefreshCameraStatus:
-        return RefreshCameraStatus(self.bays, self.cameras, self.gateway, self.clock)
+        return RefreshCameraStatus(self.bays, self.cameras, self.gateway, self.clock, self.probe)
 
     @property
     def remove_camera(self) -> RemoveCamera:
@@ -960,6 +962,7 @@ async def build_container(settings: Settings) -> Container:
         gateway=gateway,
         discovery=OnvifDiscovery(),
         frames=OpenCvFrameGrabber(),
+        probe=NetworkSourceProbe(),
         chat_model=chat_model,
         verifiers=verifiers,
         local_auth=local_auth,

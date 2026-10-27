@@ -270,6 +270,111 @@ async def test_camera_status_follows_what_the_gateway_receives():
     assert (await repo.get(cams[0].id)).last_seen_at is not None  # history kept
 
 
+class _Probe:
+    """Stands in for asking a camera whether it is up."""
+
+    def __init__(self, answering: set[str]) -> None:
+        self.answering = answering
+        self.asked: list[str] = []
+
+    async def answers(self, source):
+        self.asked.append(source.url)
+        return source.url in self.answering
+
+
+@pytest.mark.asyncio
+async def test_an_idle_pulled_camera_that_answers_is_not_called_offline():
+    # Pulled cameras are fetched only while someone watches; the portal plays only
+    # online cameras. Judging by live paths alone, a working camera nobody was
+    # watching stayed "offline" for good and could never be opened.
+    from dataclasses import replace
+
+    from ivaas.adapters.persistence.memory import (
+        InMemoryBayRepository,
+        InMemoryCameraRepository,
+        SystemClock,
+    )
+    from ivaas.adapters.streaming.mediamtx import NullStreamGateway
+    from ivaas.application.cameras import RefreshCameraStatus
+    from ivaas.config.container import demo_topology
+    from ivaas.domain.models import CameraStatus
+
+    _, bay, cams = demo_topology()
+    up = replace(cams[0], source=StreamSource("rtsp://admin:pw@10.0.0.5/stream1"))
+    down = replace(cams[1], source=StreamSource("rtsp://admin:pw@10.0.0.6/stream1"))
+    push = cams[2]
+    repo, gw = InMemoryCameraRepository([up, down, push]), NullStreamGateway()
+    probe = _Probe({up.source.url})
+    refresh = RefreshCameraStatus(InMemoryBayRepository([bay]), repo, gw, SystemClock(), probe)
+
+    changed = await refresh()
+    assert changed == {"online": 1, "offline": 0}  # the others were already offline
+    assert (await repo.get(up.id)).status is CameraStatus.ONLINE
+    assert (await repo.get(up.id)).last_seen_at is not None
+    assert (await repo.get(down.id)).status is CameraStatus.OFFLINE
+    assert (await repo.get(push.id)).status is CameraStatus.OFFLINE
+    assert push.source.url not in probe.asked  # a push camera has nothing to ask
+
+    probe.answering.clear()  # the camera loses power
+    changed = await refresh()
+    assert changed["offline"] == 1
+    assert (await repo.get(up.id)).status is CameraStatus.OFFLINE
+
+    probe.asked.clear()
+    gw.live = {up.stream_path}  # being watched: the video itself is the evidence
+    await refresh()
+    assert up.source.url not in probe.asked
+    assert (await repo.get(up.id)).status is CameraStatus.ONLINE
+
+
+async def _rtsp_server(reply: bytes):
+    import asyncio
+
+    requests: list[bytes] = []
+
+    async def handle(reader, writer):
+        requests.append(await reader.readuntil(b"\r\n\r\n"))
+        writer.write(reply)
+        await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    return server, server.sockets[0].getsockname()[1], requests
+
+
+@pytest.mark.asyncio
+async def test_probe_asks_an_rtsp_camera_without_sending_its_password():
+    from ivaas.adapters.streaming.probe import NetworkSourceProbe
+
+    server, port, requests = await _rtsp_server(b"RTSP/1.0 200 OK\r\nCSeq: 1\r\n\r\n")
+    async with server:
+        url = f"rtsp://admin:s3cret@127.0.0.1:{port}/Streaming/101"
+        assert await NetworkSourceProbe().answers(StreamSource(url)) is True
+    assert requests[0].startswith(
+        f"OPTIONS rtsp://127.0.0.1:{port}/Streaming/101 RTSP/1.0".encode()
+    )
+    assert b"s3cret" not in requests[0] and b"admin" not in requests[0]
+
+
+@pytest.mark.asyncio
+async def test_probe_says_no_for_silence_strangers_and_unprobeable_sources():
+    import socket
+
+    from ivaas.adapters.streaming.probe import NetworkSourceProbe
+
+    probe = NetworkSourceProbe()
+    server, port, _ = await _rtsp_server(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+    async with server:  # something answers, but it is not a camera
+        assert await probe.answers(StreamSource(f"rtsp://127.0.0.1:{port}/s")) is False
+
+    with socket.socket() as s:  # a port nothing listens on
+        s.bind(("127.0.0.1", 0))
+        closed = s.getsockname()[1]
+    assert await probe.answers(StreamSource(f"rtsp://127.0.0.1:{closed}/s")) is False
+    assert await probe.answers(StreamSource("udp://239.0.0.1:1234")) is False
+    assert await probe.answers(StreamSource(None)) is False
+
+
 def test_paths_a_media_server_restart_forgot_are_put_back_recorded_as_before(client):
     container = client.app.state.container
     gateway = container.gateway
