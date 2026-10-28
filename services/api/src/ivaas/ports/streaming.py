@@ -31,6 +31,14 @@ class StreamGateway(Protocol):
         ...
 
 
+class SourceProbe(Protocol):
+    """Asks a pulled camera whether it is up, without pulling its video."""
+
+    async def answers(self, source: StreamSource) -> bool:
+        """True only when the camera itself replied; anything uncertain is False."""
+        ...
+
+
 @dataclass(frozen=True)
 class DiscoveredDevice:
     address: str  # ONVIF device service URL
