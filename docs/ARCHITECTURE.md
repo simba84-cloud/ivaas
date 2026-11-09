@@ -764,6 +764,11 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
   edge node, a CPU box, or a laptop.
 - **Domain rules live in the entity** (`LoadingSession`): cannot count into a closed
   session, cannot reconcile an open one, count never negative. Tested without any I/O.
+- **New clients are modules, not forks.** A second use case (NFL Snacks & Treats:
+  product counting on a conveyor and at picking points) runs in this codebase as a
+  tenant with its own product type, model and counter. Module specs live in
+  `docs/modules/` (first: [nfl-snacks.md](modules/nfl-snacks.md)); the product-type
+  change is proposed in [ADR 0002](adr/0002-product-type-generalisation.md).
 
 ## 5. Scaling path
 
