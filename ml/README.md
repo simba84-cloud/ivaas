@@ -59,11 +59,18 @@ uv run python -m ivaas_ml.dataset data/export.json data/frames data/dataset --va
 # 4. Train (RT-DETR r18, Apache-2.0; ~50 s/epoch on an M-series Mac, far faster on the edge GPU)
 uv run --extra train python -m ivaas_ml.train data/dataset runs/stacks --epochs 20
 #    prints AP@0.5 / precision / recall on the clip-held-out validation split every epoch
+#    RF-DETR Base (Apache-2.0, DINOv2 backbone) instead: --arch rfdetr. Its input is
+#    pinned to 560x560 (a multiple of the 14 px patch; the ONNX graph needs one shape).
+uv run --extra train python -m ivaas_ml.train data/dataset runs/stacks-rfdetr --arch rfdetr --epochs 50
 
 # 5. Export to ONNX. Refuses to write a file whose outputs differ from torch.
 uv run --extra train python -m ivaas_ml.export runs/stacks/best ../models/stacks.onnx
-#    -> stacks.onnx + stacks.json (labels, input size), consumed by
+#    -> stacks.onnx + stacks.json (labels, input size, arch), consumed by
 #       services/pipeline/.../adapters/onnx_rtdetr.py
+#    The architecture is read from the checkpoint. RF-DETR's ImageNet mean/std
+#    normalisation is baked into the graph, so both take raw [0,1] RGB and the same
+#    adapter runs either. Pass --opset N to try another ONNX opset.
+uv run --extra train python -m ivaas_ml.export runs/stacks-rfdetr/best ../models/stacks-rfdetr.onnx
 ```
 
 The chain was exercised end to end on 2026-09-22 using the zero-shot pre-labels as
@@ -146,6 +153,39 @@ Do not throw every empty frame at the trainer.
 Still unlabelled: the dense CC 3 yard (v1/v2 boxes there wrap 2-3 columns) and ~22
 flagged frames in `data/review_todo.json`. Validation is 9 boxes: treat the numbers as
 direction, not measurement.
+
+## RF-DETR Base: stacks-rfdetr-v1 (2026-11-11)
+
+Same dataset as stacks-v2 (40 train boxes, 9 validation boxes on two held-out clips),
+same recipe (50 epochs, lr 5e-5, batch 4, flip augmentation), `--arch rfdetr` from
+`Roboflow/rf-detr-base` at 560x560. About 40 s/epoch on an M-series Mac (MPS).
+
+| Model | Arch | Input | AP50 | P / R at 0.5 | Export error vs torch |
+|---|---|---|---|---|---|
+| stacks-v2 | RT-DETR r18vd | 640 | **0.867** | 1.00 / 0.78 | 1.4e-5 |
+| stacks-rfdetr-v1 | RF-DETR Base | 560 | 0.787 | 0.64 / 0.78 | 1.0e-5 |
+
+**On this data RF-DETR is worse, not better.** Same recall, lower precision (it fires on
+things stacks-v2 leaves alone), and lower confidence on the stacks it does find: 0.62-0.65
+on held-out CC 2 frames where stacks-v2 gives 0.95, so a 0.5 threshold sits close to its
+true positives. It learned slowly (AP50 0 for the first 6 epochs, best at epoch 35, flat
+from 40) and swings between epochs, as you would expect from 40 boxes. With 9 validation
+boxes, 0.79 vs 0.87 is about one stack's difference: direction, not measurement. The
+recipe was not tuned for RF-DETR (its reference training uses a higher lr and a
+separate backbone lr); that, and more labelled stacks, are what to try before judging the
+architecture. `models/stacks-rfdetr-v1.onnx` (108 MB, about 170 ms/frame on CPU via the
+pipeline's adapter, the same as stacks-v2) is kept for comparison; stacks-v2 stays the
+model to use.
+
+**Export notes.** RF-DETR's DINOv2 backbone resizes its position embeddings with an
+antialiased bicubic interpolation, which no ONNX opset supports
+(`aten::_upsample_bicubic2d_aa`). The input size is fixed, so `export.py` computes that
+table once in torch and the graph carries it as a constant. Deformable attention
+(`grid_sample`) exports fine at opset 17. The COCO checkpoint exports unchanged as
+`models/people-rfdetr.onnx` (export error 6.3e-4, under the 1e-3 limit). Its class list
+has 91 slots with `N/A` gaps (`person` is index 1, not 0); the sidecar keeps every slot so
+the adapter's argmax lands on the right name. On five real frames it found the same
+people and trucks as `people-coco.onnx`, at similar confidence.
 
 ## First end-to-end run on real footage (2026-09-22)
 
@@ -245,7 +285,7 @@ costs two wrong thresholds, so the loss is count-aware without regressing to the
 ## Tests
 
 ```bash
-uv run pytest    # 26 tests: frame sampling, label round-trip, split, pre-label clean-up, AP metrics
+uv run pytest    # frame sampling, label round-trip, split, pre-label clean-up, AP metrics, export checks
 ```
 
 ## Security models
@@ -257,6 +297,7 @@ when installed, and the portal shows which the edge node is running.
 | Model | File | Where it comes from | Rules it enables |
 |---|---|---|---|
 | Person detector | `people-coco.onnx` | Pretrained COCO RT-DETR r18 (Apache-2.0), exported unchanged | intrusion, badge |
+| Person detector (alternative) | `people-rfdetr.onnx` | Pretrained COCO RF-DETR Base (Apache-2.0), exported unchanged | intrusion, badge |
 | Fire and smoke | `fire-smoke.onnx` | RT-DETR fine-tuned on public fire/smoke data **plus this site's footage** | fire, smoke |
 | Uniform / PPE | `uniform.onnx` | MobileNetV2 (Apache-2.0) fine-tuned on crops of this site's staff | uniform |
 | Faces | `face_detection_yunet_2023mar.onnx`, `face_recognition_sface_2021dec.onnx` | OpenCV Zoo (MIT / Apache-2.0), `./deploy/fetch-models.sh --faces` | known faces only |
@@ -265,6 +306,8 @@ when installed, and the portal shows which the edge node is running.
 
 ```bash
 uv run --extra train python -m ivaas_ml.export PekingU/rtdetr_r18vd_coco_o365 ../models/people-coco.onnx
+# or RF-DETR Base:
+uv run --extra train python -m ivaas_ml.export Roboflow/rf-detr-base ../models/people-rfdetr.onnx
 ```
 
 The same decoder reads it as the stack model; the pipeline keeps only `person`.
