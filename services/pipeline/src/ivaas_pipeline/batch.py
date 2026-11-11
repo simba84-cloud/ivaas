@@ -21,6 +21,7 @@ import cv2
 
 from ivaas_pipeline.adapters.onnx_layers import OnnxLayerCounter
 from ivaas_pipeline.adapters.onnx_rtdetr import OnnxRtDetrDetector
+from ivaas_pipeline.ports import Detector
 from ivaas_pipeline.stages.layers import PeriodicityLayerCounter
 from ivaas_pipeline.stages.presence_counting import PresenceZone, StackPresenceCounter
 from ivaas_pipeline.stages.tracking import IouTracker
@@ -32,7 +33,7 @@ log = logging.getLogger("batch")
 def run_clip(
     clip: Path,
     *,
-    detector: OnnxRtDetrDetector,
+    detector: Detector,
     layers,
     zone: tuple[float, float, float, float],
     stride: int = 2,

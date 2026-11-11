@@ -13,7 +13,11 @@ from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
-from ivaas.adapters.analysis_runner import PipelineVideoAnalyser
+from ivaas.adapters.analysis_runner import (
+    PipelineVideoAnalyser,
+    onnx_detector,
+    remote_detector,
+)
 from ivaas.adapters.auth.jwt_verifiers import (
     ApiKeyVerifier,
     LocalTokenVerifier,
@@ -166,6 +170,19 @@ def _configured_roles(role: str) -> list[RoleBinding]:
     """IVAAS_LOCAL_USERS names a pre-tenancy role (admin/operator/viewer) or a new one."""
     roles = LEGACY_ROLES.get(role) or (Role(role),)
     return [RoleBinding(r, ScopeType.TENANT, BAKERS_INN_ID) for r in roles]
+
+
+def analysis_detector(settings: Settings):
+    """Which detector backs uploaded-video analysis: the remote GPU when a URL is set
+    (docs/adr/0002), otherwise the local ONNX stack model."""
+    if settings.detector_url:
+        return remote_detector(
+            settings.detector_url,
+            settings.detector_api_key,
+            threshold=settings.detector_threshold,
+            timeout_s=settings.detector_timeout_s,
+        )
+    return onnx_detector(settings.stack_model, threshold=settings.detector_threshold)
 
 
 def demo_topology() -> tuple[Site, Bay, list[Camera]]:
@@ -969,7 +986,7 @@ async def build_container(settings: Settings) -> Container:
         jobs=jobs,
         signer=ObjectLinkSigner(settings.object_link_secret),
         objects=objects,
-        analyser=PipelineVideoAnalyser(settings.stack_model, settings.layers_model),
+        analyser=PipelineVideoAnalyser(analysis_detector(settings), settings.layers_model),
         webhooks=webhooks,
         webhook_sender=webhook_sender,
         billing_store=billing_store,
