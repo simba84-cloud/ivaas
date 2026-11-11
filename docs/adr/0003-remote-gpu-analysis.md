@@ -1,4 +1,4 @@
-# ADR 0002: Uploaded-video analysis may detect on the cluster GPU
+# ADR 0003: Uploaded-video analysis may detect on the cluster GPU
 
 - **Status:** accepted; code in place, off until `IVAAS_DETECTOR_URL` is set
 - **Date:** 2026-11-11

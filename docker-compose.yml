@@ -134,7 +134,7 @@ services:
       <<: *ivaas-env
       IVAAS_RUN_ANALYSIS_WORKER: "true"
       # empty = detect stacks with the local ONNX model; a URL sends each analysed frame
-      # to RF-DETR on the cluster GPU (docs/adr/0002). Key from .env, never from git.
+      # to RF-DETR on the cluster GPU (docs/adr/0003). Key from .env, never from git.
       IVAAS_DETECTOR_URL: ${IVAAS_DETECTOR_URL:-}
       IVAAS_DETECTOR_API_KEY: ${IVAAS_DETECTOR_API_KEY:-}
       # the API owns schema migrations and the demo seed; the worker only consumes

@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     layers_model: str = "../../models/layers-v3.onnx"
     # Uploaded-video analysis can call a remote detector (RF-DETR on the cluster GPU)
     # instead of running stack_model locally; empty = local. The key comes from .env,
-    # never from git. Frames leave the site on this path: docs/adr/0002.
+    # never from git. Frames leave the site on this path: docs/adr/0003.
     detector_url: str = ""
     detector_api_key: str = ""
     detector_threshold: float = 0.2

@@ -174,7 +174,7 @@ def _configured_roles(role: str) -> list[RoleBinding]:
 
 def analysis_detector(settings: Settings):
     """Which detector backs uploaded-video analysis: the remote GPU when a URL is set
-    (docs/adr/0002), otherwise the local ONNX stack model."""
+    (docs/adr/0003), otherwise the local ONNX stack model."""
     if settings.detector_url:
         return remote_detector(
             settings.detector_url,

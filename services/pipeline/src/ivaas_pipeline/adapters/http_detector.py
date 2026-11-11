@@ -1,7 +1,7 @@
 """Stage 3, remote: a detector served over HTTP (RF-DETR on the cluster GPU).
 
 Uploaded-video analysis sends each frame to the RF-DETR service instead of running
-the model on the worker's CPU. See docs/adr/0002-remote-gpu-analysis.md for why frames
+the model on the worker's CPU. See docs/adr/0003-remote-gpu-analysis.md for why frames
 leave the site for this path and only this path; live cameras still run locally.
 
 Contract: `POST <url>` multipart `image` (JPEG) and `threshold`, header

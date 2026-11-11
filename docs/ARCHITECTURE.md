@@ -631,7 +631,7 @@ at the bay at 04:48?"). Needs evidence-clip capture first (gap 8).
 - Stack detection runs on the local ONNX model unless `IVAAS_DETECTOR_URL` is set; then
   each analysed frame goes to RF-DETR Base on the cluster GPU (`HttpDetector`). A frame
   the service cannot answer fails the job rather than counting as empty. Frames leave
-  the site on this path only: [ADR 0002](adr/0002-remote-gpu-analysis.md).
+  the site on this path only: [ADR 0003](adr/0003-remote-gpu-analysis.md).
 - Uploads up to 2 GB (nginx `client_max_body_size`, unbuffered proxying).
 
 ## 2c. Security model
