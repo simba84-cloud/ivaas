@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     s3_bucket: str = "ivaas"
     stack_model: str = "../../models/stacks-v2.onnx"
     layers_model: str = "../../models/layers-v3.onnx"
+    # Uploaded-video analysis can call a remote detector (RF-DETR on the cluster GPU)
+    # instead of running stack_model locally; empty = local. The key comes from .env,
+    # never from git. Frames leave the site on this path: docs/adr/0003.
+    detector_url: str = ""
+    detector_api_key: str = ""
+    detector_threshold: float = 0.2
+    detector_timeout_s: float = 30.0
     # Face recognition (off until an admin records its legal basis under Settings).
     # OpenCV Zoo models: YuNet (MIT) finds faces, SFace (Apache-2.0) embeds them.
     face_detector_model: str = "../../models/face_detection_yunet_2023mar.onnx"

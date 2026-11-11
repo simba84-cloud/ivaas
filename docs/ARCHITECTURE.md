@@ -628,6 +628,10 @@ at the bay at 04:48?"). Needs evidence-clip capture first (gap 8).
   double) can be swapped without a restart. The analyser runs in a thread; frame saves and
   progress cross back to the event loop.
 - A job interrupted by a restart is re-queued, not lost.
+- Stack detection runs on the local ONNX model unless `IVAAS_DETECTOR_URL` is set; then
+  each analysed frame goes to RF-DETR Base on the cluster GPU (`HttpDetector`). A frame
+  the service cannot answer fails the job rather than counting as empty. Frames leave
+  the site on this path only: [ADR 0003](adr/0003-remote-gpu-analysis.md).
 - Uploads up to 2 GB (nginx `client_max_body_size`, unbuffered proxying).
 
 ## 2c. Security model
