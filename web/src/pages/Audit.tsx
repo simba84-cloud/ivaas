@@ -129,6 +129,13 @@ const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon; tone: stri
   tenant_purged: { label: "Purged a tenant's data", icon: Eraser, tone: "text-bad bg-bad/10" },
   sso_configured: { label: "Set up single sign-on", icon: KeyRound, tone: "text-warn bg-warn/10" },
   sso_removed: { label: "Turned single sign-on off", icon: KeyRound, tone: "text-warn bg-warn/10" },
+  driver_saved: { label: "Saved a driver", icon: UserCheck, tone: "text-brand bg-brand/10" },
+  drivers_imported: { label: "Imported drivers", icon: ClipboardList, tone: "text-brand bg-brand/10" },
+  driver_pin_set: { label: "Changed a driver's PIN", icon: KeyRound, tone: "text-warn bg-warn/10" },
+  bay_standard_set: { label: "Set a bay's standard unit", icon: Boxes, tone: "text-warn bg-warn/10" },
+  crate_check_in: { label: "Checked a driver in", icon: BadgeCheck, tone: "text-brand bg-brand/10" },
+  crate_transaction_closed: { label: "Validated a crate transaction", icon: ClipboardCheck, tone: "text-brand bg-brand/10" },
+  crate_transaction_accepted: { label: "Accepted a crate exception", icon: CheckCircle2, tone: "text-warn bg-warn/10" },
 };
 
 const WINDOWS = [

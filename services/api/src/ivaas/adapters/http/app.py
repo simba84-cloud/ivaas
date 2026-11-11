@@ -31,6 +31,7 @@ from ivaas.adapters.http.auth import (
 )
 from ivaas.adapters.http.billing_routes import add_billing_routes
 from ivaas.adapters.http.break_glass_routes import add_break_glass_routes
+from ivaas.adapters.http.crate_routes import add_crate_routes
 from ivaas.adapters.http.edge_routes import add_edge_routes
 from ivaas.adapters.http.evidence_routes import add_evidence_routes, sweep_expired
 from ivaas.adapters.http.fleet_routes import add_fleet_routes
@@ -715,6 +716,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             confidence=body.confidence,
             crossed_at=body.crossed_at,
             crates=body.crates,
+            agreement=body.agreement,
         )
         try:
             session = await c.record_crossing(body.bay_id, crossing)
@@ -1285,6 +1287,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_model_routes(app, get_container, audit)
     add_evidence_routes(app, get_container, audit)
     add_fleet_routes(app, get_container, audit)
+    add_crate_routes(app, get_container, audit)
     add_manifest_routes(app, get_container, audit)
     add_report_routes(app, get_container, audit)
     add_webhook_routes(app, get_container, audit)

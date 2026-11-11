@@ -8,6 +8,9 @@ import {
   FileWarning,
   Scale,
   Truck,
+  Boxes,
+  TabletSmartphone,
+  BadgeCheck,
   ClipboardCheck,
   ClipboardList,
   ScrollText,
@@ -97,6 +100,8 @@ const NAV = [
       { to: "/accuracy", label: "Accuracy", icon: Target },
       { to: "/exceptions", label: "Exceptions", icon: FileWarning },
       { to: "/balances", label: "Balances", icon: Scale },
+      { to: "/crates", label: "Crate Control", icon: Boxes },
+      { to: "/bay", label: "Bay Kiosk", icon: TabletSmartphone, needs: "session.operate" },
     ],
   },
   {
@@ -112,6 +117,7 @@ const NAV = [
     items: [
       { to: "/cameras", label: "Cameras", icon: Camera },
       { to: "/fleet", label: "Fleet", icon: Truck },
+      { to: "/drivers", label: "Drivers", icon: BadgeCheck },
       { to: "/edge", label: "Edge Nodes", icon: Cpu, needs: "device.register" },
       { to: "/webhooks", label: "Webhooks", icon: Webhook, needs: "apikey.manage" },
       { to: "/billing", label: "Billing", icon: Receipt, needs: "invoice.read" },

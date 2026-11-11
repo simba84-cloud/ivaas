@@ -188,3 +188,14 @@ def test_in_the_background_a_black_holed_api_never_holds_up_counting(tmp_path):
     d.close()
     assert d.pending == 0
     assert received == list(range(20)), "delivered out of order or with losses"
+
+
+def test_agreement_is_sent_only_when_the_counter_measured_it(tmp_path):
+    from dataclasses import replace
+
+    api = FakeApi()
+    sink = HttpCrossingSink(delivery(tmp_path, api.handler), "bay", CAMS)
+    sink.emit(replace(crossing(1), agreement=2 / 3))
+    sink.emit(crossing(2))  # a fallback count: no vote to report
+    assert api.received[0]["agreement"] == 0.6667
+    assert "agreement" not in api.received[1]

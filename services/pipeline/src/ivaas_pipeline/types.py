@@ -67,6 +67,9 @@ class Crossing:
     confidence: float
     at: datetime
     crates: int = 1  # a stack crossing carries its layer count
+    # share of per-frame layer estimates that agree with the reported median; None when
+    # the count is a fallback with too few estimates to vote on
+    agreement: float | None = None
 
 
 @dataclass(frozen=True)
