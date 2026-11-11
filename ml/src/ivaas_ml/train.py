@@ -1,6 +1,8 @@
-"""Fine-tune RT-DETR (Apache-2.0) on the stack dataset, then report AP@0.5 on validation.
+"""Fine-tune RT-DETR or RF-DETR (both Apache-2.0) on the stack dataset, then report AP@0.5
+on validation.
 
     uv run --extra train python -m ivaas_ml.train data/dataset runs/stacks --epochs 20
+    uv run --extra train python -m ivaas_ml.train data/dataset runs/stacks-rfdetr --arch rfdetr
 
 The dataset is the output of `ivaas_ml.dataset` (COCO json per split). Validation is
 split by clip, so the number reported here is what to expect on unseen footage from the
@@ -22,7 +24,22 @@ from PIL import Image
 from ivaas_ml.labelstudio import LABELS
 from ivaas_ml.metrics import Detections, evaluate
 
-DEFAULT_CHECKPOINT = "PekingU/rtdetr_r18vd"  # smallest RT-DETR; r50vd for the edge GPU
+# The default checkpoint per architecture. RT-DETR r18vd is the smallest RT-DETR (r50vd
+# for the edge GPU); RF-DETR Base is a DINOv2-backbone DETR.
+ARCHS = {
+    "rtdetr": "PekingU/rtdetr_r18vd",
+    "rfdetr": "Roboflow/rf-detr-base",
+}
+DEFAULT_CHECKPOINT = ARCHS["rtdetr"]
+
+# RF-DETR's input side must be a multiple of the DINOv2 patch size (14), and the ONNX
+# export needs one fixed shape, so the processor is pinned to a plain 560x560 resize.
+RFDETR_SIZE = {"height": 560, "width": 560}
+
+
+def processor_overrides(arch: str) -> dict:
+    """Keyword overrides for `AutoImageProcessor.from_pretrained`, per architecture."""
+    return {"size": dict(RFDETR_SIZE)} if arch == "rfdetr" else {}
 
 
 def pick_device() -> str:
@@ -58,11 +75,11 @@ class CocoSplit(torch.utils.data.Dataset):
         return image, {"image_id": info["id"], "annotations": anns}
 
 
-def load_model(checkpoint: str, device: str):
-    from transformers import AutoImageProcessor, RTDetrForObjectDetection
+def load_model(checkpoint: str, device: str, arch: str = "rtdetr"):
+    from transformers import AutoImageProcessor, AutoModelForObjectDetection
 
-    processor = AutoImageProcessor.from_pretrained(checkpoint)
-    model = RTDetrForObjectDetection.from_pretrained(
+    processor = AutoImageProcessor.from_pretrained(checkpoint, **processor_overrides(arch))
+    model = AutoModelForObjectDetection.from_pretrained(
         checkpoint,
         num_labels=len(LABELS),
         id2label=dict(enumerate(LABELS)),
@@ -107,7 +124,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("dataset", type=Path)
     ap.add_argument("out", type=Path)
-    ap.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT)
+    ap.add_argument("--arch", choices=sorted(ARCHS), default="rtdetr")
+    ap.add_argument("--checkpoint", help="defaults to the --arch checkpoint")
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--batch", type=int, default=4)
     ap.add_argument("--lr", type=float, default=5e-5)
@@ -116,7 +134,8 @@ def main() -> None:
 
     random.seed(0)
     torch.manual_seed(0)
-    processor, model = load_model(args.checkpoint, args.device)
+    args.checkpoint = args.checkpoint or ARCHS[args.arch]
+    processor, model = load_model(args.checkpoint, args.device, args.arch)
     train = CocoSplit(args.dataset / "train", augment=True)
     val = CocoSplit(args.dataset / "val", augment=False)
     print(f"{args.checkpoint} on {args.device}: {len(train)} train / {len(val)} val images")
