@@ -361,3 +361,24 @@ def test_only_a_manager_accepts_an_exception_never_the_operator_at_the_kiosk(bay
     assert r.status_code == 403
     r = c.post(f"/api/v1/crate-transactions/{txn['id']}/accept", json=body, headers=admin)
     assert r.status_code == 200 and r.json()["accepted_by"] == "admin"
+
+
+def test_a_driver_is_edited_and_their_pin_changed_without_the_pin_leaving_the_api(bay):
+    c, admin, bay_id, _ = bay
+    d = setup_bay(c, admin, bay_id)
+    (std,) = c.get("/api/v1/bay-standards", headers=admin).json()
+    assert std["bay_id"] == bay_id and std["crates_per_unit"] == 28
+
+    body = {"name": "Tendai M. Moyo", "badge_code": "BI0042", "employee_ref": "E9", "active": True}
+    r = c.put(f"/api/v1/drivers/{d['id']}", json=body, headers=admin)
+    assert r.status_code == 200 and r.json()["name"] == "Tendai M. Moyo"
+    assert r.json()["has_pin"] is False  # an edit never touches the PIN
+
+    r = c.put(f"/api/v1/drivers/{d['id']}/pin", json={"pin": "7310"}, headers=admin)
+    assert r.status_code == 200 and r.json()["has_pin"] is True and "7310" not in r.text
+    assert check_in(c, admin, bay_id, pin="7310").status_code == 201
+
+    r = c.put(f"/api/v1/drivers/{d['id']}/pin", json={"pin": "12"}, headers=admin)
+    assert r.status_code == 422  # a PIN is 4 to 8 digits
+    r = c.put(f"/api/v1/drivers/{d['id']}/pin", json={"pin": None}, headers=admin)
+    assert r.status_code == 200 and r.json()["has_pin"] is False
