@@ -56,6 +56,13 @@ from ivaas.application.cameras import (
     RegisterCamera,
     RemoveCamera,
 )
+from ivaas.application.crate_control import (
+    AcceptTransaction,
+    CheckIn,
+    CloseTransaction,
+    DriverBalanceQuery,
+    ObserveColumn,
+)
 from ivaas.application.lifecycle import TenantLifecycle
 from ivaas.application.manifests import ReconcileManifests
 from ivaas.application.onboarding import Onboarding
@@ -221,6 +228,7 @@ class Container:
     ml_models: Any
     evidence: Any
     fleet: Any
+    crate_control: Any
     manifests: Any
     exceptions: Any
     reports: Any
@@ -315,8 +323,39 @@ class Container:
             )
 
         return RecordCrateCrossing(
-            self.sessions, self.events, auto_open=self.open_session, auto_open_enabled=enabled
+            self.sessions,
+            self.events,
+            auto_open=self.open_session,
+            auto_open_enabled=enabled,
+            observe=ObserveColumn(self.crate_control),
         )
+
+    # controlled bays (ADR 0004) -------------------------------------------------
+    @property
+    def check_in(self) -> CheckIn:
+        return CheckIn(
+            self.crate_control,
+            self.sessions,
+            self.open_session,
+            self.close_session,
+            self.hasher,
+            self.events,
+            self.clock,
+        )
+
+    @property
+    def close_transaction(self) -> CloseTransaction:
+        return CloseTransaction(
+            self.crate_control, self.sessions, self.close_session, self.events, self.clock
+        )
+
+    @property
+    def accept_transaction(self) -> AcceptTransaction:
+        return AcceptTransaction(self.crate_control, self.events, self.clock)
+
+    @property
+    def driver_balances(self) -> DriverBalanceQuery:
+        return DriverBalanceQuery(self.crate_control, self.clock)
 
     async def record_plate_uc(self) -> RecordPlateRead:
         direction = await self.effective(AUTO_OPEN_DIRECTION, self.settings.auto_open_direction)
@@ -769,6 +808,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.fleet_postgres import PostgresFleetStore
 
         fleet: Any = PostgresFleetStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.crate_control_postgres import PostgresCrateControlStore
+
+        crate_control: Any = PostgresCrateControlStore(pg_sessionmaker)
         from ivaas.adapters.persistence.manifests_postgres import (
             PostgresExceptionStore,
             PostgresManifestStore,
@@ -842,6 +884,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.fleet_postgres import InMemoryFleetStore
 
         fleet = PerTenant(InMemoryFleetStore)
+        from ivaas.adapters.persistence.crate_control_postgres import InMemoryCrateControlStore
+
+        crate_control = PerTenant(InMemoryCrateControlStore)
         from ivaas.adapters.persistence.manifests_postgres import (
             InMemoryExceptionStore,
             InMemoryManifestStore,
@@ -956,6 +1001,7 @@ async def build_container(settings: Settings) -> Container:
         ml_models=ml_models,
         evidence=evidence,
         fleet=fleet,
+        crate_control=crate_control,
         manifests=manifests,
         exceptions=exceptions,
         reports=reports,

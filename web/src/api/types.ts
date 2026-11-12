@@ -227,7 +227,14 @@ export type AuditAction =
   | "tenant_exported"
   | "tenant_purged"
   | "sso_configured"
-  | "sso_removed";
+  | "sso_removed"
+  | "driver_saved"
+  | "drivers_imported"
+  | "driver_pin_set"
+  | "bay_standard_set"
+  | "crate_check_in"
+  | "crate_transaction_closed"
+  | "crate_transaction_accepted";
 
 export interface AuditEntry {
   id: string;
@@ -993,4 +1000,94 @@ export interface RevenueView {
   overdue_amount: string;
   by_payer: Record<string, string>;
   placeholder: boolean;
+}
+
+// --- controlled bays (ADR 0004) -----------------------------------------------------
+
+export interface Driver {
+  id: string;
+  name: string;
+  badge_code: string;
+  employee_ref: string;
+  phone: string;
+  active: boolean;
+  has_pin: boolean;
+  created_at: string | null;
+}
+
+export interface DriverImport {
+  added: number;
+  updated: number;
+  errors: string[];
+}
+
+export interface BayStandard {
+  bay_id: string;
+  columns: number;
+  layers: number;
+  crates_per_unit: number;
+  controlled: boolean;
+}
+
+export type CrateDirection = "loading" | "offloading";
+export type TransactionStatus = "open" | "verified" | "short" | "over" | "non_standard" | "unverified" | "accepted";
+export type ColumnVerdict = "full" | "non_standard" | "unsure";
+export type AcceptReason = "camera_blocked" | "damaged_crates" | "counted_by_hand" | "declaration_error" | "other";
+
+export interface CrateValidation {
+  status: TransactionStatus;
+  expected_columns: number;
+  expected_crates: number;
+  full_columns: number;
+  non_standard_columns: number;
+  unsure_columns: number;
+  counted_crates: number | null;
+  columns: { crates: number; verdict: ColumnVerdict }[];
+}
+
+export interface CrateTransaction {
+  id: string;
+  bay_id: string;
+  bay_name: string | null;
+  driver_id: string;
+  driver_name: string | null;
+  badge_code: string | null;
+  session_id: string;
+  plate: string | null;
+  direction: CrateDirection;
+  declared_units: number;
+  standard_columns: number;
+  standard_layers: number;
+  expected_crates: number;
+  status: TransactionStatus;
+  validated_status: TransactionStatus | null;
+  opened_at: string;
+  closed_at: string | null;
+  checked_in_by: string;
+  full_columns: number | null;
+  non_standard_columns: number | null;
+  unsure_columns: number | null;
+  counted_crates: number | null;
+  accepted_by: string | null;
+  accepted_at: string | null;
+  accept_reason: AcceptReason | null;
+  accept_note: string | null;
+  progress: CrateValidation | null;
+}
+
+export interface DriverBalance {
+  driver_id: string;
+  driver_name: string | null;
+  badge_code: string | null;
+  issued: number;
+  returned: number;
+  outstanding: number;
+  dispatches: number;
+  returns: number;
+  in_progress: number;
+  exceptions: number;
+  unmeasured: number;
+  unmeasured_declared_out: number;
+  unmeasured_declared_back: number;
+  last_at: string | null;
 }

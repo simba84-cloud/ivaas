@@ -58,3 +58,37 @@ def test_nudged_stack_is_not_counted_twice():
     for i in range(20, 60):  # moved 200 px and left again for 4 s
         out += c.update(frame(i), [track(1, 300)])
     assert len(out) == 1
+
+
+class Cycling:
+    def __init__(self, values):
+        self.values, self.i = values, 0
+
+    def estimate(self, image, box):
+        v = self.values[self.i % len(self.values)] if self.values else None
+        self.i += 1
+        return None if v is None else LayerEstimate(v, 50, 0.5)
+
+
+def _count_one(layers):
+    c = StackSettleCounter(layers, settle_seconds=1.0)
+    out = []
+    for i in range(20):
+        out += c.update(frame(i), [track(1, 100)])
+    assert len(out) == 1
+    return out[0]
+
+
+def test_unanimous_frames_agree_fully():
+    assert _count_one(Layers()).agreement == 1.0
+
+
+def test_split_frames_lower_the_agreement():
+    # settled at frame 10, after 11 estimates: eight 14s and three 13s
+    x = _count_one(Cycling([14.0, 14.0, 13.0]))
+    assert x.crates == 14 and x.agreement == 8 / 11
+
+
+def test_fallback_count_has_no_agreement():
+    x = _count_one(Cycling([]))
+    assert x.crates == 1 and x.confidence == 0.0 and x.agreement is None

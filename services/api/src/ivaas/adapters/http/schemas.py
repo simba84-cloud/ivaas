@@ -379,6 +379,9 @@ class CrossingIn(BaseModel):
     crates: int = Field(default=1, ge=1, le=40, description="crates in the object that crossed")
     confidence: float = Field(ge=0, le=1)
     crossed_at: datetime
+    #: share of per-frame height estimates that agreed with `crates`; optional, so
+    #: nodes from before controlled bays (ADR 0004) keep working
+    agreement: float | None = Field(default=None, ge=0, le=1)
     #: set by the edge node when it spools the event; a replay with the same id is
     #: acknowledged and skipped, so a crash mid-delivery cannot count crates twice
     event_id: UUID | None = None

@@ -65,6 +65,13 @@ import type {
   SsoView,
   RevenueView,
   TenantFleet,
+  AcceptReason,
+  BayStandard,
+  CrateDirection,
+  CrateTransaction,
+  Driver,
+  DriverBalance,
+  DriverImport,
 } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -306,6 +313,35 @@ export const api = {
     form.append("file", file);
     return request<ManifestImport>("/api/v1/manifests/import", { method: "POST", body: form });
   },
+  // controlled bays (ADR 0004)
+  drivers: () => request<Driver[]>("/api/v1/drivers"),
+  addDriver: (d: { name: string; badge_code: string; employee_ref?: string; phone?: string; pin?: string }) =>
+    request<Driver>("/api/v1/drivers", { method: "POST", body: JSON.stringify(d) }),
+  updateDriver: (id: string, d: { name: string; badge_code: string; employee_ref: string; phone: string; active: boolean }) =>
+    request<Driver>(`/api/v1/drivers/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+  setDriverPin: (id: string, pin: string | null) =>
+    request<Driver>(`/api/v1/drivers/${id}/pin`, { method: "PUT", body: JSON.stringify({ pin }) }),
+  importDrivers: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<DriverImport>("/api/v1/drivers/import", { method: "POST", body: form });
+  },
+  driverBalances: (days: number) => request<DriverBalance[]>(`/api/v1/drivers/balances?days=${days}`),
+  bayStandards: () => request<BayStandard[]>("/api/v1/bay-standards"),
+  setBayStandard: (bayId: string, s: { columns: number; layers: number; controlled: boolean }) =>
+    request<BayStandard>(`/api/v1/bays/${bayId}/standard`, { method: "PUT", body: JSON.stringify(s) }),
+  checkIn: (bayId: string, body: { badge: string; pin?: string; direction: CrateDirection; declared_units: number }) =>
+    request<CrateTransaction>(`/api/v1/bays/${bayId}/check-in`, { method: "POST", body: JSON.stringify(body) }),
+  bayTransaction: (bayId: string) => request<CrateTransaction | null>(`/api/v1/bays/${bayId}/transaction`),
+  closeTransaction: (id: string) =>
+    request<CrateTransaction>(`/api/v1/crate-transactions/${id}/close`, { method: "POST" }),
+  acceptTransaction: (id: string, reason: AcceptReason, note?: string) =>
+    request<CrateTransaction>(`/api/v1/crate-transactions/${id}/accept`, {
+      method: "POST",
+      body: JSON.stringify({ reason, note: note || null }),
+    }),
+  crateTransactions: (days: number, exceptionsOnly: boolean) =>
+    request<CrateTransaction[]>(`/api/v1/crate-transactions?days=${days}&exceptions_only=${exceptionsOnly}`),
   fleet: () => request<Vehicle[]>("/api/v1/fleet"),
   addVehicle: (v: { plate: string; fleet_number?: string; operator?: string }) =>
     request<Vehicle>("/api/v1/fleet", { method: "POST", body: JSON.stringify(v) }),

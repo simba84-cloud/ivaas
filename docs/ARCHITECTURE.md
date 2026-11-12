@@ -773,6 +773,13 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
   tenant with its own product type, model and counter. Module specs live in
   `docs/modules/` (first: [nfl-snacks.md](modules/nfl-snacks.md)); the product-type
   change is proposed in [ADR 0002](adr/0002-product-type-generalisation.md).
+- **Controlled bays validate a standard unit; they do not count freely.** At a bay
+  marked controlled, a driver checks in by badge or PIN plus plate, declares a number
+  of standard units (columns × crates per column), and each column is checked against
+  the standard. Columns the frames do not agree on are *unverified*, never a number.
+  Every transaction is booked to a driver, which gives per-driver balances. Free
+  counting stays everywhere else. Decision: [ADR 0004](adr/0004-controlled-bays.md);
+  feasibility and measured figures: [crate-control.md](modules/crate-control.md).
 
 ## 5. Scaling path
 
