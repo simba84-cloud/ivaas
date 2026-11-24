@@ -1,5 +1,7 @@
 import { getBreakGlass, getToken, type Me } from "../auth/session";
 import type {
+  AlertEmail,
+  AlertEmailStatus,
   Acknowledgement,
   BadgeEvent,
   EnrolledPerson,
@@ -392,10 +394,15 @@ export const api = {
   },
   summary: () => request<Summary>("/api/v1/summary"),
   users: () => request<User[]>("/api/v1/users"),
-  createUser: (username: string, display_name: string, roles: UserRole[]) =>
+  createUser: (username: string, display_name: string, roles: UserRole[], email?: string) =>
     request<TemporaryPassword>("/api/v1/users", {
       method: "POST",
-      body: JSON.stringify({ username, display_name, roles }),
+      body: JSON.stringify({ username, display_name, roles, email: email || null }),
+    }),
+  setUserEmail: (username: string, email: string) =>
+    request<User>(`/api/v1/users/${username}/email`, {
+      method: "PUT",
+      body: JSON.stringify({ email: email || null }),
     }),
   assignRoles: (username: string, roles: UserRole[]) =>
     request<User>(`/api/v1/users/${username}/roles`, {
@@ -414,6 +421,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ current_password, new_password }),
     }),
+  alertEmail: () => request<AlertEmailStatus>("/api/v1/alerts/email"),
+  sendTestEmail: () => request<AlertEmail>("/api/v1/alerts/email/test", { method: "POST" }),
   settings: () => request<PlatformSettings>("/api/v1/settings"),
   setSetting: (key: string, value: unknown) =>
     request<PlatformSettings>(`/api/v1/settings/${key}`, {

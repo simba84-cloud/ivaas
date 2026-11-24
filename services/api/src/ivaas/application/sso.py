@@ -19,7 +19,7 @@ from ivaas.adapters.auth.oidc_client import pkce_pair
 from ivaas.domain.rbac import Role, RoleBinding
 from ivaas.domain.sso import SsoConfig, SsoDenied, SsoError, email_of
 from ivaas.domain.tenancy import ScopeType, Tenant
-from ivaas.domain.users import User
+from ivaas.domain.users import User, UserError, check_email
 from ivaas.tenancy import system_context, tenant_context
 
 PENDING_FOR_S = 600
@@ -140,6 +140,11 @@ class SsoSignIn:
 
         user.sso_issuer, user.sso_subject = config.issuer, subject
         user.last_login_at = self.clock.now()
+        if not user.email:  # the provider vouched for it: where alert emails can go
+            try:
+                user.email = check_email(email)
+            except UserError:
+                pass
         with tenant_context(tenant.id):
             await self.users.save(user)
         return user

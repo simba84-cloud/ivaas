@@ -598,6 +598,8 @@ class UserOut(BaseModel):
     created_at: datetime | None
     password_changed_at: datetime | None
     last_login_at: datetime | None
+    #: where alert emails reach this person, if anywhere
+    email: str | None = None
 
     @staticmethod
     def of(u: User) -> UserOut:
@@ -612,6 +614,7 @@ class UserOut(BaseModel):
             created_at=u.created_at,
             password_changed_at=u.password_changed_at,
             last_login_at=u.last_login_at,
+            email=u.email,
         )
 
 
@@ -620,6 +623,8 @@ class CreateUserIn(BaseModel):
     username: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z0-9._@-]+$")
     display_name: str = Field(default="", max_length=120)
     roles: list[Role] = Field(min_length=1)
+    #: where alert emails reach them; optional
+    email: str | None = Field(default=None, max_length=254)
 
     @field_validator("roles")
     @classmethod
@@ -638,6 +643,11 @@ class AssignRolesIn(BaseModel):
 
 class SetEnabledIn(BaseModel):
     enabled: bool
+
+
+class SetEmailIn(BaseModel):
+    #: empty or null removes it
+    email: str | None = Field(default=None, max_length=254)
 
 
 class TemporaryPasswordOut(BaseModel):

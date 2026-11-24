@@ -32,6 +32,7 @@ import {
   LifeBuoy,
   Eye,
   Download,
+  Mail,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
@@ -136,6 +137,8 @@ const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon; tone: stri
   crate_check_in: { label: "Checked a driver in", icon: BadgeCheck, tone: "text-brand bg-brand/10" },
   crate_transaction_closed: { label: "Validated a crate transaction", icon: ClipboardCheck, tone: "text-brand bg-brand/10" },
   crate_transaction_accepted: { label: "Accepted a crate exception", icon: CheckCircle2, tone: "text-warn bg-warn/10" },
+  user_email_changed: { label: "Changed a user's email", icon: Mail, tone: "text-brand bg-brand/10" },
+  alert_email_tested: { label: "Sent a test alert email", icon: Mail, tone: "text-brand bg-brand/10" },
 };
 
 const WINDOWS = [

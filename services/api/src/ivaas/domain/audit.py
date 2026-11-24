@@ -88,6 +88,8 @@ class AuditAction(StrEnum):
     CRATE_CHECK_IN = "crate_check_in"
     CRATE_TRANSACTION_CLOSED = "crate_transaction_closed"
     CRATE_TRANSACTION_ACCEPTED = "crate_transaction_accepted"
+    USER_EMAIL_CHANGED = "user_email_changed"
+    ALERT_EMAIL_TESTED = "alert_email_tested"
 
 
 @dataclass(frozen=True)

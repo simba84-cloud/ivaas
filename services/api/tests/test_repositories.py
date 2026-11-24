@@ -1152,3 +1152,77 @@ async def test_partner_invoices_and_holds_round_trip_on_postgres(request):
             await tenants.save(bakers)
     finally:
         await dispose()
+
+
+# --- alert email outbox ---------------------------------------------------------------
+@pytest_asyncio.fixture
+async def outbox(request):
+    """-> alert email store for the requested backend, empty."""
+    from ivaas.adapters.persistence.alert_email_postgres import (
+        InMemoryAlertEmailStore,
+        PostgresAlertEmailStore,
+    )
+
+    if request.param == "memory":
+        yield InMemoryAlertEmailStore()
+        return
+
+    from sqlalchemy import text
+
+    from ivaas.adapters.persistence.postgres import build_postgres_repositories
+
+    postgres_url = request.getfixturevalue("postgres_url")
+    *_, dispose, sm = await build_postgres_repositories(
+        postgres_url, seed=(SITE, BAY, []), box=SecretBox([SecretBox.generate_key()])
+    )
+    async with sm.begin() as db:
+        await db.execute(text("DELETE FROM alert_emails"))
+    yield PostgresAlertEmailStore(sm)
+    await dispose()
+
+
+both_outboxes = pytest.mark.parametrize(
+    "outbox", ["memory", pytest.param("postgres", marks=pytest.mark.postgres)], indirect=True
+)
+
+
+def alert(key="discrepancy:1", at=None):
+    from ivaas.domain.alert_email import AlertEmail, AlertKind
+
+    return AlertEmail(
+        kind=AlertKind.DISCREPANCY,
+        dedupe_key=key,
+        recipients=("a@example.com", "b@example.com"),
+        subject="Count disputed",
+        body_text="text",
+        body_html="<p>html</p>",
+        created_at=at or T0,
+    )
+
+
+@both_outboxes
+async def test_an_alert_is_kept_once_per_dedupe_key_and_round_trips(outbox):
+    from ivaas.domain.alert_email import EmailStatus
+
+    first = alert()
+    assert await outbox.queue(first) is True
+    assert await outbox.queue(alert()) is False  # same key: never twice
+    assert await outbox.exists("discrepancy:1") and not await outbox.exists("other")
+    [kept] = await outbox.recent()
+    assert kept.id == first.id and kept.recipients == ("a@example.com", "b@example.com")
+    assert kept.body_html == "<p>html</p>" and kept.status is EmailStatus.PENDING
+
+    [claimed] = await outbox.claim_due(T0)
+    assert await outbox.claim_due(T0) == []  # leased
+    claimed.succeeded(T0 + timedelta(seconds=1))
+    await outbox.save(claimed)
+    [sent] = await outbox.recent()
+    assert sent.status is EmailStatus.SENT and sent.attempts == 1
+    assert await outbox.claim_due(T0 + timedelta(days=1)) == []
+
+
+@both_outboxes
+async def test_recent_alerts_are_newest_first(outbox):
+    for i in range(3):
+        await outbox.queue(alert(key=f"k{i}", at=T0 + timedelta(minutes=i)))
+    assert [e.dedupe_key for e in await outbox.recent(2)] == ["k2", "k1"]

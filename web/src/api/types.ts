@@ -234,7 +234,9 @@ export type AuditAction =
   | "bay_standard_set"
   | "crate_check_in"
   | "crate_transaction_closed"
-  | "crate_transaction_accepted";
+  | "crate_transaction_accepted"
+  | "user_email_changed"
+  | "alert_email_tested";
 
 export interface AuditEntry {
   id: string;
@@ -272,6 +274,8 @@ export interface User {
   created_at: string | null;
   password_changed_at: string | null;
   last_login_at: string | null;
+  /** Where alert emails reach this person; null until someone records one. */
+  email?: string | null;
 }
 
 export interface TemporaryPassword {
@@ -283,7 +287,7 @@ export interface EditableSetting {
   key: string;
   label: string;
   help: string;
-  kind: "percent" | "minutes" | "days" | "crates" | "choice" | "text";
+  kind: "percent" | "minutes" | "days" | "crates" | "hour" | "choice" | "text";
   choices: string[];
   minimum: number | null;
   maximum: number | null;
@@ -1090,4 +1094,32 @@ export interface DriverBalance {
   unmeasured_declared_out: number;
   unmeasured_declared_back: number;
   last_at: string | null;
+}
+
+/** One alert email in the outbox: what went out, to whom, and whether it landed. */
+export interface AlertEmail {
+  id: string;
+  kind: "discrepancy" | "camera_offline" | "analysis_failed" | "daily_summary" | "test";
+  subject: string;
+  recipients: string[];
+  status: "pending" | "sent" | "failed";
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  sent_at: string | null;
+}
+
+export interface AlertEmailStatus {
+  /** The deployment has a relay; without one nothing is queued. */
+  configured: boolean;
+  relay: string | null;
+  sender: string | null;
+  starttls: string;
+  /** The tenant's rule: alerts switched on. */
+  enabled: boolean;
+  group: string;
+  recipients: string[];
+  /** People the rule names who have no email address to be reached at. */
+  missing_email: string[];
+  recent: AlertEmail[];
 }

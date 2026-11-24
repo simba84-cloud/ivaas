@@ -12,6 +12,7 @@ So: a long minimum, a check against obvious choices, and no expiry.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
@@ -62,6 +63,24 @@ class SelfLockoutError(UserError):
         super().__init__(f"you cannot {what} your own account")
 
 
+class InvalidEmailError(UserError):
+    pass
+
+
+MAX_EMAIL_LENGTH = 254
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def check_email(value: str | None) -> str | None:
+    """An address as kept on an account: trimmed and lower-cased, or None for none."""
+    text = (value or "").strip().lower()
+    if not text:
+        return None
+    if len(text) > MAX_EMAIL_LENGTH or not _EMAIL.match(text):
+        raise InvalidEmailError(f"{value!r} is not an email address")
+    return text
+
+
 def validate_password(password: str, *, username: str | None = None) -> None:
     """Raise WeakPasswordError unless the password is acceptable."""
     if len(password) < MIN_PASSWORD_LENGTH:
@@ -98,6 +117,8 @@ class User:
     #: in through it: later sign-ins must be the same person, not just the same email
     sso_issuer: str | None = None
     sso_subject: str | None = None
+    #: where alert emails reach this person; None until someone records one
+    email: str | None = None
 
     @property
     def roles(self) -> set[Role]:

@@ -79,6 +79,15 @@ class Settings(BaseSettings):
     # The price book billing rates with (SKUs, plans, tax, currency). The one shipped
     # is made up and says so: every invoice from it is stamped NOT FOR ISSUE.
     price_book: str = str(Path(__file__).parent / "price_book.placeholder.json")
+    # Email alerts go out through this SMTP relay; empty host = email disabled. The
+    # Liquid relay accepts mail from allowlisted addresses with no login, so there is
+    # no password to configure. STARTTLS: "off", "opportunistic" (when offered) or
+    # "required". Links in emails point at public_url.
+    smtp_host: str = ""
+    smtp_port: int = 25
+    smtp_from: str = ""
+    smtp_starttls: Literal["off", "opportunistic", "required"] = "opportunistic"
+    smtp_timeout_s: float = 15.0
     # Analysis assistant. Any OpenAI-compatible server; empty = assistant disabled.
     llm_url: str = ""
     llm_model: str = "qwen3:8b"  # Apache-2.0 open weights, reliable tool calling

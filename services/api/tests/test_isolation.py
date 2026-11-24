@@ -52,6 +52,7 @@ BODIES: dict[tuple[str, str], object] = {
     ("PUT", "/api/v1/users/{username}/roles"): {"roles": ["auditor"]},
     ("PUT", "/api/v1/users/{username}/bindings"): {"bindings": [{"role": "auditor"}]},
     ("PUT", "/api/v1/users/{username}/enabled"): {"enabled": False},
+    ("PUT", "/api/v1/users/{username}/email"): {"email": "b@example.com"},
     ("POST", "/api/v1/users/{username}/reset-password"): None,
     ("GET", "/api/v1/analysis/{job_id}"): None,
     ("GET", "/api/v1/objects/{key:path}"): None,

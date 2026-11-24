@@ -44,6 +44,13 @@ from ivaas.adapters.streaming.mediamtx import MediaMtxGateway, NullStreamGateway
 from ivaas.adapters.streaming.onvif import OnvifDiscovery
 from ivaas.adapters.streaming.probe import NetworkSourceProbe
 from ivaas.adapters.streaming.snapshot import OpenCvFrameGrabber
+from ivaas.application.alert_email import (
+    AlertEmails,
+    DeliverAlertEmails,
+    QueueAlertEmails,
+    SendDailySummaries,
+    SendTestEmail,
+)
 from ivaas.application.alerts import AcknowledgeAlert, ListAcknowledgements
 from ivaas.application.analysis import RunNextJob, SubmitVideo
 from ivaas.application.analytics import AnalyticsTools
@@ -237,6 +244,8 @@ class Container:
     partner_invoices: Any
     price_book: PriceBook
     webhook_sender: Any
+    alert_emails: Any
+    mail_sender: Any
     users: Any
     hasher: Any
     audit: Any
@@ -413,7 +422,9 @@ class Container:
 
     @property
     def refresh_camera_status(self) -> RefreshCameraStatus:
-        return RefreshCameraStatus(self.bays, self.cameras, self.gateway, self.clock, self.probe)
+        return RefreshCameraStatus(
+            self.bays, self.cameras, self.gateway, self.clock, self.probe, self.events
+        )
 
     @property
     def remove_camera(self) -> RemoveCamera:
@@ -476,6 +487,33 @@ class Container:
 
     def deliver_webhooks_uc(self) -> DeliverWebhooks:
         return DeliverWebhooks(self.webhooks, self.webhook_sender, self.clock)
+
+    def alert_email_queue(self) -> AlertEmails:
+        return AlertEmails(
+            self.alert_emails, self.users, self.mail_sender, self.effective, self.clock
+        )
+
+    def queue_alert_emails(self) -> QueueAlertEmails:
+        return QueueAlertEmails(self.alert_email_queue(), self.bays, self.settings.public_url)
+
+    def deliver_alert_emails_uc(self) -> DeliverAlertEmails:
+        return DeliverAlertEmails(self.alert_emails, self.mail_sender, self.clock)
+
+    def send_test_email_uc(self) -> SendTestEmail:
+        return SendTestEmail(
+            self.alert_emails, self.users, self.mail_sender, self.clock, self.settings.public_url
+        )
+
+    async def send_daily_summaries_uc(self) -> SendDailySummaries:
+        return SendDailySummaries(
+            self.alert_email_queue(),
+            await self.build_daily_report_uc(),
+            self.sites,
+            self.bays,
+            self.cameras,
+            self.clock,
+            self.settings.public_url,
+        )
 
     def manage_webhooks(self) -> ManageWebhooks:
         return ManageWebhooks(
@@ -667,6 +705,17 @@ class Container:
             await closer()
 
 
+class _AlertEmailSink:
+    """Queues an alert email for the events worth one (a disputed load, a camera
+    gone dark, a failed analysis)."""
+
+    def __init__(self, container: Container) -> None:
+        self._container = container
+
+    async def publish(self, subject: str, payload: dict) -> None:
+        await self._container.queue_alert_emails().publish(subject, payload)
+
+
 class _WebhookSink:
     """Queues webhook deliveries for events the tenant's endpoints subscribe to."""
 
@@ -824,6 +873,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.webhooks_postgres import PostgresWebhookStore
 
         webhooks: Any = PostgresWebhookStore(pg_sessionmaker, box)
+        from ivaas.adapters.persistence.alert_email_postgres import PostgresAlertEmailStore
+
+        alert_emails: Any = PostgresAlertEmailStore(pg_sessionmaker)
         from ivaas.adapters.persistence.billing_postgres import (
             PostgresBillingStore,
             PostgresPartnerInvoiceStore,
@@ -900,6 +952,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.webhooks_postgres import InMemoryWebhookStore
 
         webhooks = PerTenant(InMemoryWebhookStore)
+        from ivaas.adapters.persistence.alert_email_postgres import InMemoryAlertEmailStore
+
+        alert_emails = PerTenant(InMemoryAlertEmailStore)
         from ivaas.adapters.persistence.billing_postgres import (
             InMemoryBillingStore,
             InMemoryPartnerInvoiceStore,
@@ -993,6 +1048,19 @@ async def build_container(settings: Settings) -> Container:
     webhook_sender = HttpWebhookSender(allow_private=settings.webhook_allow_private)
     events = FanoutEventPublisher(sinks)
     closers.append(webhook_sender.aclose)
+    from ivaas.adapters.mail import DisabledMailSender, SmtpMailSender
+
+    mail_sender: Any = (
+        SmtpMailSender(
+            settings.smtp_host,
+            settings.smtp_port,
+            settings.smtp_from,
+            starttls=settings.smtp_starttls,
+            timeout_s=settings.smtp_timeout_s,
+        )
+        if settings.smtp_host and settings.smtp_from
+        else DisabledMailSender()
+    )
     container = Container(
         settings=settings,
         tenants=tenants,
@@ -1035,6 +1103,8 @@ async def build_container(settings: Settings) -> Container:
         analyser=PipelineVideoAnalyser(analysis_detector(settings), settings.layers_model),
         webhooks=webhooks,
         webhook_sender=webhook_sender,
+        alert_emails=alert_emails,
+        mail_sender=mail_sender,
         billing_store=billing_store,
         partner_invoices=partner_invoices,
         price_book=PriceBook.load(settings.price_book),
@@ -1053,4 +1123,5 @@ async def build_container(settings: Settings) -> Container:
     )
     # read through the container at publish time: its clock and store are the live ones
     events.add(_WebhookSink(container))
+    events.add(_AlertEmailSink(container))
     return container

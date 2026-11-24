@@ -20,6 +20,7 @@ from ivaas.domain.users import (
     SelfLockoutError,
     User,
     UserError,
+    check_email,
     validate_password,
 )
 from ivaas.ports.repositories import Clock
@@ -74,9 +75,12 @@ class UserAdmin:
     async def list_users(self) -> list[User]:
         return await self.users.list_all()
 
-    async def create(self, username: str, display_name: str, roles: set[Role]) -> tuple[User, str]:
+    async def create(
+        self, username: str, display_name: str, roles: set[Role], email: str | None = None
+    ) -> tuple[User, str]:
         """Create an account in the caller's tenant with a temporary password, returned once."""
         username = username.strip().lower()
+        address = check_email(email)
         if not username:
             raise UserError("a username is required")
         # Usernames are what people sign in with, before any tenant is known, so they
@@ -93,6 +97,7 @@ class UserAdmin:
             must_change_password=True,
             created_at=self.clock.now(),
             password_changed_at=self.clock.now(),
+            email=address,
         )
         user.assign_roles(set(roles))
         await self.users.save(user)
@@ -127,6 +132,13 @@ class UserAdmin:
         if not enabled:
             # ending the account also ends its open sessions
             user.password_changed_at = self.clock.now()
+        await self.users.save(user)
+        return user
+
+    async def set_email(self, username: str, email: str | None) -> User:
+        """Where alert emails reach this person; empty removes it."""
+        user = await self._require(username)
+        user.email = check_email(email)
         await self.users.save(user)
         return user
 
