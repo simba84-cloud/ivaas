@@ -91,6 +91,26 @@ Host ports other projects may also want are settable in `.env`: `IVAAS_PORTAL_PO
 `IVAAS_MINIO_CONSOLE_PORT` (9001). The stack runs as compose project `ivaas-poc`.
 A tenant on an installation of its own (a silo, T8.6): see [docs/SILO.md](docs/SILO.md).
 
+Email alerts (disputed count, a manual sign-off of a load or crate exception, camera
+offline, failed video analysis, daily summary) go
+through the SMTP relay set by `IVAAS_SMTP_HOST` (default `relay.liquidtelecom.net`),
+`IVAAS_SMTP_PORT` (25) and `IVAAS_SMTP_FROM` (`xyz@liquid.tech`). The relay takes no
+login: it accepts mail only from allowlisted addresses, so the host needs a route to it.
+A laptop reaches it only over the Liquid VPN. STARTTLS is used when the relay offers it
+(`IVAAS_SMTP_STARTTLS=off|opportunistic|required`). An empty `IVAAS_SMTP_HOST` turns email
+off. Where the relay's name does not resolve inside Docker, map it with
+`IVAAS_SMTP_HOST_ENTRY=relay.liquidtelecom.net:<ip>`.
+
+To start receiving them:
+1. Put an email address on each person under **Users**.
+2. In **Settings → Email alerts**, press **Send a test to me** and check that it arrives.
+3. Switch the alerts on.
+
+The same panel lists who will receive alerts, who has no address, and the last 20
+emails, with the relay's answer to each. An email that fails is retried with backoff,
+so one queued while the relay was unreachable goes out once it is back. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §2a-v-b.
+
 Use a laptop webcam as a camera (register it as a push camera in the portal first):
 
 ```bash

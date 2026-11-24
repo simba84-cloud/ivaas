@@ -46,6 +46,9 @@ class AlertKind(StrEnum):
     CAMERA_OFFLINE = "camera_offline"
     ANALYSIS_FAILED = "analysis_failed"
     DAILY_SUMMARY = "daily_summary"
+    #: a person accepted a discrepancy on the record: a disputed load, or a crate
+    #: transaction a supervisor accepted
+    SIGN_OFF = "sign_off"
     TEST = "test"
 
 
@@ -132,3 +135,8 @@ def camera_key(camera_id: UUID | str, last_seen_at: str) -> str:
 
 def summary_key(site_id: UUID | str, day: str) -> str:
     return f"summary:{site_id}:{day}"
+
+
+def sign_off_key(what: str, record_id: UUID | str) -> str:
+    """A load or transaction is signed off once, so once is all it is emailed."""
+    return f"signoff:{what}:{record_id}"

@@ -24,6 +24,7 @@ Nothing here can be fixed quickly in a loading bay.
 | ☐ | **Run the backups and pass a restore drill** on the POC server (`docs/BACKUP.md`), with `IVAAS_BACKUP_DIR` on its own disk and copied off-site. | The POC's evidence is in that database. A backup that has never been restored is a hope. |
 | ☐ | **Check the platform**: tenant `bakers-inn`, site Bakery Industrial Site (time zone Africa/Harare) and bay Loading Bay exist. | The token is issued for that bay. |
 | ☐ | **Set up accounts.** The installer signs in as Partner Installer for the tenant. Someone with Site Manager access is present for the counting check, because the installer role cannot read counts. **Change every seeded password.** | The Users screen shows seeded passwords in red. |
+| ☐ | **Set up email alerts.** Have Liquid allowlist the platform server's address on `relay.liquidtelecom.net`, and check that the server reaches it on port 25. Put an email address on each person who should hear about problems (Users), press **Send a test to me** under Settings → Email alerts, and switch alerts on. | Otherwise an unplugged camera or a disputed load is only noticed by someone looking at the portal. The relay refuses mail from any address it has not been told about. |
 | ☐ | **Check the LPR camera's position** against the scope drawing: it must face the plates of trucks at the bay. | A test on dock footage read one plate in 81 frames. The angle is the cause, not the reader. |
 
 ## On the day
@@ -72,7 +73,9 @@ Times in brackets are from the rehearsal on 2026-10-01 (a laptop, simulated came
      and counts nothing.
 6. **Unplug drill (T2.5).**
    1. Pull the network cable of one camera. Expect it "offline", with an alert, **within
-      60 s**. [4–10 s]
+      60 s**. [4–10 s] With email alerts on, expect a "Camera offline" email too.
+      It is sent once per outage, and Settings → Email alerts shows whether the relay
+      accepted it.
    2. Plug it back in. Expect it online again. [about 9 s]
    3. Note both times.
 7. **Counting sanity check.** The Site Manager watches one real load through the door on the

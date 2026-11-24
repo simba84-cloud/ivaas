@@ -107,6 +107,7 @@ function Rule({ setting }: { setting: EditableSetting }) {
 
 const KIND_LABEL: Record<AlertEmail["kind"], string> = {
   discrepancy: "Disputed load",
+  sign_off: "Signed off",
   camera_offline: "Camera offline",
   analysis_failed: "Analysis failed",
   daily_summary: "Daily summary",

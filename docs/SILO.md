@@ -71,6 +71,10 @@ Everything below is `deploy/silo/silo.py`, run on the host that runs Docker.
 WebRTC's ICE port to it. Live video then uses RTSP or WHEP only. A silo on its own host
 drops that override.
 
+**Email from its own host:** the relay accepts mail only from allowlisted hosts. A
+silo on a host of its own sends no alerts until Liquid allowlists that host. Until
+then, Settings → Email alerts shows each email's refusal.
+
 **Its own Keycloak:** a silo that should sign in through Keycloak rather than the
 tenant's provider needs its own realm.
 

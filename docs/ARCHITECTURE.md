@@ -241,6 +241,8 @@ a container holding a shared key.
   | Alert | Fires on | Dedupe key |
   | --- | --- | --- |
   | Disputed load | `ivaas.session.reconciled` with status `disputed` | `discrepancy:<session>` |
+  | Load signed off | `ivaas.session.approved`: who approved it, the reason, the note and the counts, unchanged | `signoff:load:<session>` |
+  | Crates signed off | `ivaas.crate.accepted`: the driver, what was found (short, over…), expected and counted crates, who accepted it and why | `signoff:crates:<transaction>` |
   | Camera offline | `ivaas.camera.offline`, published by the camera status sweep when a camera that was streaming stops | `camera:<id>:offline:<last seen>`, so one email per outage |
   | Analysis failed | `ivaas.analysis.updated` with status `failed` | `analysis:<job>` |
   | Daily summary | the tenant sweep, after the chosen hour in each site's own time | `summary:<site>:<day>` |

@@ -1,4 +1,5 @@
-"""Email alerts: a disputed load, a camera gone dark, a failed analysis and the day's
+"""Email alerts: a disputed load, a manual sign-off, a camera gone dark, a failed
+analysis and the day's
 summary each reach the tenant's chosen people once, through the relay, and the
 figures in them are only ones the platform measured.
 
@@ -150,6 +151,76 @@ def test_a_disputed_load_is_emailed_once_with_its_real_counts(world):
     assert "AI count" in message.text and "24" in message.text and "30" in message.text
     assert "-6 crates" in message.text
     assert c.deliver() == []  # nothing left to send
+
+
+def test_a_signed_off_load_is_emailed_once_with_who_why_and_the_unchanged_counts(world):
+    c, admin, container, mail, _ = world
+    switch_on(c, admin)
+    session = disputed_load(c, admin, crates=24, manual=30)
+    body = {"reason": "damaged_removed", "note": "six crates torn at the dock"}
+    r = c.post(f"/api/v1/sessions/{session}/approve", json=body, headers=admin)
+    assert r.status_code == 200 and r.json()["status"] == "approved", r.text
+    # signing off again is refused, so it can never be emailed twice
+    again = c.post(f"/api/v1/sessions/{session}/approve", json=body, headers=admin)
+    assert again.status_code != 200
+    kinds = sorted(e.kind.value for e in c.outbox())
+    assert kinds == ["discrepancy", "sign_off"]
+
+    c.deliver()
+    [message] = [m for m in mail.sent if m.subject.startswith("Load signed off")]
+    assert message.subject == "Load signed off: no plate read at Loading Bay"
+    assert "Damaged crates removed" in message.text
+    assert "six crates torn at the dock" in message.text
+    assert "-6 crates" in message.text and "24" in message.text and "30" in message.text
+    assert "not that it did not happen" in message.text
+    assert message.to == ("admin@bakers-inn.example",)
+
+
+def test_a_crate_exception_a_supervisor_accepts_is_emailed_once(world):
+    c, admin, container, mail, _ = world
+    switch_on(c, admin)
+    bay = c.get("/api/v1/bays", headers=admin).json()[0]["id"]
+    cams = {x["role"]: x["id"] for x in c.get(f"/api/v1/bays/{bay}/cameras", headers=admin).json()}
+    r = c.put(f"/api/v1/bays/{bay}/standard", json={"columns": 2, "layers": 14}, headers=admin)
+    assert r.status_code == 200, r.text
+    driver = {"name": "Tendai Moyo", "badge_code": "bi-0042"}
+    assert c.post("/api/v1/drivers", json=driver, headers=admin).status_code == 201
+    checked_in = c.post(
+        f"/api/v1/bays/{bay}/check-in",
+        json={"badge": "BI0042", "direction": "offloading", "declared_units": 1},
+        headers=admin,
+    )
+    assert checked_in.status_code == 201, checked_in.text
+    txn = checked_in.json()["id"]
+    for n, crates in ((1, 14), (2, 12)):
+        column = {
+            "bay_id": bay,
+            "camera_id": cams["chokepoint"],
+            "track_id": n,
+            "direction": "offloading",
+            "crates": crates,
+            "confidence": 0.9,
+            "agreement": 0.9,
+            "crossed_at": (T0 + timedelta(seconds=n)).isoformat(),
+        }
+        assert c.post("/api/v1/ingest/crossings", json=column, headers=SERVICE).status_code == 200
+    closed = c.post(f"/api/v1/crate-transactions/{txn}/close", headers=admin)
+    assert closed.json()["status"] == "short", closed.text
+    r = c.post(
+        f"/api/v1/crate-transactions/{txn}/accept",
+        json={"reason": "counted_by_hand", "note": "two crates split"},
+        headers=admin,
+    )
+    assert r.status_code == 200, r.text
+
+    [queued] = [e for e in c.outbox() if e.kind is AlertKind.SIGN_OFF]
+    assert queued.dedupe_key == f"signoff:crates:{txn}"
+    c.deliver()
+    [message] = [m for m in mail.sent if m.subject.startswith("Crates signed off")]
+    assert message.subject == "Crates signed off: Tendai Moyo at Loading Bay"
+    for expected in ("Short", "28", "26", "Counted by hand", "two crates split", "admin"):
+        assert expected in message.text, expected
+    assert "/crates" in message.text
 
 
 def test_nothing_is_queued_while_alerts_are_off_or_nobody_has_an_address(world):
