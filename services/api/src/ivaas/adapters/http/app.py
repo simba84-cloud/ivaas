@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 
+from ivaas.adapters.http.alert_email_routes import add_alert_email_routes
 from ivaas.adapters.http.auth import (
     current_principal,
     holds,
@@ -31,6 +32,7 @@ from ivaas.adapters.http.auth import (
 )
 from ivaas.adapters.http.billing_routes import add_billing_routes
 from ivaas.adapters.http.break_glass_routes import add_break_glass_routes
+from ivaas.adapters.http.crate_routes import add_crate_routes
 from ivaas.adapters.http.edge_routes import add_edge_routes
 from ivaas.adapters.http.evidence_routes import add_evidence_routes, sweep_expired
 from ivaas.adapters.http.fleet_routes import add_fleet_routes
@@ -75,6 +77,7 @@ from ivaas.adapters.http.schemas import (
     PlatformConfigOut,
     ReconcileIn,
     SessionOut,
+    SetEmailIn,
     SetEnabledIn,
     SettingIn,
     SettingsOut,
@@ -135,7 +138,7 @@ from ivaas.domain.platform_settings import DEFAULTS as SETTING_DEFAULTS
 from ivaas.domain.rbac import BindingError, RoleBinding, Scope
 from ivaas.domain.rbac import Permission as P
 from ivaas.domain.tenancy import BAKERS_INN_ID, ScopeType, TenancyError
-from ivaas.domain.users import UserError, WeakPasswordError
+from ivaas.domain.users import InvalidEmailError, UserError, WeakPasswordError
 from ivaas.ports.assistant import ChatMessage, ChatModelUnavailableError
 from ivaas.ports.auth import Principal
 from ivaas.tenancy import current_tenant, system_context, tenant_context, tenant_of_object
@@ -210,6 +213,12 @@ async def _sweep_tenant(container: Container, slug: str) -> None:
     except Exception:
         log.exception("%s: ingest ledger prune failed", slug)
     try:
+        # each site's daily summary email, once, after the hour the tenant chose
+        for email in await (await container.send_daily_summaries_uc())():
+            log.info("%s: queued the daily summary email %s", slug, email.dedupe_key)
+    except Exception:
+        log.exception("%s: daily summary email failed", slug)
+    try:
         # a sheet entered while its truck was still loading reconciles once it has left
         for sheet in await (await container.rematch_tally_sheets_uc())():
             log.info("%s: tally sheet %s is now %s", slug, sheet.sheet_id, sheet.status.value)
@@ -237,6 +246,28 @@ async def _deliver_webhooks(container: Container, every_s: float = 5.0) -> None:
                             )
                 except Exception:
                     log.exception("%s: webhook delivery failed", tenant.slug)
+
+
+async def _deliver_alert_emails(container: Container, every_s: float = 5.0) -> None:
+    """Send the alert emails that are due. Claimed before sending, like webhooks, so
+    two API processes never send the same one."""
+    while True:
+        await asyncio.sleep(every_s)
+        for tenant in await _each_tenant(container):
+            with tenant_context(tenant.id):
+                try:
+                    for e in await container.deliver_alert_emails_uc()():
+                        if e.status.value != "sent":
+                            log.warning(
+                                "%s: alert email %s %s: %s (attempt %d)",
+                                tenant.slug,
+                                e.kind.value,
+                                e.status.value,
+                                e.last_error,
+                                e.attempts,
+                            )
+                except Exception:
+                    log.exception("%s: alert email delivery failed", tenant.slug)
 
 
 async def _refresh_camera_status(container: Container, every_s: float = 10.0) -> None:
@@ -294,6 +325,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             asyncio.create_task(_sweep_idle_sessions(app.state.container)),
             asyncio.create_task(_refresh_camera_status(app.state.container)),
             asyncio.create_task(_deliver_webhooks(app.state.container)),
+            asyncio.create_task(_deliver_alert_emails(app.state.container)),
         ]
         if settings.run_analysis_worker:
             tasks.append(asyncio.create_task(job_worker(lambda: app.state.container.run_next_job)))
@@ -352,6 +384,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(WeakPasswordError)
     async def _weak_password(_: Request, exc: WeakPasswordError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(InvalidEmailError)
+    async def _bad_email(_: Request, exc: InvalidEmailError) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": str(exc)})
 
     @app.exception_handler(BindingError)
@@ -715,6 +751,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             confidence=body.confidence,
             crossed_at=body.crossed_at,
             crates=body.crates,
+            agreement=body.agreement,
         )
         try:
             session = await c.record_crossing(body.bay_id, crossing)
@@ -823,7 +860,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> TemporaryPasswordOut:
         _require_local_accounts(c)
         user, temporary = await c.user_admin.create(
-            body.username, body.display_name, set(body.roles)
+            body.username, body.display_name, set(body.roles), body.email
         )
         await audit(
             c,
@@ -919,6 +956,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             principal.name,
             AuditAction.USER_ENABLED if body.enabled else AuditAction.USER_DISABLED,
             username,
+        )
+        return UserOut.of(user)
+
+    @app.put(
+        "/api/v1/users/{username}/email",
+        response_model=UserOut,
+        dependencies=[Depends(require(P.USER_MANAGE))],
+    )
+    async def set_user_email(
+        username: str,
+        body: SetEmailIn,
+        principal: Principal = Depends(current_principal),
+        c: Container = Depends(get_container),
+    ) -> UserOut:
+        """Where alert emails reach this person. Kept here whichever way they sign in:
+        an identity provider says who someone is, not what they want to be told."""
+        user = await c.user_admin.set_email(username, body.email)
+        await audit(
+            c, principal.name, AuditAction.USER_EMAIL_CHANGED, username, after=user.email or "none"
         )
         return UserOut.of(user)
 
@@ -1077,6 +1133,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 label="Media server",
                 value=st.mediamtx_api_url or "Not configured",
                 detail="IVAAS_MEDIAMTX_API_URL",
+            ),
+            ConfigFactOut(
+                label="Email relay",
+                value=f"{st.smtp_host}:{st.smtp_port}" if st.smtp_host else "Not configured",
+                detail=f"From {st.smtp_from}; STARTTLS {st.smtp_starttls}"
+                if st.smtp_host
+                else "IVAAS_SMTP_HOST is empty, so no alert emails are sent",
             ),
             ConfigFactOut(
                 label="Assistant model",
@@ -1285,6 +1348,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_model_routes(app, get_container, audit)
     add_evidence_routes(app, get_container, audit)
     add_fleet_routes(app, get_container, audit)
+    add_crate_routes(app, get_container, audit)
     add_manifest_routes(app, get_container, audit)
     add_report_routes(app, get_container, audit)
     add_webhook_routes(app, get_container, audit)
@@ -1292,6 +1356,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_break_glass_routes(app, get_container, audit)
     add_lifecycle_routes(app, get_container, audit)
     add_sso_routes(app, get_container, audit)
+    add_alert_email_routes(app, get_container, audit)
 
     @app.get("/api/v1/objects/{key:path}", **files("The stored object, as stored", "*/*"))
     async def get_object(

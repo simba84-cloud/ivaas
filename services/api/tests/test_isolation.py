@@ -52,6 +52,7 @@ BODIES: dict[tuple[str, str], object] = {
     ("PUT", "/api/v1/users/{username}/roles"): {"roles": ["auditor"]},
     ("PUT", "/api/v1/users/{username}/bindings"): {"bindings": [{"role": "auditor"}]},
     ("PUT", "/api/v1/users/{username}/enabled"): {"enabled": False},
+    ("PUT", "/api/v1/users/{username}/email"): {"email": "b@example.com"},
     ("POST", "/api/v1/users/{username}/reset-password"): None,
     ("GET", "/api/v1/analysis/{job_id}"): None,
     ("GET", "/api/v1/objects/{key:path}"): None,
@@ -74,6 +75,17 @@ BODIES: dict[tuple[str, str], object] = {
     ("POST", "/api/v1/sessions/{session_id}/vehicle"): {"plate": "B 999 ZZ"},
     ("POST", "/api/v1/sessions/{session_id}/override"): {"count": 1, "reason": "double_counted"},
     ("PUT", "/api/v1/fleet/{vehicle_id}"): {"plate": "B 999 ZZ"},
+    ("PUT", "/api/v1/drivers/{driver_id}"): {"name": "B driver", "badge_code": "B0001"},
+    ("PUT", "/api/v1/drivers/{driver_id}/pin"): {"pin": "1234"},
+    ("PUT", "/api/v1/bays/{bay_id}/standard"): {"columns": 1, "layers": 14},
+    ("POST", "/api/v1/bays/{bay_id}/check-in"): {
+        "badge": "BI0042",
+        "direction": "loading",
+        "declared_units": 1,
+    },
+    ("GET", "/api/v1/bays/{bay_id}/transaction"): None,
+    ("POST", "/api/v1/crate-transactions/{txn_id}/close"): None,
+    ("POST", "/api/v1/crate-transactions/{txn_id}/accept"): {"reason": "other", "note": "x"},
     ("POST", "/api/v1/exceptions/{exception_id}/resolve"): {"note": "looked"},
     ("GET", "/api/v1/edge/models/{model_id}/file"): "node",
     ("GET", "/api/v1/edge/nodes/{node_id}/availability"): None,
@@ -190,6 +202,15 @@ def world():
         ).json()
         node = c.post("/api/v1/edge/enroll", json={"token": made["token"]}).json()
         vehicle = c.post("/api/v1/fleet", json={"plate": "AAA 111"}, headers=a).json()
+        c.put(f"/api/v1/bays/{bay['id']}/standard", json={"columns": 1, "layers": 14}, headers=a)
+        driver = c.post(
+            "/api/v1/drivers", json={"name": "A driver", "badge_code": "BI0042"}, headers=a
+        ).json()
+        txn = c.post(
+            f"/api/v1/bays/{bay['id']}/check-in",
+            json={"badge": "BI0042", "direction": "loading", "declared_units": 1},
+            headers=a,
+        ).json()
         model = c.post(
             "/api/v1/models",
             data={"name": "stacks", "version": "a1", "meta": META},
@@ -221,6 +242,8 @@ def world():
             "node_id": node["node_id"],
             "model_id": model["id"],
             "vehicle_id": vehicle["id"],
+            "driver_id": driver["id"],
+            "txn_id": txn["id"],
             "exception_id": str(exception.id),
             "endpoint_id": hook["id"],
             "delivery_id": delivery["id"],

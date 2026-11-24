@@ -1,5 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Copy, KeyRound, Plus, ShieldCheck, UserPlus, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Copy,
+  KeyRound,
+  Mail,
+  Plus,
+  ShieldCheck,
+  UserPlus,
+  X,
+} from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { TemporaryPassword, User, UserRole } from "../api/types";
@@ -77,15 +87,17 @@ function NewUser({ onDone }: { onDone: (r: TemporaryPassword) => void }) {
   const [open, setOpen] = useState(false);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
   const [role, setRole] = useState<UserRole>("bay_operator");
 
   const create = useMutation({
-    mutationFn: () => api.createUser(username.trim(), displayName.trim(), [role]),
+    mutationFn: () => api.createUser(username.trim(), displayName.trim(), [role], email.trim()),
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["users"] });
       setOpen(false);
       setUsername("");
       setDisplayName("");
+      setEmail("");
       onDone(r);
     },
   });
@@ -130,6 +142,19 @@ function NewUser({ onDone }: { onDone: (r: TemporaryPassword) => void }) {
         />
       </div>
       <div>
+        <label htmlFor="new-email" className="label">
+          Email (for alerts)
+        </label>
+        <input
+          id="new-email"
+          type="email"
+          className="input w-56"
+          value={email}
+          placeholder="Optional"
+          onChange={(e) => setEmail(e.target.value)}
+        />
+      </div>
+      <div>
         <label htmlFor="new-role" className="label">
           Role
         </label>
@@ -156,6 +181,75 @@ function NewUser({ onDone }: { onDone: (r: TemporaryPassword) => void }) {
         <p role="alert" className="w-full text-sm text-bad">
           {(create.error as Error).message}
         </p>
+      )}
+    </form>
+  );
+}
+
+/** Where alert emails reach this person. Empty is allowed: they simply get none. */
+function EmailCell({ user }: { user: User }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(user.email ?? "");
+  const save = useMutation({
+    mutationFn: () => api.setUserEmail(user.username, draft.trim()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["users"] });
+      setEditing(false);
+    },
+  });
+
+  if (!editing) {
+    return (
+      <button
+        className="btn-ghost btn-sm max-w-[16rem] truncate"
+        aria-label={`Email for ${user.username}`}
+        onClick={() => {
+          setDraft(user.email ?? "");
+          setEditing(true);
+        }}
+      >
+        <Mail size={13} />
+        {user.email ? (
+          <span className="truncate text-ink">{user.email}</span>
+        ) : (
+          <span className="text-muted">Add email</span>
+        )}
+      </button>
+    );
+  }
+  return (
+    <form
+      className="flex items-center gap-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save.mutate();
+      }}
+    >
+      <input
+        type="email"
+        aria-label={`Email for ${user.username}`}
+        className="input h-8 w-52 text-xs"
+        value={draft}
+        placeholder="name@company.com"
+        autoFocus
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      <button className="btn-primary btn-sm" disabled={save.isPending} aria-label="Save email">
+        <Check size={13} />
+      </button>
+      <button
+        type="button"
+        className="btn-ghost btn-sm"
+        aria-label="Cancel"
+        onClick={() => setEditing(false)}
+      >
+        <X size={13} />
+      </button>
+      {save.isError && (
+        <span role="alert" className="text-xs text-bad">
+          {(save.error as Error).message}
+        </span>
       )}
     </form>
   );
@@ -248,6 +342,9 @@ function Row({
           </span>
         )}
       </td>
+      <td className="td">
+        <EmailCell user={user} />
+      </td>
       <td className="td text-muted">
         {user.last_login_at ? dateTime(user.last_login_at) : "Never"}
       </td>
@@ -312,7 +409,7 @@ export default function Users({ me }: { me: string }) {
       <div className="card overflow-hidden">
         {users.isPending ? (
           <table className="w-full">
-            <SkeletonRows rows={4} cols={5} />
+            <SkeletonRows rows={4} cols={6} />
           </table>
         ) : rows.length ? (
           <div className="overflow-x-auto">
@@ -322,6 +419,7 @@ export default function Users({ me }: { me: string }) {
                   <th className="th">User</th>
                   <th className="th">Role</th>
                   <th className="th">Status</th>
+                  <th className="th">Email</th>
                   <th className="th">Last signed in</th>
                   <th className="th" />
                 </tr>

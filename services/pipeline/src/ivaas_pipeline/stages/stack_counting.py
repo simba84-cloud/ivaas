@@ -10,6 +10,19 @@ from ivaas_pipeline.stages.counting import Line, Point
 from ivaas_pipeline.types import CrossDirection, Crossing, Frame, Track
 
 
+def vote_layers(estimates: Sequence[float]) -> tuple[int, float]:
+    """The crate count for a stack and how firmly its frames agree on it.
+
+    The count is the rounded median of the per-frame layer estimates (at least 1).
+    `agreement` is the share of estimates that round to that same median: 1.0 when
+    every frame saw the same height, lower when frames disagreed. A controlled bay
+    uses it to mark a column unverified instead of trusting a split vote.
+    """
+    rounded = round(median(estimates))
+    agreement = sum(1 for e in estimates if round(e) == rounded) / len(estimates)
+    return max(1, rounded), agreement
+
+
 class StackCrossingCounter:
     """CrossingCounter for stacks.
 
@@ -58,6 +71,7 @@ class StackCrossingCounter:
 
             history = self._estimates.get(t.track_id, [])
             trusted = len(history) >= self._min
+            crates, agreement = vote_layers(history) if trusted else (self._fallback, None)
             out.append(
                 Crossing(
                     camera_id=frame.camera_id,
@@ -69,7 +83,8 @@ class StackCrossingCounter:
                     ),
                     confidence=t.confidence if trusted else 0.0,
                     at=frame.captured_at,
-                    crates=max(1, round(median(history))) if trusted else self._fallback,
+                    crates=crates,
+                    agreement=agreement,
                 )
             )
         for gone in self._last.keys() - seen:

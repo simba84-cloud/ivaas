@@ -13,7 +13,11 @@ from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
-from ivaas.adapters.analysis_runner import PipelineVideoAnalyser
+from ivaas.adapters.analysis_runner import (
+    PipelineVideoAnalyser,
+    onnx_detector,
+    remote_detector,
+)
 from ivaas.adapters.auth.jwt_verifiers import (
     ApiKeyVerifier,
     LocalTokenVerifier,
@@ -40,6 +44,13 @@ from ivaas.adapters.streaming.mediamtx import MediaMtxGateway, NullStreamGateway
 from ivaas.adapters.streaming.onvif import OnvifDiscovery
 from ivaas.adapters.streaming.probe import NetworkSourceProbe
 from ivaas.adapters.streaming.snapshot import OpenCvFrameGrabber
+from ivaas.application.alert_email import (
+    AlertEmails,
+    DeliverAlertEmails,
+    QueueAlertEmails,
+    SendDailySummaries,
+    SendTestEmail,
+)
 from ivaas.application.alerts import AcknowledgeAlert, ListAcknowledgements
 from ivaas.application.analysis import RunNextJob, SubmitVideo
 from ivaas.application.analytics import AnalyticsTools
@@ -51,6 +62,13 @@ from ivaas.application.cameras import (
     RefreshCameraStatus,
     RegisterCamera,
     RemoveCamera,
+)
+from ivaas.application.crate_control import (
+    AcceptTransaction,
+    CheckIn,
+    CloseTransaction,
+    DriverBalanceQuery,
+    ObserveColumn,
 )
 from ivaas.application.lifecycle import TenantLifecycle
 from ivaas.application.manifests import ReconcileManifests
@@ -168,6 +186,19 @@ def _configured_roles(role: str) -> list[RoleBinding]:
     return [RoleBinding(r, ScopeType.TENANT, BAKERS_INN_ID) for r in roles]
 
 
+def analysis_detector(settings: Settings):
+    """Which detector backs uploaded-video analysis: the remote GPU when a URL is set
+    (docs/adr/0003), otherwise the local ONNX stack model."""
+    if settings.detector_url:
+        return remote_detector(
+            settings.detector_url,
+            settings.detector_api_key,
+            threshold=settings.detector_threshold,
+            timeout_s=settings.detector_timeout_s,
+        )
+    return onnx_detector(settings.stack_model, threshold=settings.detector_threshold)
+
+
 def demo_topology() -> tuple[Site, Bay, list[Camera]]:
     # local time zone: tally sheets are written in wall-clock time and matched against it
     site = Site(
@@ -204,6 +235,7 @@ class Container:
     ml_models: Any
     evidence: Any
     fleet: Any
+    crate_control: Any
     manifests: Any
     exceptions: Any
     reports: Any
@@ -212,6 +244,8 @@ class Container:
     partner_invoices: Any
     price_book: PriceBook
     webhook_sender: Any
+    alert_emails: Any
+    mail_sender: Any
     users: Any
     hasher: Any
     audit: Any
@@ -298,8 +332,39 @@ class Container:
             )
 
         return RecordCrateCrossing(
-            self.sessions, self.events, auto_open=self.open_session, auto_open_enabled=enabled
+            self.sessions,
+            self.events,
+            auto_open=self.open_session,
+            auto_open_enabled=enabled,
+            observe=ObserveColumn(self.crate_control),
         )
+
+    # controlled bays (ADR 0004) -------------------------------------------------
+    @property
+    def check_in(self) -> CheckIn:
+        return CheckIn(
+            self.crate_control,
+            self.sessions,
+            self.open_session,
+            self.close_session,
+            self.hasher,
+            self.events,
+            self.clock,
+        )
+
+    @property
+    def close_transaction(self) -> CloseTransaction:
+        return CloseTransaction(
+            self.crate_control, self.sessions, self.close_session, self.events, self.clock
+        )
+
+    @property
+    def accept_transaction(self) -> AcceptTransaction:
+        return AcceptTransaction(self.crate_control, self.events, self.clock)
+
+    @property
+    def driver_balances(self) -> DriverBalanceQuery:
+        return DriverBalanceQuery(self.crate_control, self.clock)
 
     async def record_plate_uc(self) -> RecordPlateRead:
         direction = await self.effective(AUTO_OPEN_DIRECTION, self.settings.auto_open_direction)
@@ -357,7 +422,9 @@ class Container:
 
     @property
     def refresh_camera_status(self) -> RefreshCameraStatus:
-        return RefreshCameraStatus(self.bays, self.cameras, self.gateway, self.clock, self.probe)
+        return RefreshCameraStatus(
+            self.bays, self.cameras, self.gateway, self.clock, self.probe, self.events
+        )
 
     @property
     def remove_camera(self) -> RemoveCamera:
@@ -420,6 +487,33 @@ class Container:
 
     def deliver_webhooks_uc(self) -> DeliverWebhooks:
         return DeliverWebhooks(self.webhooks, self.webhook_sender, self.clock)
+
+    def alert_email_queue(self) -> AlertEmails:
+        return AlertEmails(
+            self.alert_emails, self.users, self.mail_sender, self.effective, self.clock
+        )
+
+    def queue_alert_emails(self) -> QueueAlertEmails:
+        return QueueAlertEmails(self.alert_email_queue(), self.bays, self.settings.public_url)
+
+    def deliver_alert_emails_uc(self) -> DeliverAlertEmails:
+        return DeliverAlertEmails(self.alert_emails, self.mail_sender, self.clock)
+
+    def send_test_email_uc(self) -> SendTestEmail:
+        return SendTestEmail(
+            self.alert_emails, self.users, self.mail_sender, self.clock, self.settings.public_url
+        )
+
+    async def send_daily_summaries_uc(self) -> SendDailySummaries:
+        return SendDailySummaries(
+            self.alert_email_queue(),
+            await self.build_daily_report_uc(),
+            self.sites,
+            self.bays,
+            self.cameras,
+            self.clock,
+            self.settings.public_url,
+        )
 
     def manage_webhooks(self) -> ManageWebhooks:
         return ManageWebhooks(
@@ -611,6 +705,17 @@ class Container:
             await closer()
 
 
+class _AlertEmailSink:
+    """Queues an alert email for the events worth one (a disputed load, a camera
+    gone dark, a failed analysis)."""
+
+    def __init__(self, container: Container) -> None:
+        self._container = container
+
+    async def publish(self, subject: str, payload: dict) -> None:
+        await self._container.queue_alert_emails().publish(subject, payload)
+
+
 class _WebhookSink:
     """Queues webhook deliveries for events the tenant's endpoints subscribe to."""
 
@@ -752,6 +857,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.fleet_postgres import PostgresFleetStore
 
         fleet: Any = PostgresFleetStore(pg_sessionmaker)
+        from ivaas.adapters.persistence.crate_control_postgres import PostgresCrateControlStore
+
+        crate_control: Any = PostgresCrateControlStore(pg_sessionmaker)
         from ivaas.adapters.persistence.manifests_postgres import (
             PostgresExceptionStore,
             PostgresManifestStore,
@@ -765,6 +873,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.webhooks_postgres import PostgresWebhookStore
 
         webhooks: Any = PostgresWebhookStore(pg_sessionmaker, box)
+        from ivaas.adapters.persistence.alert_email_postgres import PostgresAlertEmailStore
+
+        alert_emails: Any = PostgresAlertEmailStore(pg_sessionmaker)
         from ivaas.adapters.persistence.billing_postgres import (
             PostgresBillingStore,
             PostgresPartnerInvoiceStore,
@@ -825,6 +936,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.fleet_postgres import InMemoryFleetStore
 
         fleet = PerTenant(InMemoryFleetStore)
+        from ivaas.adapters.persistence.crate_control_postgres import InMemoryCrateControlStore
+
+        crate_control = PerTenant(InMemoryCrateControlStore)
         from ivaas.adapters.persistence.manifests_postgres import (
             InMemoryExceptionStore,
             InMemoryManifestStore,
@@ -838,6 +952,9 @@ async def build_container(settings: Settings) -> Container:
         from ivaas.adapters.persistence.webhooks_postgres import InMemoryWebhookStore
 
         webhooks = PerTenant(InMemoryWebhookStore)
+        from ivaas.adapters.persistence.alert_email_postgres import InMemoryAlertEmailStore
+
+        alert_emails = PerTenant(InMemoryAlertEmailStore)
         from ivaas.adapters.persistence.billing_postgres import (
             InMemoryBillingStore,
             InMemoryPartnerInvoiceStore,
@@ -931,6 +1048,19 @@ async def build_container(settings: Settings) -> Container:
     webhook_sender = HttpWebhookSender(allow_private=settings.webhook_allow_private)
     events = FanoutEventPublisher(sinks)
     closers.append(webhook_sender.aclose)
+    from ivaas.adapters.mail import DisabledMailSender, SmtpMailSender
+
+    mail_sender: Any = (
+        SmtpMailSender(
+            settings.smtp_host,
+            settings.smtp_port,
+            settings.smtp_from,
+            starttls=settings.smtp_starttls,
+            timeout_s=settings.smtp_timeout_s,
+        )
+        if settings.smtp_host and settings.smtp_from
+        else DisabledMailSender()
+    )
     container = Container(
         settings=settings,
         tenants=tenants,
@@ -939,6 +1069,7 @@ async def build_container(settings: Settings) -> Container:
         ml_models=ml_models,
         evidence=evidence,
         fleet=fleet,
+        crate_control=crate_control,
         manifests=manifests,
         exceptions=exceptions,
         reports=reports,
@@ -969,9 +1100,11 @@ async def build_container(settings: Settings) -> Container:
         jobs=jobs,
         signer=ObjectLinkSigner(settings.object_link_secret),
         objects=objects,
-        analyser=PipelineVideoAnalyser(settings.stack_model, settings.layers_model),
+        analyser=PipelineVideoAnalyser(analysis_detector(settings), settings.layers_model),
         webhooks=webhooks,
         webhook_sender=webhook_sender,
+        alert_emails=alert_emails,
+        mail_sender=mail_sender,
         billing_store=billing_store,
         partner_invoices=partner_invoices,
         price_book=PriceBook.load(settings.price_book),
@@ -990,4 +1123,5 @@ async def build_container(settings: Settings) -> Container:
     )
     # read through the container at publish time: its clock and store are the live ones
     events.add(_WebhookSink(container))
+    events.add(_AlertEmailSink(container))
     return container

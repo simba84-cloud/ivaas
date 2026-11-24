@@ -30,6 +30,9 @@ import Security from "./pages/Security";
 import Cameras from "./pages/Cameras";
 import EdgeNodes from "./pages/EdgeNodes";
 import Fleet from "./pages/Fleet";
+import BayKiosk from "./pages/BayKiosk";
+import CrateControl from "./pages/CrateControl";
+import Drivers from "./pages/Drivers";
 import Balances from "./pages/Balances";
 import Exceptions from "./pages/Exceptions";
 import Reports from "./pages/Reports";
@@ -172,6 +175,10 @@ export default function App() {
           <Route path="/cameras" element={<Cameras me={me.data} />} />
           <Route path="/edge" element={<EdgeNodes me={me.data} />} />
           <Route path="/fleet" element={<Fleet me={me.data} />} />
+          <Route path="/drivers" element={<Drivers me={me.data} />} />
+          <Route path="/crates" element={<CrateControl me={me.data} />} />
+          <Route path="/bay" element={<BayKiosk />} />
+          <Route path="/bay/:bayId" element={<BayKiosk />} />
           <Route path="/balances" element={<Balances />} />
           <Route path="/exceptions" element={<Exceptions me={me.data} />} />
           <Route path="/reports" element={<Reports />} />

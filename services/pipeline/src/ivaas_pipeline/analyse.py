@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,7 @@ import numpy as np
 
 from ivaas_pipeline.adapters.onnx_layers import OnnxLayerCounter
 from ivaas_pipeline.adapters.onnx_rtdetr import OnnxRtDetrDetector
+from ivaas_pipeline.ports import Detector
 from ivaas_pipeline.stages.layers import PeriodicityLayerCounter
 from ivaas_pipeline.stages.plates import PlateVoter
 from ivaas_pipeline.stages.settle_counting import StackSettleCounter
@@ -75,7 +77,7 @@ def annotate(image: np.ndarray, box, label: str) -> np.ndarray:
 def analyse_video(
     path: str,
     *,
-    detector: OnnxRtDetrDetector,
+    detector: Detector,
     layers,
     plate_reader=None,
     save_frame: SaveFrame | None = None,
@@ -158,7 +160,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("video")
     ap.add_argument("out", type=Path)
-    ap.add_argument("--model", required=True)
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--model", help="local ONNX stack detector")
+    src.add_argument(
+        "--detector-url",
+        help="remote detector (RF-DETR on the GPU); key from IVAAS_DETECTOR_API_KEY",
+    )
     ap.add_argument("--layers-model")
     ap.add_argument("--lpr", action="store_true")
     a = ap.parse_args()
@@ -174,9 +181,17 @@ def main() -> None:
         from ivaas_pipeline.adapters.fast_alpr_reader import FastAlprPlateReader
 
         reader = FastAlprPlateReader()
+    if a.detector_url:
+        from ivaas_pipeline.adapters.http_detector import HttpDetector
+
+        detector: Detector = HttpDetector(
+            a.detector_url, os.environ.get("IVAAS_DETECTOR_API_KEY", ""), threshold=0.2
+        )
+    else:
+        detector = OnnxRtDetrDetector(a.model, threshold=0.2)
     res = analyse_video(
         a.video,
-        detector=OnnxRtDetrDetector(a.model, threshold=0.2),
+        detector=detector,
         layers=OnnxLayerCounter(a.layers_model) if a.layers_model else PeriodicityLayerCounter(),
         plate_reader=reader,
         save_frame=save,

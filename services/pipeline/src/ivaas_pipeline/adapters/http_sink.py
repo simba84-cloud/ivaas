@@ -22,22 +22,21 @@ class HttpCrossingSink:
         self._backward = "offloading" if forward_means == "loading" else "loading"
 
     def emit(self, crossing: Crossing) -> None:
-        self._delivery.send(
-            "/api/v1/ingest/crossings",
-            {
-                "bay_id": self._bay_id,
-                "camera_id": self._camera_ids[crossing.camera_id],
-                "track_id": crossing.track_id,
-                "direction": (
-                    self._forward
-                    if crossing.direction is CrossDirection.FORWARD
-                    else self._backward
-                ),
-                "crates": crossing.crates,
-                "confidence": round(crossing.confidence, 4),
-                "crossed_at": crossing.at.isoformat(),
-            },
-        )
+        body: dict[str, object] = {
+            "bay_id": self._bay_id,
+            "camera_id": self._camera_ids[crossing.camera_id],
+            "track_id": crossing.track_id,
+            "direction": (
+                self._forward if crossing.direction is CrossDirection.FORWARD else self._backward
+            ),
+            "crates": crossing.crates,
+            "confidence": round(crossing.confidence, 4),
+            "crossed_at": crossing.at.isoformat(),
+        }
+        # omitted rather than sent as null, so an API that predates the field still accepts it
+        if crossing.agreement is not None:
+            body["agreement"] = round(crossing.agreement, 4)
+        self._delivery.send("/api/v1/ingest/crossings", body)
 
 
 class HttpPlateSink:

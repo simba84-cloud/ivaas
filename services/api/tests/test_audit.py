@@ -132,6 +132,10 @@ def test_settings_expose_the_editable_rules_and_never_a_secret(client):
         "face_recognition",
         "evidence_retention_days",
         "manifest_tolerance_crates",
+        "alert_email",
+        "alert_email_recipients",
+        "alert_email_daily_summary",
+        "alert_email_summary_hour",
     }
     assert all(s["overridden"] is False for s in body["editable"])
 

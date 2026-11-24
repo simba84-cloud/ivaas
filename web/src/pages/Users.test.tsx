@@ -102,4 +102,22 @@ describe("user management", () => {
     await userEvent.selectOptions(await screen.findByLabelText("Role for admin"), "auditor");
     expect(await screen.findByRole("alert")).toHaveTextContent(/cannot remove your own/);
   });
+
+  it("records where alert emails reach someone", async () => {
+    api();
+    const saved = vi.fn();
+    server.use(
+      http.put("/api/v1/users/operator/email", async ({ request }) => {
+        saved(await request.json());
+        return HttpResponse.json(user({ email: "op@bakers-inn.example" }));
+      }),
+    );
+    renderPage(<Users me="admin" />, { path: "/users", route: "/users" });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Email for operator" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Email for operator" }), "op@bakers-inn.example");
+    await userEvent.click(screen.getByRole("button", { name: "Save email" }));
+
+    expect(saved).toHaveBeenCalledWith({ email: "op@bakers-inn.example" });
+  });
 });

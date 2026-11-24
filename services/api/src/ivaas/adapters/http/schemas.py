@@ -379,6 +379,9 @@ class CrossingIn(BaseModel):
     crates: int = Field(default=1, ge=1, le=40, description="crates in the object that crossed")
     confidence: float = Field(ge=0, le=1)
     crossed_at: datetime
+    #: share of per-frame height estimates that agreed with `crates`; optional, so
+    #: nodes from before controlled bays (ADR 0004) keep working
+    agreement: float | None = Field(default=None, ge=0, le=1)
     #: set by the edge node when it spools the event; a replay with the same id is
     #: acknowledged and skipped, so a crash mid-delivery cannot count crates twice
     event_id: UUID | None = None
@@ -595,6 +598,8 @@ class UserOut(BaseModel):
     created_at: datetime | None
     password_changed_at: datetime | None
     last_login_at: datetime | None
+    #: where alert emails reach this person, if anywhere
+    email: str | None = None
 
     @staticmethod
     def of(u: User) -> UserOut:
@@ -609,6 +614,7 @@ class UserOut(BaseModel):
             created_at=u.created_at,
             password_changed_at=u.password_changed_at,
             last_login_at=u.last_login_at,
+            email=u.email,
         )
 
 
@@ -617,6 +623,8 @@ class CreateUserIn(BaseModel):
     username: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z0-9._@-]+$")
     display_name: str = Field(default="", max_length=120)
     roles: list[Role] = Field(min_length=1)
+    #: where alert emails reach them; optional
+    email: str | None = Field(default=None, max_length=254)
 
     @field_validator("roles")
     @classmethod
@@ -635,6 +643,11 @@ class AssignRolesIn(BaseModel):
 
 class SetEnabledIn(BaseModel):
     enabled: bool
+
+
+class SetEmailIn(BaseModel):
+    #: empty or null removes it
+    email: str | None = Field(default=None, max_length=254)
 
 
 class TemporaryPasswordOut(BaseModel):

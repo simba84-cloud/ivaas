@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime, timedelta
-from statistics import median
 
 from ivaas_pipeline.ports import LayerCounter
+from ivaas_pipeline.stages.stack_counting import vote_layers
 from ivaas_pipeline.types import Box, CrossDirection, Crossing, Frame, Track
 
 
@@ -68,6 +68,7 @@ class StackPresenceCounter:
             if frame.captured_at - self._first_seen[t.track_id] >= self._min:
                 hist = self._estimates.get(t.track_id, [])
                 trusted = len(hist) >= self._min_est
+                crates, agreement = vote_layers(hist) if trusted else (self._fallback, None)
                 self._counted.add(t.track_id)
                 out.append(
                     Crossing(
@@ -76,7 +77,8 @@ class StackPresenceCounter:
                         direction=CrossDirection.FORWARD,
                         confidence=t.confidence if trusted else 0.0,
                         at=frame.captured_at,
-                        crates=max(1, round(median(hist))) if trusted else self._fallback,
+                        crates=crates,
+                        agreement=agreement,
                     )
                 )
         # a track that left the zone before qualifying is forgotten; a counted one stays

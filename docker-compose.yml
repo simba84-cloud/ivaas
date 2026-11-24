@@ -18,6 +18,13 @@ x-ivaas-env: &ivaas-env
       # proxy in front of GPU-hosted models), with its key from .env, never from git
       IVAAS_LLM_URL: ${IVAAS_LLM_URL:-http://ollama:11434}
       IVAAS_LLM_API_KEY: ${IVAAS_LLM_API_KEY:-}
+      # alert emails: Liquid's relay accepts mail from allowlisted addresses with no
+      # login, so this only works from a host whose public IP Liquid has allowlisted.
+      # Each tenant switches alerts on under Settings; empty IVAAS_SMTP_HOST disables.
+      IVAAS_SMTP_HOST: ${IVAAS_SMTP_HOST-relay.liquidtelecom.net}
+      IVAAS_SMTP_PORT: ${IVAAS_SMTP_PORT:-25}
+      IVAAS_SMTP_FROM: ${IVAAS_SMTP_FROM:-xyz@liquid.tech}
+      IVAAS_SMTP_STARTTLS: ${IVAAS_SMTP_STARTTLS:-opportunistic}
       IVAAS_OBJECTS: s3
       IVAAS_S3_ENDPOINT: http://minio:9000
       IVAAS_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-ivaas}
@@ -116,6 +123,9 @@ services:
       # a model server the containers cannot resolve (a name only the host's VPN DNS
       # knows): "<name>:<ip>". The server routes by name, so its IP alone will not do.
       - "${IVAAS_LLM_HOST_ENTRY:-ivaas-llm-unset:127.0.0.1}"
+      # the email relay, if only the host's VPN DNS knows its name; it resolved to
+      # 10.181.97.7 from the Mac on 2026-11-24: "relay.liquidtelecom.net:<ip>"
+      - "${IVAAS_SMTP_HOST_ENTRY:-ivaas-smtp-unset:127.0.0.1}"
     healthcheck:
       test: ["CMD-SHELL", "/app/.venv/bin/python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')\""]
       interval: 10s
@@ -133,6 +143,10 @@ services:
     environment:
       <<: *ivaas-env
       IVAAS_RUN_ANALYSIS_WORKER: "true"
+      # empty = detect stacks with the local ONNX model; a URL sends each analysed frame
+      # to RF-DETR on the cluster GPU (docs/adr/0003). Key from .env, never from git.
+      IVAAS_DETECTOR_URL: ${IVAAS_DETECTOR_URL:-}
+      IVAAS_DETECTOR_API_KEY: ${IVAAS_DETECTOR_API_KEY:-}
       # the API owns schema migrations and the demo seed; the worker only consumes
       IVAAS_SEED_DEMO_DATA: "false"
     depends_on:

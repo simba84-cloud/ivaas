@@ -70,3 +70,27 @@ def test_state_is_dropped_with_the_track():
     drive(counter, XS)
     counter.update(Frame("choke-1", BLANK, T0), [])
     assert counter._last == {} and counter._estimates == {}
+
+
+def test_agreement_is_the_share_of_estimates_that_round_to_the_median():
+    from ivaas_pipeline.stages.stack_counting import vote_layers
+
+    assert vote_layers([14.0, 13.8, 14.3]) == (14, 1.0)
+    assert vote_layers([14.0, 14.0, 13.0, 14.0]) == (14, 0.75)
+    assert vote_layers([14.0, 31.0, 13.0, 14.0, 12.0]) == (14, 0.4)
+
+
+def test_unanimous_frames_agree_fully():
+    out = drive(StackCrossingCounter(LINE, ScriptedLayers([14.0] * 30)), XS)
+    assert out[0].crates == 14 and out[0].agreement == 1.0
+
+
+def test_split_frames_lower_the_agreement_but_not_the_count():
+    # frames 0..8 are estimated before the crossing at frame 8: six 14s, three 13s
+    out = drive(StackCrossingCounter(LINE, ScriptedLayers([14.0, 14.0, 13.0] * 10)), XS)
+    assert out[0].crates == 14 and out[0].agreement == 6 / 9
+
+
+def test_fallback_crossing_has_no_agreement():
+    out = drive(StackCrossingCounter(LINE, ScriptedLayers([None] * 30)), XS)
+    assert out[0].confidence == 0.0 and out[0].agreement is None

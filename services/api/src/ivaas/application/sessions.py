@@ -136,6 +136,8 @@ class RecordCrateCrossing:
     auto_open: OpenSession | None = None
     #: asked only when the bay is idle: is auto-open switched on for this tenant?
     auto_open_enabled: Callable[[], Awaitable[bool]] | None = None
+    #: told of every counted column, so a controlled bay can keep each one (ADR 0004)
+    observe: Callable[[UUID, LoadingSession, CrateCrossing], Awaitable[None]] | None = None
 
     async def __call__(self, bay_id: UUID, crossing: CrateCrossing) -> LoadingSession | None:
         session = await self.sessions.get_open_for_bay(bay_id)
@@ -146,6 +148,8 @@ class RecordCrateCrossing:
             session = await self.auto_open(bay_id, crossing.direction)
         session.record_crossing(crossing)
         await self.sessions.save(session)
+        if self.observe is not None:
+            await self.observe(bay_id, session, crossing)
         await self.events.publish(SUBJECT_SESSION_UPDATED, session_payload(session))
         return session
 

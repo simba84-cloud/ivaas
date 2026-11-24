@@ -9,7 +9,7 @@ Rows travel as Postgres's own JSON (`row_to_json`) and come back through
 `json_populate_recordset`, so every type (uuid, timestamptz, numeric, jsonb, bytea)
 round-trips exactly as the database writes it, with no Python in between to drift.
 
-Secrets never leave: password, credential and token hashes, webhook secrets, camera
+Secrets never leave: password, driver PIN, credential and token hashes, webhook secrets, camera
 URLs (they carry camera passwords), face embeddings, and setting overrides named like
 a key or a secret. Each is exported as null and listed in the manifest as withheld;
 an import fills a required one with a marker, so the row still counts.
@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 WITHHELD_COLUMNS = frozenset(
     {
         "password_hash",
+        "pin_hash",  # a driver's kiosk PIN (ADR 0004)
         "credential_hash",
         "token_hash",
         "secret",

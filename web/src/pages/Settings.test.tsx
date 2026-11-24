@@ -38,7 +38,35 @@ const payload = {
   platform: [{ label: "Upload limit", value: "5120 MB", detail: "IVAAS_MAX_UPLOAD_MB" }],
 };
 
-const api = () => server.use(http.get("/api/v1/settings", () => HttpResponse.json(payload)));
+const emailStatus = {
+  configured: true,
+  relay: "relay.example:25",
+  sender: "alerts@example.com",
+  starttls: "opportunistic",
+  enabled: false,
+  group: "owners, admins and site managers",
+  recipients: ["admin@bakers-inn.example"],
+  missing_email: ["manager1"],
+  recent: [
+    {
+      id: "e1",
+      kind: "camera_offline",
+      subject: "Camera offline: LPR at Bay 1",
+      recipients: ["admin@bakers-inn.example"],
+      status: "failed",
+      attempts: 7,
+      last_error: "451 try later",
+      created_at: "2026-10-01T08:00:00Z",
+      sent_at: null,
+    },
+  ],
+};
+
+const api = (email: object = emailStatus) =>
+  server.use(
+    http.get("/api/v1/settings", () => HttpResponse.json(payload)),
+    http.get("/api/v1/alerts/email", () => HttpResponse.json(email)),
+  );
 
 describe("system settings", () => {
   it("shows a ratio in the units an admin thinks in", async () => {
@@ -88,5 +116,44 @@ describe("system settings", () => {
     // deployment facts are stated, never made editable
     expect(screen.getByText("5120 MB")).toBeInTheDocument();
     expect(screen.queryByLabelText("Upload limit")).not.toBeInTheDocument();
+  });
+
+  it("shows where alert emails go and who cannot be reached", async () => {
+    api();
+    renderPage(<Settings />, { path: "/settings", route: "/settings" });
+
+    expect(await screen.findByText("relay.example:25")).toBeInTheDocument();
+    expect(screen.getByText("admin@bakers-inn.example")).toBeInTheDocument();
+    expect(screen.getByText(/no email\s+address: manager1/)).toBeInTheDocument();
+    expect(screen.getByText("Camera offline: LPR at Bay 1")).toBeInTheDocument();
+    expect(screen.getByText("451 try later")).toBeInTheDocument();
+  });
+
+  it("says plainly when there is no relay", async () => {
+    api({ ...emailStatus, configured: false, relay: null, recent: [] });
+    renderPage(<Settings />, { path: "/settings", route: "/settings" });
+
+    expect(await screen.findByText(/IVAAS_SMTP_HOST is empty/)).toBeInTheDocument();
+    expect(screen.getByText("No alert emails yet.")).toBeInTheDocument();
+  });
+
+  it("sends a test and shows the relay's answer", async () => {
+    api();
+    server.use(
+      http.post("/api/v1/alerts/email/test", () =>
+        HttpResponse.json({
+          ...emailStatus.recent[0],
+          id: "t1",
+          kind: "test",
+          subject: "IVaaS test email",
+          status: "failed",
+          last_error: "relay.example answered 554: relay access denied",
+        }),
+      ),
+    );
+    renderPage(<Settings />, { path: "/settings", route: "/settings" });
+
+    await userEvent.click(await screen.findByRole("button", { name: /Send a test to me/ }));
+    expect(await screen.findByText(/Not sent: relay.example answered 554/)).toBeInTheDocument();
   });
 });

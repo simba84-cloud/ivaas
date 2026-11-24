@@ -21,6 +21,8 @@ from ivaas.ports.streaming import SourceProbe, StreamGateway
 
 SUBJECT_CAMERA_REGISTERED = "ivaas.camera.registered"
 SUBJECT_CAMERA_REMOVED = "ivaas.camera.removed"
+SUBJECT_CAMERA_OFFLINE = "ivaas.camera.offline"
+SUBJECT_CAMERA_ONLINE = "ivaas.camera.online"
 
 
 class _CameraStore(CameraReader, CameraWriter, Protocol):
@@ -123,6 +125,8 @@ class RefreshCameraStatus:
     gateway: StreamGateway
     clock: Clock
     probe: SourceProbe | None = None
+    #: told when a camera that was streaming stops, and when it comes back (alerts)
+    events: EventPublisher | None = None
 
     async def __call__(self) -> dict[str, int]:
         live = await self.gateway.live_paths()
@@ -136,14 +140,34 @@ class RefreshCameraStatus:
         changed = {"online": 0, "offline": 0}
         for camera in cameras:
             if camera.stream_path in live or camera.id in answering:
+                was_offline = camera.status is CameraStatus.OFFLINE
                 camera.mark_seen(now)
                 await self.cameras.save(camera)
                 changed["online"] += 1
+                if was_offline:
+                    await self._tell(SUBJECT_CAMERA_ONLINE, camera)
             elif camera.status is not CameraStatus.OFFLINE:
                 camera.status = CameraStatus.OFFLINE
                 await self.cameras.save(camera)
                 changed["offline"] += 1
+                if camera.last_seen_at is not None:  # one never seen has not "stopped"
+                    await self._tell(SUBJECT_CAMERA_OFFLINE, camera)
         return changed
+
+    async def _tell(self, subject: str, camera: Camera) -> None:
+        if self.events is None:
+            return
+        await self.events.publish(
+            subject,
+            {
+                "id": str(camera.id),
+                "bay_id": str(camera.bay_id),
+                "name": camera.name,
+                "role": camera.role.value,
+                "status": camera.status.value,
+                "last_seen_at": camera.last_seen_at.isoformat() if camera.last_seen_at else None,
+            },
+        )
 
     async def _answers(self, camera: Camera) -> bool:
         return self.probe is not None and await self.probe.answers(camera.source)

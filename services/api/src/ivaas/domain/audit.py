@@ -81,6 +81,15 @@ class AuditAction(StrEnum):
     TENANT_PURGED = "tenant_purged"
     SSO_CONFIGURED = "sso_configured"
     SSO_REMOVED = "sso_removed"
+    DRIVER_SAVED = "driver_saved"
+    DRIVERS_IMPORTED = "drivers_imported"
+    DRIVER_PIN_SET = "driver_pin_set"
+    BAY_STANDARD_SET = "bay_standard_set"
+    CRATE_CHECK_IN = "crate_check_in"
+    CRATE_TRANSACTION_CLOSED = "crate_transaction_closed"
+    CRATE_TRANSACTION_ACCEPTED = "crate_transaction_accepted"
+    USER_EMAIL_CHANGED = "user_email_changed"
+    ALERT_EMAIL_TESTED = "alert_email_tested"
 
 
 @dataclass(frozen=True)

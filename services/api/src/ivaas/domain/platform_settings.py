@@ -20,6 +20,13 @@ FACE_RECOGNITION_BASIS = "face_recognition_basis"
 BADGE_GRACE_MINUTES = "badge_grace_minutes"
 EVIDENCE_RETENTION_DAYS = "evidence_retention_days"
 MANIFEST_TOLERANCE = "manifest_tolerance_crates"
+ALERT_EMAIL = "alert_email"
+ALERT_EMAIL_RECIPIENTS = "alert_email_recipients"
+ALERT_EMAIL_DAILY_SUMMARY = "alert_email_daily_summary"
+ALERT_EMAIL_SUMMARY_HOUR = "alert_email_summary_hour"
+
+#: who alert emails go to, by role (kept in step with domain.alert_email.RECIPIENT_GROUPS)
+_RECIPIENT_CHOICES = ("owners, admins and site managers", "owners and admins")
 
 #: the value a setting has when nobody has changed it (the environment supplies the rest)
 DEFAULTS = {
@@ -30,6 +37,11 @@ DEFAULTS = {
     EVIDENCE_RETENTION_DAYS: 90.0,
     # a manifest states exact crates: any difference is worth a look, until told otherwise
     MANIFEST_TOLERANCE: 0.0,
+    # off until someone has sent a test and seen it arrive
+    ALERT_EMAIL: "off",
+    ALERT_EMAIL_RECIPIENTS: _RECIPIENT_CHOICES[0],
+    ALERT_EMAIL_DAILY_SUMMARY: "on",
+    ALERT_EMAIL_SUMMARY_HOUR: 18.0,
 }
 
 
@@ -38,7 +50,7 @@ class EditableSetting:
     key: str
     label: str
     help: str
-    kind: str  # "percent" | "minutes" | "days" | "crates" | "choice" | "text"
+    kind: str  # "percent" | "minutes" | "days" | "crates" | "hour" | "choice" | "text"
     choices: tuple[str, ...] = ()
     minimum: float | None = None
     maximum: float | None = None
@@ -108,6 +120,41 @@ EDITABLE: tuple[EditableSetting, ...] = (
         maximum=500,
     ),
     EditableSetting(
+        key=ALERT_EMAIL,
+        label="Email alerts",
+        help=(
+            "Email a disputed load, a camera that stops streaming and a failed video "
+            "analysis to the people below. Send a test from Email alerts first."
+        ),
+        kind="choice",
+        choices=("off", "on"),
+    ),
+    EditableSetting(
+        key=ALERT_EMAIL_RECIPIENTS,
+        label="Alert emails go to",
+        help=(
+            "Every enabled account holding one of these roles, at the email address on "
+            "the account. Someone with no address on their account is not emailed."
+        ),
+        kind="choice",
+        choices=_RECIPIENT_CHOICES,
+    ),
+    EditableSetting(
+        key=ALERT_EMAIL_DAILY_SUMMARY,
+        label="Daily summary email",
+        help="Each site's loads, counts, accuracy and exceptions for the day, once a day.",
+        kind="choice",
+        choices=("off", "on"),
+    ),
+    EditableSetting(
+        key=ALERT_EMAIL_SUMMARY_HOUR,
+        label="Send the daily summary after",
+        help="The hour of the day, in each site's own time, that its summary is sent.",
+        kind="hour",
+        minimum=0,
+        maximum=23,
+    ),
+    EditableSetting(
         key=FACE_RECOGNITION_BASIS,
         label="Legal basis for face recognition",
         help=(
@@ -161,4 +208,6 @@ def validate(key: str, value: Any) -> Any:
         raise InvalidSettingError(f"{key} must be at least {spec.minimum}")
     if spec.maximum is not None and number > spec.maximum:
         raise InvalidSettingError(f"{key} must be at most {spec.maximum}")
+    if spec.kind == "hour" and not number.is_integer():
+        raise InvalidSettingError(f"{key} must be a whole hour")
     return number

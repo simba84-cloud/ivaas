@@ -17,9 +17,39 @@ from ivaas.domain.analysis import AnalysisJob, DetectedLoad, TimelineEvent
 log = logging.getLogger(__name__)
 
 
+def onnx_detector(model_path: str, threshold: float = 0.2) -> Callable[[], object]:
+    """The stack detector run on this worker's own CPU/GPU."""
+
+    def make():
+        from ivaas_pipeline.adapters.onnx_rtdetr import OnnxRtDetrDetector
+
+        return OnnxRtDetrDetector(model_path, threshold=threshold)
+
+    return make
+
+
+def remote_detector(
+    url: str, api_key: str, threshold: float = 0.2, timeout_s: float = 30.0
+) -> Callable[[], object]:
+    """The stack detector served over HTTP (RF-DETR on the cluster GPU)."""
+
+    def make():
+        from ivaas_pipeline.adapters.http_detector import HttpDetector
+
+        return HttpDetector(url, api_key, threshold=threshold, timeout_s=timeout_s)
+
+    return make
+
+
 class PipelineVideoAnalyser:
-    def __init__(self, model_path: str, layers_model: str | None, lpr: bool = True) -> None:
-        self._model_path, self._layers_model, self._lpr = model_path, layers_model, lpr
+    def __init__(
+        self,
+        detector_factory: Callable[[], object],
+        layers_model: str | None,
+        lpr: bool = True,
+    ) -> None:
+        # the container decides which detector backs analysis; built on first use
+        self._make_detector, self._layers_model, self._lpr = detector_factory, layers_model, lpr
         self._loaded = None
         # None until the first analysis has tried to load the reader
         self.plate_reading: bool | None = None
@@ -27,7 +57,6 @@ class PipelineVideoAnalyser:
     def _load(self):
         if self._loaded is None:
             from ivaas_pipeline.adapters.onnx_layers import OnnxLayerCounter
-            from ivaas_pipeline.adapters.onnx_rtdetr import OnnxRtDetrDetector
             from ivaas_pipeline.stages.layers import PeriodicityLayerCounter
 
             reader = None
@@ -48,7 +77,7 @@ class PipelineVideoAnalyser:
                     reader = None
             self.plate_reading = reader is not None
             self._loaded = (
-                OnnxRtDetrDetector(self._model_path, threshold=0.2),
+                self._make_detector(),
                 OnnxLayerCounter(self._layers_model)
                 if self._layers_model
                 else PeriodicityLayerCounter(),

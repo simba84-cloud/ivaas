@@ -231,6 +231,41 @@ a container holding a shared key.
   lost. An outbox written in the same transaction would close this. The daily report
   still carries every load.
 
+## 2a-v-b. Email alerts
+
+- **What is emailed, once each.** An alert sink on the event fan-out
+  (`application/alert_email.py`) queues one email per alert in the `alert_emails` outbox
+  (migration 0029, row-level secured). A dedupe key makes a repeated event or sweep
+  harmless.
+
+  | Alert | Fires on | Dedupe key |
+  | --- | --- | --- |
+  | Disputed load | `ivaas.session.reconciled` with status `disputed` | `discrepancy:<session>` |
+  | Camera offline | `ivaas.camera.offline`, published by the camera status sweep when a camera that was streaming stops | `camera:<id>:offline:<last seen>`, so one email per outage |
+  | Analysis failed | `ivaas.analysis.updated` with status `failed` | `analysis:<job>` |
+  | Daily summary | the tenant sweep, after the chosen hour in each site's own time | `summary:<site>:<day>` |
+
+  A camera never seen streaming is not an outage, so it sends nothing. The summary uses
+  the daily report's figures. Where there are none it says so ("No loads recorded",
+  "No tally sheets reconciled, so it cannot be computed"). It never prints a zero.
+- **To whom.** Every enabled account in the tenant that holds one of the chosen roles and
+  has an email address. The choice is "owners, admins and site managers" or "owners and
+  admins". Accounts carry an `email`. An administrator sets it under Users, and SSO fills
+  it in from the provider's claim. Settings → Email alerts lists anyone the rule names
+  who has no address.
+- **How.** The relay is set by deployment (`IVAAS_SMTP_HOST`, `_PORT`, `_FROM`,
+  `_STARTTLS`). It is Liquid's `relay.liquidtelecom.net:25`, which accepts mail from
+  allowlisted addresses with no login, so there is no password to keep.
+  - STARTTLS is used when the relay offers it.
+  - An empty host disables email, and then nothing is queued.
+  - Each tenant switches alerts on under Settings. They are off by default.
+  - The API sends from the outbox every 5 s, claiming rows like webhooks. A failure is
+    retried after 1, 5 and 15 min, then 1, 2 and 6 h, then marked failed.
+  - "Send a test to me" sends at once to the caller's own address and shows the relay's
+    answer. Changing an account's email and sending a test are audited.
+- **Known limit: same as webhooks.** An alert is queued after the change that caused it
+  is saved, not in the same transaction.
+
 ## 2a-vi. The POC report, and the availability history behind it (M9)
 
 - **Availability history.** Only a node's latest heartbeat used to be kept, so 14-day
@@ -628,6 +663,10 @@ at the bay at 04:48?"). Needs evidence-clip capture first (gap 8).
   double) can be swapped without a restart. The analyser runs in a thread; frame saves and
   progress cross back to the event loop.
 - A job interrupted by a restart is re-queued, not lost.
+- Stack detection runs on the local ONNX model unless `IVAAS_DETECTOR_URL` is set; then
+  each analysed frame goes to RF-DETR Base on the cluster GPU (`HttpDetector`). A frame
+  the service cannot answer fails the job rather than counting as empty. Frames leave
+  the site on this path only: [ADR 0003](adr/0003-remote-gpu-analysis.md).
 - Uploads up to 2 GB (nginx `client_max_body_size`, unbuffered proxying).
 
 ## 2c. Security model
@@ -764,6 +803,18 @@ Both services use **hexagonal (ports & adapters)** layout: `domain` ← `applica
   edge node, a CPU box, or a laptop.
 - **Domain rules live in the entity** (`LoadingSession`): cannot count into a closed
   session, cannot reconcile an open one, count never negative. Tested without any I/O.
+- **New clients are modules, not forks.** A second use case (NFL Snacks & Treats:
+  product counting on a conveyor and at picking points) runs in this codebase as a
+  tenant with its own product type, model and counter. Module specs live in
+  `docs/modules/` (first: [nfl-snacks.md](modules/nfl-snacks.md)); the product-type
+  change is proposed in [ADR 0002](adr/0002-product-type-generalisation.md).
+- **Controlled bays validate a standard unit; they do not count freely.** At a bay
+  marked controlled, a driver checks in by badge or PIN plus plate, declares a number
+  of standard units (columns × crates per column), and each column is checked against
+  the standard. Columns the frames do not agree on are *unverified*, never a number.
+  Every transaction is booked to a driver, which gives per-driver balances. Free
+  counting stays everywhere else. Decision: [ADR 0004](adr/0004-controlled-bays.md);
+  feasibility and measured figures: [crate-control.md](modules/crate-control.md).
 
 ## 5. Scaling path
 

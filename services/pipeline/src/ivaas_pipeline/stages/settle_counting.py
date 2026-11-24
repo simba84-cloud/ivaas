@@ -15,9 +15,9 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Sequence
 from datetime import datetime
-from statistics import median
 
 from ivaas_pipeline.ports import LayerCounter
+from ivaas_pipeline.stages.stack_counting import vote_layers
 from ivaas_pipeline.types import CrossDirection, Crossing, Frame, Track
 
 
@@ -67,6 +67,7 @@ class StackSettleCounter:
                 continue
             counts = self._estimates.get(t.track_id, [])
             trusted = len(counts) >= self._min_est
+            crates, agreement = vote_layers(counts) if trusted else (self._fallback, None)
             self._counted.add(t.track_id)
             out.append(
                 Crossing(
@@ -75,7 +76,8 @@ class StackSettleCounter:
                     direction=CrossDirection.FORWARD,
                     confidence=t.confidence if trusted else 0.0,
                     at=now,
-                    crates=max(1, round(median(counts))) if trusted else self._fallback,
+                    crates=crates,
+                    agreement=agreement,
                 )
             )
         for gone in [tid for tid in self._history if tid not in seen and tid not in self._counted]:

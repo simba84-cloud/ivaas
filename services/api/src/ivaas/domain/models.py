@@ -160,6 +160,9 @@ class CrateCrossing:
     confidence: float
     crossed_at: datetime
     crates: int = 1  # >1 when a whole stack crossed as one tracked object
+    #: share of the edge's per-frame height estimates that agreed with `crates`;
+    #: None from nodes too old to report it (ADR 0004)
+    agreement: float | None = None
 
     def __post_init__(self) -> None:
         if self.crates < 1:

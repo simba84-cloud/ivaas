@@ -32,6 +32,7 @@ class UserRow(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sso_issuer: Mapped[str | None] = mapped_column(String(300))
     sso_subject: Mapped[str | None] = mapped_column(String(255))
+    email: Mapped[str | None] = mapped_column(String(254))
 
 
 class RoleBindingRow(Base):
@@ -68,6 +69,7 @@ def _to_domain(r: UserRow, bindings: list[RoleBindingRow]) -> User:
         last_login_at=r.last_login_at,
         sso_issuer=r.sso_issuer,
         sso_subject=r.sso_subject,
+        email=r.email,
     )
 
 
@@ -85,6 +87,7 @@ def _values(u: User) -> dict:
         "last_login_at": u.last_login_at,
         "sso_issuer": u.sso_issuer,
         "sso_subject": u.sso_subject,
+        "email": u.email,
     }
 
 
