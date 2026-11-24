@@ -211,7 +211,15 @@ class ApproveSession:
             raise NotFoundError(f"session {session_id} not found")
         session.approve(by=by, reason=reason, at=self.clock.now(), note=note)
         await self.sessions.save(session)
-        await self.events.publish(SUBJECT_SESSION_APPROVED, session_payload(session))
+        approval = {
+            "approved_by": session.approved_by,
+            "approved_at": session.approved_at.isoformat() if session.approved_at else None,
+            "approval_reason": reason.value,
+            "approval_note": session.approval_note,
+        }
+        await self.events.publish(
+            SUBJECT_SESSION_APPROVED, {**session_payload(session), **approval}
+        )
         return session
 
 

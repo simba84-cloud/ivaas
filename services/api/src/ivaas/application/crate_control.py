@@ -197,7 +197,16 @@ class AcceptTransaction:
             raise NotFoundError(f"transaction {txn_id} not found")
         txn.accept(by=by, at=self.clock.now(), reason=reason, note=note)
         await self.store.save_transaction(txn)
-        await self.events.publish(SUBJECT_CRATE_ACCEPTED, transaction_payload(txn))
+        acceptance = {
+            "validated_status": txn.validated_status.value if txn.validated_status else None,
+            "accepted_by": txn.accepted_by,
+            "accepted_at": txn.accepted_at.isoformat() if txn.accepted_at else None,
+            "accept_reason": reason.value,
+            "accept_note": txn.accept_note,
+        }
+        await self.events.publish(
+            SUBJECT_CRATE_ACCEPTED, {**transaction_payload(txn), **acceptance}
+        )
         return txn
 
 

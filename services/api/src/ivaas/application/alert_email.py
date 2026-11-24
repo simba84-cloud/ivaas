@@ -16,6 +16,8 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from ivaas.application.cameras import SUBJECT_CAMERA_OFFLINE, SUBJECT_CAMERA_ONLINE
+from ivaas.application.crate_control import SUBJECT_CRATE_ACCEPTED
+from ivaas.application.sessions import SUBJECT_SESSION_APPROVED
 from ivaas.domain.alert_email import (
     DEFAULT_GROUP,
     AlertEmail,
@@ -25,6 +27,7 @@ from ivaas.domain.alert_email import (
     camera_key,
     discrepancy_key,
     recipients,
+    sign_off_key,
     summary_key,
 )
 from ivaas.domain.manifests import site_tz
@@ -88,6 +91,38 @@ def _pct(value: float | None) -> str:
     return f"{value * 100:.1f}%" if value is not None else ""
 
 
+#: worded as the portal words them (web/src/components/ui.tsx, pages/CrateControl.tsx)
+APPROVAL_REASONS = {
+    "damaged_removed": "Damaged crates removed",
+    "camera_blocked": "Camera view blocked",
+    "sheet_error": "Error on the manual sheet",
+    "ai_miscount": "AI miscount",
+    "other": "Other",
+}
+ACCEPT_REASONS = {
+    "damaged_crates": "Damaged crates",
+    "camera_blocked": "Camera blocked",
+    "counted_by_hand": "Counted by hand",
+    "declaration_error": "Declaration error",
+    "other": "Other",
+}
+TRANSACTION_STATUS = {
+    "short": "Short",
+    "over": "Over",
+    "non_standard": "Not in standard units",
+    "unverified": "Could not be verified",
+}
+
+SIGN_OFF_NOTE = (
+    "The counts stay as they were measured: a sign-off records that a person accepted "
+    "the difference, not that it did not happen."
+)
+
+
+def _when(iso: Any) -> str:
+    return str(iso or "").replace("T", " ")[:19] + " UTC" if iso else "not recorded"
+
+
 @dataclass
 class AlertEmails:
     """Queues one alert for the tenant in context, to the people its rules name."""
@@ -132,6 +167,8 @@ class QueueAlertEmails:
     alerts: AlertEmails
     bays: Any
     portal_url: str
+    #: finds a crate transaction's driver by name; optional, the email says so without
+    crate_control: Any = None
 
     def _link(self, path: str) -> str:
         return self.portal_url.rstrip("/") + path
@@ -150,6 +187,73 @@ class QueueAlertEmails:
             await self._analysis_failed(payload)
         elif subject == SUBJECT_CAMERA_OFFLINE:
             await self._camera_offline(payload)
+        elif subject == SUBJECT_SESSION_APPROVED:
+            await self._load_signed_off(payload)
+        elif subject == SUBJECT_CRATE_ACCEPTED:
+            await self._crates_signed_off(payload)
+
+    async def _load_signed_off(self, p: dict) -> None:
+        bay = await self._bay_name(p.get("bay_id"))
+        plate = p.get("plate") or "no plate read"
+        reason = str(p.get("approval_reason") or "")
+        rows = [
+            ("Truck", plate),
+            ("Bay", bay),
+            ("Direction", str(p.get("direction") or "")),
+            ("AI count", str(p.get("count_of_record"))),
+            ("Manual count", str(p.get("manual_count"))),
+        ]
+        if p.get("variance") is not None:
+            rows.append(("Difference", f"{p['variance']:+d} crates"))
+        rows += [
+            ("Signed off by", str(p.get("approved_by") or "not recorded")),
+            ("Reason", APPROVAL_REASONS.get(reason, reason or "not recorded")),
+        ]
+        if p.get("approval_note"):
+            rows.append(("Note", str(p["approval_note"])))
+        rows.append(("When", _when(p.get("approved_at"))))
+        message = render(
+            f"Load signed off: {plate} at {bay}", rows, SIGN_OFF_NOTE, self._link("/sessions")
+        )
+        await self.alerts.queue(AlertKind.SIGN_OFF, sign_off_key("load", p["id"]), message)
+
+    async def _driver_name(self, driver_id: str | None) -> str:
+        if self.crate_control is None or not driver_id:
+            return "an unknown driver"
+        try:
+            driver = await self.crate_control.get_driver(UUID(driver_id))
+        except ValueError:
+            driver = None
+        return driver.name if driver else "an unknown driver"
+
+    async def _crates_signed_off(self, p: dict) -> None:
+        bay = await self._bay_name(p.get("bay_id"))
+        driver = await self._driver_name(p.get("driver_id"))
+        found = str(p.get("validated_status") or "")
+        reason = str(p.get("accept_reason") or "")
+        rows = [
+            ("Driver", driver),
+            ("Bay", bay),
+            ("Direction", str(p.get("direction") or "")),
+            ("Found", TRANSACTION_STATUS.get(found, found or "not recorded")),
+            ("Crates expected", str(p.get("expected_crates"))),
+            (
+                "Crates counted",
+                "Not measured" if p.get("counted_crates") is None else str(p["counted_crates"]),
+            ),
+            ("Accepted by", str(p.get("accepted_by") or "not recorded")),
+            ("Reason", ACCEPT_REASONS.get(reason, reason or "not recorded")),
+        ]
+        if p.get("accept_note"):
+            rows.append(("Note", str(p["accept_note"])))
+        rows.append(("When", _when(p.get("accepted_at"))))
+        message = render(
+            f"Crates signed off: {driver} at {bay}",
+            rows,
+            SIGN_OFF_NOTE,
+            self._link("/crates"),
+        )
+        await self.alerts.queue(AlertKind.SIGN_OFF, sign_off_key("crates", p["id"]), message)
 
     async def _discrepancy(self, p: dict) -> None:
         bay = await self._bay_name(p.get("bay_id"))

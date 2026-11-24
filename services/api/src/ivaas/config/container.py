@@ -494,7 +494,9 @@ class Container:
         )
 
     def queue_alert_emails(self) -> QueueAlertEmails:
-        return QueueAlertEmails(self.alert_email_queue(), self.bays, self.settings.public_url)
+        return QueueAlertEmails(
+            self.alert_email_queue(), self.bays, self.settings.public_url, self.crate_control
+        )
 
     def deliver_alert_emails_uc(self) -> DeliverAlertEmails:
         return DeliverAlertEmails(self.alert_emails, self.mail_sender, self.clock)
@@ -706,8 +708,8 @@ class Container:
 
 
 class _AlertEmailSink:
-    """Queues an alert email for the events worth one (a disputed load, a camera
-    gone dark, a failed analysis)."""
+    """Queues an alert email for the events worth one (a disputed load, a sign-off,
+    a camera gone dark, a failed analysis)."""
 
     def __init__(self, container: Container) -> None:
         self._container = container

@@ -1099,7 +1099,7 @@ export interface DriverBalance {
 /** One alert email in the outbox: what went out, to whom, and whether it landed. */
 export interface AlertEmail {
   id: string;
-  kind: "discrepancy" | "camera_offline" | "analysis_failed" | "daily_summary" | "test";
+  kind: "discrepancy" | "sign_off" | "camera_offline" | "analysis_failed" | "daily_summary" | "test";
   subject: string;
   recipients: string[];
   status: "pending" | "sent" | "failed";
